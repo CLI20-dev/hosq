@@ -628,7 +628,7 @@ struct StringFn {
     if (ctx.first_tok.kind != TokenKind::Quote) [[unlikely]]
       return json_fail<std::string_view>(ErrorCode::invalid_value,
                                          "expected string");
-    auto close = ctx.scanner->consume_next_token();
+    auto close = ctx.scanner->skip_string();
     if (close.is_end()) [[unlikely]]
       return json_fail<std::string_view>(ErrorCode::invalid_value,
                                          "unterminated string");

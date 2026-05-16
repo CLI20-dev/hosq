@@ -64,7 +64,7 @@ SER20_ALWAYS_INLINE auto json_skip_value(ParserScanner& scanner,
                                          ScannerToken first) -> void {
   switch (first.kind) {
     case TokenKind::Quote:
-      (void)scanner.consume_next_token();
+      (void)scanner.skip_string();
       return;
     case TokenKind::LBrace:
       json_consume_nested(scanner, TokenKind::LBrace, TokenKind::RBrace);

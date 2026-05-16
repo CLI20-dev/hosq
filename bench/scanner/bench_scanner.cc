@@ -7,6 +7,7 @@
 #include "ser20/scanner.hh"
 #ifdef __ARM_NEON
 #include "ser20/scanner_neon.hh"
+#include "ser20/scanner_neon2.hh"
 #endif
 
 namespace {
@@ -390,14 +391,18 @@ static void BM_TwitterJson(benchmark::State& state) {
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 #ifdef __ARM_NEON
-#define REGISTER(BM)                         \
-  BENCHMARK_TEMPLATE(BM, ser20::Scanner)     \
-      ->Arg(1 << 20)                         \
-      ->Arg(8 << 20)                         \
-      ->Arg(64 << 20);                       \
-  BENCHMARK_TEMPLATE(BM, ser20::ScannerNeon) \
-      ->Arg(1 << 20)                         \
-      ->Arg(8 << 20)                         \
+#define REGISTER(BM)                          \
+  BENCHMARK_TEMPLATE(BM, ser20::Scanner)      \
+      ->Arg(1 << 20)                          \
+      ->Arg(8 << 20)                          \
+      ->Arg(64 << 20);                        \
+  BENCHMARK_TEMPLATE(BM, ser20::ScannerNeon)  \
+      ->Arg(1 << 20)                          \
+      ->Arg(8 << 20)                          \
+      ->Arg(64 << 20);                        \
+  BENCHMARK_TEMPLATE(BM, ser20::ScannerNeon2) \
+      ->Arg(1 << 20)                          \
+      ->Arg(8 << 20)                          \
       ->Arg(64 << 20)
 #else
 #define REGISTER(BM)                     \
@@ -411,6 +416,7 @@ static void BM_TwitterJson(benchmark::State& state) {
 #ifdef __ARM_NEON
 BENCHMARK_TEMPLATE(BM_TwitterJson, ser20::Scanner);
 BENCHMARK_TEMPLATE(BM_TwitterJson, ser20::ScannerNeon);
+BENCHMARK_TEMPLATE(BM_TwitterJson, ser20::ScannerNeon2);
 #else
 BENCHMARK_TEMPLATE(BM_TwitterJson, ser20::Scanner);
 #endif

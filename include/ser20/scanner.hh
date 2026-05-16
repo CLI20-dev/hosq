@@ -43,6 +43,10 @@ class Scanner {
       while (token_cursor_ < token_count_) {
         const PackedToken pt = tokens_[token_cursor_++];
         const auto kind = static_cast<TokenKind>(pt & kKindMask);
+        if (kind == TokenKind::Quote) {
+          (void)skip_string();
+          continue;
+        }
         if (kind == open) {
           ++depth;
           continue;
@@ -52,6 +56,22 @@ class Scanner {
       if (eof_) return {input_.size(), TokenKind::End};
       refill_batch();
       if (token_count_ == 0 && eof_) return {input_.size(), TokenKind::End};
+    }
+  }
+
+  // Called after an opening Quote has been consumed.
+  // Consumes tokens until the matching unescaped close Quote and returns it.
+  auto skip_string() noexcept -> ScannerToken {
+    while (true) {
+      while (token_cursor_ < token_count_) {
+        const PackedToken pt = tokens_[token_cursor_++];
+        if (static_cast<TokenKind>(pt & kKindMask) != TokenKind::Quote) continue;
+        const size_t pos = batch_base_ + (static_cast<size_t>(pt) >> kOffsetBits);
+        if (!is_escaped_at(pos)) return token_from_packed(pt);
+      }
+      if (eof_) return {input_.size(), TokenKind::End};
+      refill_batch();
+      if (token_count_ == 0) return {input_.size(), TokenKind::End};
     }
   }
 
@@ -65,8 +85,6 @@ class Scanner {
     token_cursor_ = 0;
     batch_base_ = pos;
     eof_ = false;
-    in_string_ = false;
-    escaped_ = false;
   }
 
  private:
@@ -84,10 +102,14 @@ class Scanner {
   size_t index_{0};
 
   bool eof_{false};
-  bool in_string_{false};
-  bool escaped_{false};
 
   std::string_view input_;
+
+  auto is_escaped_at(size_t pos) const noexcept -> bool {
+    size_t count = 0;
+    while (count < pos && input_[pos - 1 - count] == '\\') ++count;
+    return (count & 1u) != 0;
+  }
 
   void emit(size_t pos, TokenKind kind) noexcept {
     tokens_[token_count_++] = static_cast<PackedToken>(
@@ -100,10 +122,6 @@ class Scanner {
             static_cast<TokenKind>(pt & kKindMask)};
   }
 
-  static auto is_ws(char c) noexcept -> bool {
-    return c == ' ' || c == '\n' || c == '\r' || c == '\t';
-  }
-
   void refill_batch() noexcept {
     token_count_ = 0;
     token_cursor_ = 0;
@@ -112,39 +130,15 @@ class Scanner {
     while (token_count_ < kBatchSize && index_ < input_.size()) {
       if (index_ - batch_base_ > kMaxOffset) break;
 
-      const char c = input_[index_];
-
-      if (in_string_) {
-        if (escaped_) {
-          escaped_ = false;
-        } else if (c == '\\') {
-          escaped_ = true;
-        } else if (c == '"') {
-          emit(index_, TokenKind::Quote);
-          in_string_ = false;
-        }
-        ++index_;
-      } else {
-        if (is_ws(c)) {
-          ++index_;
-        } else if (c == '"') {
-          emit(index_++, TokenKind::Quote);
-          in_string_ = true;
-        } else if (c == '{') {
-          emit(index_++, TokenKind::LBrace);
-        } else if (c == '}') {
-          emit(index_++, TokenKind::RBrace);
-        } else if (c == '[') {
-          emit(index_++, TokenKind::LBracket);
-        } else if (c == ']') {
-          emit(index_++, TokenKind::RBracket);
-        } else if (c == ':') {
-          emit(index_++, TokenKind::Colon);
-        } else if (c == ',') {
-          emit(index_++, TokenKind::Comma);
-        } else {
-          ++index_;  // number/bool/null body — skip silently
-        }
+      switch (input_[index_]) {
+        case '"':  emit(index_++, TokenKind::Quote);    break;
+        case '{':  emit(index_++, TokenKind::LBrace);   break;
+        case '}':  emit(index_++, TokenKind::RBrace);   break;
+        case '[':  emit(index_++, TokenKind::LBracket); break;
+        case ']':  emit(index_++, TokenKind::RBracket); break;
+        case ':':  emit(index_++, TokenKind::Colon);    break;
+        case ',':  emit(index_++, TokenKind::Comma);    break;
+        default:   ++index_;                             break;
       }
     }
 

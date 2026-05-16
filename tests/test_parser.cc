@@ -48,6 +48,30 @@ TEST(ParserTest, StringField) {
   EXPECT_EQ(static_cast<int>(n.count), 5);
 }
 
+TEST(ParserTest, StringFieldWithBraces) {
+  auto n = ser20::parse<Named>(R"({"name": "val{ue}", "count": 3})");
+  EXPECT_EQ(static_cast<std::string_view>(n.name), "val{ue}");
+  EXPECT_EQ(static_cast<int>(n.count), 3);
+}
+
+TEST(ParserTest, StringFieldWithBrackets) {
+  auto n = ser20::parse<Named>(R"({"name": "a[b,c]", "count": 4})");
+  EXPECT_EQ(static_cast<std::string_view>(n.name), "a[b,c]");
+  EXPECT_EQ(static_cast<int>(n.count), 4);
+}
+
+TEST(ParserTest, StringFieldWithAllStructural) {
+  auto n = ser20::parse<Named>(R"({"name": "{[key:val,x]}", "count": 9})");
+  EXPECT_EQ(static_cast<std::string_view>(n.name), "{[key:val,x]}");
+  EXPECT_EQ(static_cast<int>(n.count), 9);
+}
+
+TEST(ParserTest, StringFieldWithEscapedQuote) {
+  auto n = ser20::parse<Named>(R"({"name": "say \"hi\"", "count": 2})");
+  EXPECT_EQ(static_cast<std::string_view>(n.name), R"(say \"hi\")");
+  EXPECT_EQ(static_cast<int>(n.count), 2);
+}
+
 // ── Unknown field: ignore ─────────────────────────────────────────────────────
 
 struct WithIgnore {
@@ -62,6 +86,43 @@ struct WithIgnore {
 TEST(ParserTest, IgnoreUnknownFields) {
   auto w = ser20::parse<WithIgnore>(R"({"extra": 99, "val": 7, "other": "x"})");
   EXPECT_EQ(static_cast<int>(w.val), 7);
+}
+
+TEST(ParserTest, IgnoreUnknownStringWithBraces) {
+  auto w = ser20::parse<WithIgnore>(R"({"extra": "{a:1}", "val": 7})");
+  EXPECT_EQ(static_cast<int>(w.val), 7);
+}
+
+TEST(ParserTest, IgnoreUnknownStringWithBrackets) {
+  auto w = ser20::parse<WithIgnore>(R"({"val": 5, "other": "[1,2,3]"})");
+  EXPECT_EQ(static_cast<int>(w.val), 5);
+}
+
+TEST(ParserTest, IgnoreUnknownEscapedQuoteString) {
+  // Unknown string field contains an escaped quote. Without skip_string(),
+  // json_skip_value stops at the first '\"' (treating it as the close quote),
+  // leaving the scanner mid-string and corrupting all subsequent field parses.
+  auto w = ser20::parse<WithIgnore>(R"({"extra": "say \"hi\"", "val": 42})");
+  EXPECT_EQ(static_cast<int>(w.val), 42);
+}
+
+TEST(ParserTest, IgnoreUnknownHtmlString) {
+  // Simulates twitter.json's "source" field: HTML string with multiple \"
+  // pairs. Without skip_string(), the parser stops at the first \" and
+  // misreads everything after it, breaking integer fields like "val".
+  auto w = ser20::parse<WithIgnore>(
+      R"({"source": "<a href=\"http://x.com\" rel=\"nofollow\">Link</a>", "val": 7})");
+  EXPECT_EQ(static_cast<int>(w.val), 7);
+}
+
+TEST(ParserTest, IgnoreUnknownObjectContainingEscapedQuoteString) {
+  // Unknown nested object whose string values contain escaped quotes.
+  // consume_until_matching must call skip_string() so it doesn't mistake a
+  // '\"' inside a string for the real close quote of that string, which would
+  // then leave an unmatched '}' that terminates the outer object early.
+  auto w = ser20::parse<WithIgnore>(
+      R"({"meta": {"href": "<a href=\"url\">text</a>"}, "val": 9})");
+  EXPECT_EQ(static_cast<int>(w.val), 9);
 }
 
 // ── Nested object (parse_to) ──────────────────────────────────────────────────

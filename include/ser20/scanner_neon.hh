@@ -62,6 +62,10 @@ class ScannerNeon {
       while (token_cursor_ < token_count_) {
         const PackedToken pt = tokens_[token_cursor_++];
         const auto kind = static_cast<TokenKind>(pt & kKindMask);
+        if (kind == TokenKind::Quote) [[unlikely]] {
+          (void)skip_string();
+          continue;
+        }
         if (kind == open) [[unlikely]] {
           ++depth;
           continue;
@@ -75,6 +79,22 @@ class ScannerNeon {
     }
   }
 
+  // Called after an opening Quote has been consumed.
+  // Consumes tokens until the matching unescaped close Quote and returns it.
+  SER20_ALWAYS_INLINE auto skip_string() noexcept -> ScannerToken {
+    while (true) {
+      while (token_cursor_ < token_count_) {
+        const PackedToken pt = tokens_[token_cursor_++];
+        if (static_cast<TokenKind>(pt & kKindMask) != TokenKind::Quote) continue;
+        const size_t pos = batch_base_ + (static_cast<size_t>(pt) >> kOffsetBits);
+        if (!is_escaped_at(pos)) return token_from_packed(pt);
+      }
+      if (eof_) return {.pos = input_.size(), .kind = TokenKind::End};
+      refill_batch();
+      if (token_count_ == 0) return {.pos = input_.size(), .kind = TokenKind::End};
+    }
+  }
+
   [[nodiscard]] auto eof() const noexcept -> bool {
     return eof_ && token_cursor_ >= token_count_;
   }
@@ -85,13 +105,10 @@ class ScannerNeon {
     block_end_ = pos;
     valid_mask_ = 0;
     structural_mask_ = 0;
-    quote_mask_ = 0;
-    backslash_mask_ = 0;
     token_count_ = 0;
     token_cursor_ = 0;
     batch_base_ = pos;
     eof_ = false;
-    in_string_ = false;
   }
 
  private:
@@ -106,19 +123,10 @@ class ScannerNeon {
 
   // ── SIMD block state ─────────────────────────────────────────────────────
   uint64_t structural_mask_{0};
-  uint64_t quote_mask_{0};
-  uint64_t backslash_mask_{0};
   uint64_t valid_mask_{0};
   size_t block_base_{0};
   size_t block_end_{0};
   size_t index_{0};
-
-  // Per-character kind bits for branchless structural dispatch.
-  // TokenKind: LBrace=000, RBrace=001, LBracket=010, RBracket=011,
-  //            Colon=100, Comma=101.
-  // kind_lo  set for: RBrace, RBracket, Comma
-  // kind_mid set for: LBracket, RBracket
-  // kind_hi  set for: Colon, Comma
 
   // ── Token batch ──────────────────────────────────────────────────────────
   alignas(64) PackedToken tokens_[kBatchSize]{};
@@ -126,13 +134,18 @@ class ScannerNeon {
   size_t token_cursor_{0};
   size_t batch_base_{0};
 
-  // ── Parser micro-state ───────────────────────────────────────────────────
   bool eof_{false};
-  bool in_string_{false};
 
   std::string_view input_;
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+
+  // Returns true if the '"' at `pos` is preceded by an odd number of backslashes.
+  SER20_ALWAYS_INLINE auto is_escaped_at(size_t pos) const noexcept -> bool {
+    size_t count = 0;
+    while (count < pos && input_[pos - 1 - count] == '\\') ++count;
+    return (count & 1u) != 0;
+  }
 
   SER20_ALWAYS_INLINE void emit(size_t pos, TokenKind kind) noexcept {
     tokens_[token_count_++] = static_cast<PackedToken>(
@@ -146,28 +159,11 @@ class ScannerNeon {
             .kind = static_cast<TokenKind>(pt & kKindMask)};
   }
 
-  [[nodiscard]]
-  SER20_ALWAYS_INLINE auto after_cursor_mask() const noexcept -> uint64_t {
-    const auto off = static_cast<uint32_t>(index_ - block_base_);
-    return off < kBlockSize ? (~uint64_t{0} << off) : uint64_t{0};
-  }
-
-  template <bool ComputeEscapeCarry = false>
   SER20_ALWAYS_INLINE void load_block() noexcept {
-    uint64_t carry = 0;
-
-    if constexpr (ComputeEscapeCarry) {
-      const uint64_t bs = backslash_mask_ & valid_mask_;
-      if (bs != 0) {
-        const auto used = static_cast<uint32_t>(std::popcount(valid_mask_));
-        carry = static_cast<uint64_t>(std::countl_one(bs << (64 - used)) & 1u);
-      }
-    }
-
     block_base_ = (index_ / kBlockSize) * kBlockSize;
     block_end_ = std::min(block_base_ + kBlockSize, input_.size());
 
-    structural_mask_ = quote_mask_ = backslash_mask_ = 0;
+    structural_mask_ = 0;
 
     const size_t remaining = input_.size() - block_base_;
     if (remaining == 0) [[unlikely]] {
@@ -184,30 +180,6 @@ class ScannerNeon {
       scan64(tmp.data());
       valid_mask_ = (uint64_t{1} << remaining) - 1;
     }
-
-    if constexpr (ComputeEscapeCarry) {
-      carry &= 1u;
-      const uint64_t q0 = quote_mask_ & 1u;
-      const uint64_t b0 = backslash_mask_ & 1u;
-      quote_mask_ &= ~(carry & q0);
-      backslash_mask_ &= ~(carry & (q0 ^ 1u) & b0);
-    }
-
-    const uint64_t bs = backslash_mask_ & valid_mask_;
-    const uint64_t q = quote_mask_ & valid_mask_;
-    if ((q & (bs << 1)) != 0) {
-      quote_mask_ &= ~compute_escaped_mask(bs);
-    }
-
-    // quote_mask_ は escape 済み quote のみ
-    const uint64_t string_mask =
-        compute_string_mask(quote_mask_ & valid_mask_, in_string_) & valid_mask_;
-
-    // string 内の structural を事前に消す
-    structural_mask_ &= ~string_mask;
-
-    // 次 block の初期 string 状態を更新
-    in_string_ ^= (std::popcount(quote_mask_ & valid_mask_) & 1u) != 0;
   }
 
   SER20_ALWAYS_INLINE void advance_block() noexcept {
@@ -217,33 +189,7 @@ class ScannerNeon {
       return;
     }
     index_ = block_end_;
-    load_block<true>();
-  }
-
-  [[nodiscard]]
-  SER20_ALWAYS_INLINE static auto prefix_xor(uint64_t x) noexcept -> uint64_t {
-    x ^= x << 1;
-    x ^= x << 2;
-    x ^= x << 4;
-    x ^= x << 8;
-    x ^= x << 16;
-    x ^= x << 32;
-    return x;
-  }
-
-  [[nodiscard]]
-  SER20_ALWAYS_INLINE static auto compute_string_mask(
-      uint64_t quote_mask, bool initially_in_string) noexcept -> uint64_t {
-    uint64_t m = prefix_xor(quote_mask);
-
-    const uint64_t initial_mask =
-        uint64_t{0} - static_cast<uint64_t>(initially_in_string);
-
-    m ^= initial_mask;
-
-    // quote 自体は token として残す
-    m &= ~quote_mask;
-    return m;
+    load_block();
   }
 
   SER20_ALWAYS_INLINE void refill_batch() noexcept {
@@ -265,7 +211,7 @@ class ScannerNeon {
       const uint64_t after =
           start_off < 64 ? (~uint64_t{0} << start_off) : uint64_t{0};
 
-      uint64_t interest = (quote_mask_ | structural_mask_) & valid_mask_ & after;
+      uint64_t interest = structural_mask_ & valid_mask_ & after;
 
       if (interest == 0) {
         index_ = block_end_;
@@ -289,17 +235,6 @@ class ScannerNeon {
   }
 
   // ── SIMD internals ───────────────────────────────────────────────────────
-
-  [[nodiscard]]
-  SER20_ALWAYS_INLINE static auto compute_escaped_mask(uint64_t bs) noexcept
-      -> uint64_t {
-    const uint64_t starts = bs & ~(bs << 1);
-    const uint64_t even_escaped =
-        (bs + (starts & 0x5555555555555555ULL)) & ~bs & 0xAAAAAAAAAAAAAAAAULL;
-    const uint64_t odd_escaped =
-        (bs + (starts & 0xAAAAAAAAAAAAAAAAULL)) & ~bs & 0x5555555555555555ULL;
-    return even_escaped | odd_escaped;
-  }
 
   [[nodiscard]]
   SER20_ALWAYS_INLINE static auto pack8_lsb(uint64_t a) noexcept -> uint32_t {
@@ -333,7 +268,6 @@ class ScannerNeon {
     const uint8x16_t co_v = vdupq_n_u8(':');
     const uint8x16_t cm_v = vdupq_n_u8(',');
     const uint8x16_t q_v = vdupq_n_u8('"');
-    const uint8x16_t bs_v = vdupq_n_u8('\\');
 
     const uint8x16_t zero_v = vdupq_n_u8(0);
 
@@ -369,14 +303,12 @@ class ScannerNeon {
     const uint8x16_t is_co = vceqq_u8(v, co_v);                          \
     const uint8x16_t is_cm = vceqq_u8(v, cm_v);                          \
     const uint8x16_t is_q = vceqq_u8(v, q_v);                            \
-    const uint8x16_t is_bs = vceqq_u8(v, bs_v);                          \
                                                                          \
     const uint8x16_t structural_v =                                      \
-        vorrq_u8(vorrq_u8(is_left, is_right), vorrq_u8(is_co, is_cm));   \
+        vorrq_u8(vorrq_u8(vorrq_u8(is_left, is_right),                   \
+                          vorrq_u8(is_co, is_cm)), is_q);                 \
                                                                          \
     structural_mask_ |= uint64_t(movemask_u8(structural_v)) << (OFFSET); \
-    quote_mask_ |= uint64_t(movemask_u8(is_q)) << (OFFSET);              \
-    backslash_mask_ |= uint64_t(movemask_u8(is_bs)) << (OFFSET);         \
                                                                          \
     const uint8x16_t has_bit20 = vtstq_u8(v, bit20_v);                   \
     const uint8x16_t not_bit20 = vmvnq_u8(has_bit20);                    \
