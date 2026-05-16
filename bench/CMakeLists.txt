@@ -17,3 +17,4 @@ target_include_directories(ser20 INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../includ
 target_compile_features(ser20 INTERFACE cxx_std_20)
 
 add_subdirectory(scanner)
+add_subdirectory(matcher)
