@@ -23,6 +23,38 @@ class Scanner {
             static_cast<TokenKind>(pt & kKindMask)};
   }
 
+  void consume_next_two(ScannerToken& first, ScannerToken& second) noexcept {
+    if (token_cursor_ + 1 < token_count_) {
+      const PackedToken first_packed = tokens_[token_cursor_++];
+      const PackedToken second_packed = tokens_[token_cursor_++];
+      first = token_from_packed(first_packed);
+      second = token_from_packed(second_packed);
+      return;
+    }
+    first = consume_next_token();
+    second = consume_next_token();
+  }
+
+  [[nodiscard]] auto consume_until_matching(TokenKind open,
+                                            TokenKind close) noexcept
+      -> ScannerToken {
+    int depth = 1;
+    while (true) {
+      while (token_cursor_ < token_count_) {
+        const PackedToken pt = tokens_[token_cursor_++];
+        const auto kind = static_cast<TokenKind>(pt & kKindMask);
+        if (kind == open) {
+          ++depth;
+          continue;
+        }
+        if (kind == close && --depth == 0) return token_from_packed(pt);
+      }
+      if (eof_) return {input_.size(), TokenKind::End};
+      refill_batch();
+      if (token_count_ == 0 && eof_) return {input_.size(), TokenKind::End};
+    }
+  }
+
   [[nodiscard]] auto eof() const noexcept -> bool {
     return eof_ && token_cursor_ >= token_count_;
   }
@@ -60,6 +92,12 @@ class Scanner {
   void emit(size_t pos, TokenKind kind) noexcept {
     tokens_[token_count_++] = static_cast<PackedToken>(
         ((pos - batch_base_) << kOffsetBits) | static_cast<uint8_t>(kind));
+  }
+
+  [[nodiscard]] auto token_from_packed(PackedToken pt) const noexcept
+      -> ScannerToken {
+    return {batch_base_ + (static_cast<size_t>(pt) >> kOffsetBits),
+            static_cast<TokenKind>(pt & kKindMask)};
   }
 
   static auto is_ws(char c) noexcept -> bool {

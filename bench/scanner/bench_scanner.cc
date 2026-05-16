@@ -1,5 +1,7 @@
 #include <benchmark/benchmark.h>
 
+#include <fstream>
+#include <iostream>
 #include <string>
 
 #include "ser20/scanner.hh"
@@ -364,6 +366,27 @@ static void BM_TwitterLikeEscapedRandom(benchmark::State& state) {
                           static_cast<int64_t>(input.size()));
 }
 
+// ─── twitter.json real-file benchmark ────────────────────────────────────────
+
+static const std::string kTwitterJson = []() {
+  std::ifstream f(TWITTER_JSON_PATH);
+  if (!f) { std::cerr << "cannot open " TWITTER_JSON_PATH "\n"; std::abort(); }
+  return std::string{std::istreambuf_iterator<char>(f), {}};
+}();
+
+template <typename Scanner>
+static void BM_TwitterJson(benchmark::State& state) {
+  for (auto _ : state) {
+    Scanner scanner(kTwitterJson);
+    benchmark::DoNotOptimize(kTwitterJson.data());
+    size_t acc = drain(scanner);
+    benchmark::DoNotOptimize(acc);
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() *
+                          static_cast<int64_t>(kTwitterJson.size()));
+}
+
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 #ifdef __ARM_NEON
@@ -384,6 +407,14 @@ static void BM_TwitterLikeEscapedRandom(benchmark::State& state) {
       ->Arg(64 << 20)
 #endif
 
+// twitter.json: fixed size, no Arg needed
+#ifdef __ARM_NEON
+BENCHMARK_TEMPLATE(BM_TwitterJson, ser20::Scanner);
+BENCHMARK_TEMPLATE(BM_TwitterJson, ser20::ScannerNeon);
+#else
+BENCHMARK_TEMPLATE(BM_TwitterJson, ser20::Scanner);
+#endif
+
 REGISTER(BM_WhitespaceSparse);
 REGISTER(BM_StructuralSparse);
 REGISTER(BM_FlatCompactObject);
@@ -396,5 +427,6 @@ REGISTER(BM_TwitterLikeLongRandom);
 REGISTER(BM_TwitterLikeEscapedRandom);
 
 #undef REGISTER
+
 
 }  // namespace

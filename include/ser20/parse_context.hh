@@ -56,20 +56,8 @@ struct ParseCtx<void> : ParseCtxBase {
 SER20_ALWAYS_INLINE auto json_consume_nested(ParserScanner& scanner,
                                              TokenKind open, TokenKind close)
     -> std::size_t {
-  int depth = 1;
-  while (true) {
-    auto token = scanner.consume_next_token();
-    if (token.is_end()) [[unlikely]]
-      return token.pos;
-    if (token.kind == open) [[unlikely]] {
-      ++depth;
-      continue;
-    }
-    if (token.kind == close) {
-      if (--depth == 0) [[unlikely]]
-        return token.pos + 1;
-    }
-  }
+  auto token = scanner.consume_until_matching(open, close);
+  return token.is_end() ? token.pos : token.pos + 1;
 }
 
 SER20_ALWAYS_INLINE auto json_skip_value(ParserScanner& scanner,

@@ -61,14 +61,15 @@ SER20_ALWAYS_INLINE auto json_parse_object_body(ParserScanner& sc,
     if (tok.kind != TokenKind::Quote) [[unlikely]]
       continue;  // unexpected, skip
 
-    auto key_close = sc.consume_next_token();
+    ScannerToken key_close{};
+    ScannerToken colon_tok{};
+    sc.consume_next_two(key_close, colon_tok);
     if (key_close.is_end()) [[unlikely]]
       break;
     auto kstart = tok.pos + 1;
     std::string_view key = input.substr(
         kstart, key_close.pos > kstart ? key_close.pos - kstart : 0);
 
-    auto colon_tok = sc.consume_next_token();
     if (colon_tok.is_end() || colon_tok.kind != TokenKind::Colon) [[unlikely]]
       break;
 

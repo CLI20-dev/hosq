@@ -40,6 +40,41 @@ class ScannerNeon {
             .kind = static_cast<TokenKind>(pt & kKindMask)};
   }
 
+  SER20_ALWAYS_INLINE void consume_next_two(ScannerToken& first,
+                                            ScannerToken& second) noexcept {
+    if (token_cursor_ + 1 < token_count_) [[likely]] {
+      const PackedToken first_packed = tokens_[token_cursor_++];
+      const PackedToken second_packed = tokens_[token_cursor_++];
+      first = token_from_packed(first_packed);
+      second = token_from_packed(second_packed);
+      return;
+    }
+    first = consume_next_token();
+    second = consume_next_token();
+  }
+
+  [[nodiscard]]
+  SER20_ALWAYS_INLINE auto consume_until_matching(TokenKind open,
+                                                  TokenKind close) noexcept
+      -> ScannerToken {
+    int depth = 1;
+    while (true) {
+      while (token_cursor_ < token_count_) {
+        const PackedToken pt = tokens_[token_cursor_++];
+        const auto kind = static_cast<TokenKind>(pt & kKindMask);
+        if (kind == open) [[unlikely]] {
+          ++depth;
+          continue;
+        }
+        if (kind == close && --depth == 0) return token_from_packed(pt);
+      }
+      if (eof_) return {.pos = input_.size(), .kind = TokenKind::End};
+      refill_batch();
+      if (token_count_ == 0 && eof_)
+        return {.pos = input_.size(), .kind = TokenKind::End};
+    }
+  }
+
   [[nodiscard]] auto eof() const noexcept -> bool {
     return eof_ && token_cursor_ >= token_count_;
   }
@@ -105,6 +140,13 @@ class ScannerNeon {
   }
 
   [[nodiscard]]
+  SER20_ALWAYS_INLINE auto token_from_packed(PackedToken pt) const noexcept
+      -> ScannerToken {
+    return {.pos = batch_base_ + (static_cast<size_t>(pt) >> kOffsetBits),
+            .kind = static_cast<TokenKind>(pt & kKindMask)};
+  }
+
+  [[nodiscard]]
   SER20_ALWAYS_INLINE auto after_cursor_mask() const noexcept -> uint64_t {
     const auto off = static_cast<uint32_t>(index_ - block_base_);
     return off < kBlockSize ? (~uint64_t{0} << off) : uint64_t{0};
@@ -150,8 +192,11 @@ class ScannerNeon {
       quote_mask_ &= ~(carry & q0);
       backslash_mask_ &= ~(carry & (q0 ^ 1u) & b0);
     }
-    if (backslash_mask_ != 0) {
-      quote_mask_ &= ~compute_escaped_mask(backslash_mask_);
+
+    const uint64_t bs = backslash_mask_ & valid_mask_;
+    const uint64_t q = quote_mask_ & valid_mask_;
+    if ((q & (bs << 1)) != 0) {
+      quote_mask_ &= ~compute_escaped_mask(bs);
     }
 
     // quote_mask_ は escape 済み quote のみ
@@ -191,24 +236,26 @@ class ScannerNeon {
       uint64_t quote_mask, bool initially_in_string) noexcept -> uint64_t {
     uint64_t m = prefix_xor(quote_mask);
 
-    if (initially_in_string) {
-      m = ~m;
-    }
+    const uint64_t initial_mask =
+        uint64_t{0} - static_cast<uint64_t>(initially_in_string);
+
+    m ^= initial_mask;
 
     // quote 自体は token として残す
     m &= ~quote_mask;
     return m;
   }
 
-  void refill_batch() noexcept {
+  SER20_ALWAYS_INLINE void refill_batch() noexcept {
     token_count_ = 0;
     token_cursor_ = 0;
     batch_base_ = index_;
 
     while (token_count_ < kBatchSize && !eof_) {
-      if (index_ >= block_end_) {
+      if (index_ >= block_end_) [[unlikely]] {
         advance_block();
-        if (eof_) break;
+        if (eof_) [[unlikely]]
+          break;
       }
 
       if (index_ - batch_base_ > kMaxOffset) break;
@@ -228,7 +275,7 @@ class ScannerNeon {
       while (interest && token_count_ < kBatchSize) {
         const auto off = static_cast<uint32_t>(std::countr_zero(interest));
         const size_t pos = block_base_ + off;
-        if (pos - batch_base_ > kMaxOffset) {
+        if (pos - batch_base_ > kMaxOffset) [[unlikely]] {
           index_ = pos;
           return;
         }
@@ -270,47 +317,83 @@ class ScannerNeon {
   }
 
   SER20_ALWAYS_INLINE void scan64(const uint8_t* p) noexcept {
-    const uint8x16_t lb_v = vdupq_n_u8('{');
-    const uint8x16_t rb_v = vdupq_n_u8('}');
-    const uint8x16_t lk_v = vdupq_n_u8('[');
-    const uint8x16_t rk_v = vdupq_n_u8(']');
+    // ASCII:
+    //   '[' = 0x5b, '{' = 0x7b
+    //   ']' = 0x5d, '}' = 0x7d
+    //
+    // v & 0xdf により:
+    //   '[' and '{' -> '['
+    //   ']' and '}' -> ']'
+    const uint8x16_t mask_df_v = vdupq_n_u8(0xdf);
+    const uint8x16_t bit20_v = vdupq_n_u8(0x20);
+
+    const uint8x16_t folded_l_v = vdupq_n_u8('[');
+    const uint8x16_t folded_r_v = vdupq_n_u8(']');
+
     const uint8x16_t co_v = vdupq_n_u8(':');
     const uint8x16_t cm_v = vdupq_n_u8(',');
     const uint8x16_t q_v = vdupq_n_u8('"');
     const uint8x16_t bs_v = vdupq_n_u8('\\');
 
-#define SER20_SCAN16_AT(OFFSET)                                                 \
-  do {                                                                          \
-    const uint8x16_t v = vld1q_u8(p + (OFFSET));                                \
-                                                                                \
-    const uint8x16_t is_lb = vceqq_u8(v, lb_v);                                 \
-    const uint8x16_t is_rb = vceqq_u8(v, rb_v);                                 \
-    const uint8x16_t is_lk = vceqq_u8(v, lk_v);                                 \
-    const uint8x16_t is_rk = vceqq_u8(v, rk_v);                                 \
-    const uint8x16_t is_co = vceqq_u8(v, co_v);                                 \
-    const uint8x16_t is_cm = vceqq_u8(v, cm_v);                                 \
-    const uint8x16_t is_q = vceqq_u8(v, q_v);                                   \
-                                                                                \
-    const uint8x16_t structural_v =                                             \
-        vorrq_u8(vorrq_u8(vorrq_u8(is_lb, is_rb), vorrq_u8(is_lk, is_rk)),      \
-                 vorrq_u8(is_co, is_cm));                                       \
-                                                                                \
-    structural_mask_ |= uint64_t(movemask_u8(structural_v)) << (OFFSET);        \
-    quote_mask_ |= uint64_t(movemask_u8(is_q)) << (OFFSET);                     \
-    backslash_mask_ |= uint64_t(movemask_u8(vceqq_u8(v, bs_v))) << (OFFSET);    \
-                                                                                \
-    uint8x16_t k = vdupq_n_u8(0);                                               \
-    k = vbslq_u8(is_rb, vdupq_n_u8(static_cast<uint8_t>(TokenKind::RBrace)),    \
-                 k);                                                            \
-    k = vbslq_u8(is_lk, vdupq_n_u8(static_cast<uint8_t>(TokenKind::LBracket)),  \
-                 k);                                                            \
-    k = vbslq_u8(is_rk, vdupq_n_u8(static_cast<uint8_t>(TokenKind::RBracket)),  \
-                 k);                                                            \
-    k = vbslq_u8(is_co, vdupq_n_u8(static_cast<uint8_t>(TokenKind::Colon)), k); \
-    k = vbslq_u8(is_cm, vdupq_n_u8(static_cast<uint8_t>(TokenKind::Comma)), k); \
-    k = vbslq_u8(is_q, vdupq_n_u8(static_cast<uint8_t>(TokenKind::Quote)), k);  \
-                                                                                \
-    vst1q_u8(block_kind_.data() + (OFFSET), k);                                 \
+    const uint8x16_t zero_v = vdupq_n_u8(0);
+
+    // TokenKind: LBrace=000, RBrace=001, LBracket=010,
+    //            RBracket=011, Colon=100, Comma=101, Quote=...
+    //
+    // LBrace は 0 なので、k 初期値 zero_v のままでよい。
+    const uint8x16_t tk_rbrace_v =
+        vdupq_n_u8(static_cast<uint8_t>(TokenKind::RBrace));
+    const uint8x16_t tk_lbracket_v =
+        vdupq_n_u8(static_cast<uint8_t>(TokenKind::LBracket));
+    const uint8x16_t tk_rbracket_v =
+        vdupq_n_u8(static_cast<uint8_t>(TokenKind::RBracket));
+    const uint8x16_t tk_colon_v =
+        vdupq_n_u8(static_cast<uint8_t>(TokenKind::Colon));
+    const uint8x16_t tk_comma_v =
+        vdupq_n_u8(static_cast<uint8_t>(TokenKind::Comma));
+    const uint8x16_t tk_quote_v =
+        vdupq_n_u8(static_cast<uint8_t>(TokenKind::Quote));
+
+#define SER20_SCAN16_AT(OFFSET)                                          \
+  do {                                                                   \
+    const uint8x16_t v = vld1q_u8(p + (OFFSET));                         \
+                                                                         \
+    const uint8x16_t folded = vandq_u8(v, mask_df_v);                    \
+                                                                         \
+    /* '[' or '{' */                                                     \
+    const uint8x16_t is_left = vceqq_u8(folded, folded_l_v);             \
+                                                                         \
+    /* ']' or '}' */                                                     \
+    const uint8x16_t is_right = vceqq_u8(folded, folded_r_v);            \
+                                                                         \
+    const uint8x16_t is_co = vceqq_u8(v, co_v);                          \
+    const uint8x16_t is_cm = vceqq_u8(v, cm_v);                          \
+    const uint8x16_t is_q = vceqq_u8(v, q_v);                            \
+    const uint8x16_t is_bs = vceqq_u8(v, bs_v);                          \
+                                                                         \
+    const uint8x16_t structural_v =                                      \
+        vorrq_u8(vorrq_u8(is_left, is_right), vorrq_u8(is_co, is_cm));   \
+                                                                         \
+    structural_mask_ |= uint64_t(movemask_u8(structural_v)) << (OFFSET); \
+    quote_mask_ |= uint64_t(movemask_u8(is_q)) << (OFFSET);              \
+    backslash_mask_ |= uint64_t(movemask_u8(is_bs)) << (OFFSET);         \
+                                                                         \
+    const uint8x16_t has_bit20 = vtstq_u8(v, bit20_v);                   \
+    const uint8x16_t not_bit20 = vmvnq_u8(has_bit20);                    \
+                                                                         \
+    const uint8x16_t is_rbrace = vandq_u8(is_right, has_bit20);          \
+    const uint8x16_t is_lbracket = vandq_u8(is_left, not_bit20);         \
+    const uint8x16_t is_rbracket = vandq_u8(is_right, not_bit20);        \
+                                                                         \
+    uint8x16_t k = zero_v;                                               \
+    k = vbslq_u8(is_rbrace, tk_rbrace_v, k);                             \
+    k = vbslq_u8(is_lbracket, tk_lbracket_v, k);                         \
+    k = vbslq_u8(is_rbracket, tk_rbracket_v, k);                         \
+    k = vbslq_u8(is_co, tk_colon_v, k);                                  \
+    k = vbslq_u8(is_cm, tk_comma_v, k);                                  \
+    k = vbslq_u8(is_q, tk_quote_v, k);                                   \
+                                                                         \
+    vst1q_u8(block_kind_.data() + (OFFSET), k);                          \
   } while (false)
 
     SER20_SCAN16_AT(0);
