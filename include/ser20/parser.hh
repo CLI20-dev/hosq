@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string_view>
+#include <tuple>
 #include <variant>
 
 #include "ser20/element.hh"
@@ -25,6 +26,23 @@ namespace detail {
 #else
 #define SER20_ALWAYS_INLINE inline
 #endif
+
+inline constexpr std::size_t npos = static_cast<std::size_t>(-1);
+
+template <class Tuple, std::size_t I = 0>
+consteval auto unknown_handler_index() -> std::size_t {
+  if constexpr (I >= std::tuple_size_v<std::remove_cvref_t<Tuple>>) {
+    return npos;
+  } else {
+    using Field =
+        std::remove_cvref_t<std::tuple_element_t<I, std::remove_cvref_t<Tuple>>>;
+    if constexpr (Field::is_unknown_handler) {
+      return I;
+    } else {
+      return unknown_handler_index<Tuple, I + 1>();
+    }
+  }
+}
 
 template <class Tuple>
 SER20_ALWAYS_INLINE auto json_parse_object_body(ParserScanner& sc,
@@ -68,21 +86,21 @@ SER20_ALWAYS_INLINE auto json_parse_object_body(ParserScanner& sc,
         .next_is_pending = false,
     };
 
-    bool matched = Matcher::find(
-        key, fields, [&](auto& field) -> auto { field.parse(base); });
+    auto field_result = PipelineResult<void>::ok();
+    bool matched = Matcher::find(key, fields, [&](auto& field) -> auto {
+      field_result = field.parse(base);
+    });
+
+    if (matched && field_result.has_error()) [[unlikely]]
+      return field_result;
 
     if (!matched) {
-      // Invoke the catch-all field (empty name) if present; else skip.
-      bool handled = false;
-      std::apply(
-          [&](auto&... f) -> auto {
-            ((!handled && f.is_unknown_handler
-                  ? (handled = true, f.parse(base), void())
-                  : void()),
-             ...);
-          },
-          fields);
-      if (!handled) {
+      constexpr auto unknown_index = unknown_handler_index<Tuple>();
+      if constexpr (unknown_index != npos) {
+        auto unknown_result = std::get<unknown_index>(fields).parse(base);
+        if (unknown_result.has_error()) [[unlikely]]
+          return unknown_result;
+      } else {
         if (!base.next_is_pending) json_skip_value(sc, first_tok);
       }
     }
@@ -151,11 +169,24 @@ using Variant = std::variant<Ts...>;
 // ═══════════════════════════════════════════════════════════════════════════════
 
 template <class T>
+auto parse_result(std::string_view text) -> PipelineResult<T> {
+  T result{};
+  ParserScanner sc(text);
+  auto fields = cli::as_tuple(result);
+  auto parsed = detail::json_parse_object(sc, text, fields);
+  if (!parsed.have_value()) [[unlikely]]
+    return PipelineResult<T>::fail(parsed.error());
+  return PipelineResult<T>::ok(std::move(result));
+}
+
+template <class T>
 auto parse(std::string_view text) -> T {
   T result{};
   ParserScanner sc(text);
   auto fields = cli::as_tuple(result);
-  detail::json_parse_object(sc, text, fields);
+  auto parsed = detail::json_parse_object(sc, text, fields);
+  if (!parsed.have_value()) [[unlikely]]
+    return T{};
   return result;
 }
 

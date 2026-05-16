@@ -12,12 +12,14 @@
 
 namespace ser20 {
 
+#ifndef SER20_ALWAYS_INLINE
 #if defined(__GNUC__) || defined(__clang__)
 #define SER20_ALWAYS_INLINE inline __attribute__((always_inline))
 #elif defined(_MSC_VER)
 #define SER20_ALWAYS_INLINE __forceinline
 #else
 #define SER20_ALWAYS_INLINE inline
+#endif
 #endif
 
 struct ElementTag {};

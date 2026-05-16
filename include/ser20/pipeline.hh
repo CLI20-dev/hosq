@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <new>
 #include <optional>
 #include <set>
 #include <string>
@@ -46,9 +48,42 @@ struct PipelineResult {
 
   enum class State : std::uint8_t { ok, error, ignore };
 
-  State state{State::ok};
-  ParseError error{};
-  T value{};
+  union Storage {
+    char dummy;
+    T value;
+    Storage() : dummy{} {}
+    ~Storage() {}
+  };
+
+  State state{State::ignore};
+  Storage storage_{};
+  std::unique_ptr<ParseError> error_{};
+
+  PipelineResult() = default;
+  PipelineResult(const PipelineResult& other) : state(other.state) {
+    if (other.have_value()) new (&storage_.value) T(other.storage_.value);
+    if (other.error_) error_ = std::make_unique<ParseError>(*other.error_);
+  }
+  PipelineResult(PipelineResult&& other) noexcept : state(other.state) {
+    if (other.have_value())
+      new (&storage_.value) T(std::move(other.storage_.value));
+    if (other.error_) error_ = std::move(other.error_);
+  }
+  ~PipelineResult() {
+    if (have_value()) storage_.value.~T();
+  }
+  auto operator=(const PipelineResult& other) -> PipelineResult& {
+    if (this == &other) return *this;
+    this->~PipelineResult();
+    new (this) PipelineResult(other);
+    return *this;
+  }
+  auto operator=(PipelineResult&& other) noexcept -> PipelineResult& {
+    if (this == &other) return *this;
+    this->~PipelineResult();
+    new (this) PipelineResult(std::move(other));
+    return *this;
+  }
 
   /** @brief Returns `true` when the result represents success. */
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
@@ -75,6 +110,11 @@ struct PipelineResult {
     return state == State::ignore;
   }
 
+  [[nodiscard]] auto value() & -> T& { return storage_.value; }
+  [[nodiscard]] auto value() const& -> const T& { return storage_.value; }
+  [[nodiscard]] auto value() && -> T&& { return std::move(storage_.value); }
+  [[nodiscard]] auto error() const -> const ParseError& { return *error_; }
+
   /**
    * @brief Creates a success result holding `value`.
    *
@@ -83,8 +123,11 @@ struct PipelineResult {
    * @return A successful `PipelineResult<T>`.
    */
   template <class U>
-  [[nodiscard]] static constexpr auto ok(U&& v) -> PipelineResult {
-    return {.state = State::ok, .value = std::forward<U>(v)};
+  [[nodiscard]] static auto ok(U&& v) -> PipelineResult {
+    PipelineResult result;
+    result.state = State::ok;
+    new (&result.storage_.value) T(std::forward<U>(v));
+    return result;
   }
 
   /**
@@ -93,8 +136,11 @@ struct PipelineResult {
    * @param e The error to store.
    * @return A failed `PipelineResult<T>`.
    */
-  [[nodiscard]] static constexpr auto fail(ParseError e) -> PipelineResult {
-    return {.state = State::error, .error = std::move(e)};
+  [[nodiscard]] static auto fail(ParseError e) -> PipelineResult {
+    PipelineResult result;
+    result.state = State::error;
+    result.error_ = std::make_unique<ParseError>(std::move(e));
+    return result;
   }
 
   /**
@@ -102,8 +148,10 @@ struct PipelineResult {
    *
    * @return An ignored `PipelineResult<T>`.
    */
-  [[nodiscard]] static constexpr auto ignore() -> PipelineResult {
-    return {.state = State::ignore};
+  [[nodiscard]] static auto ignore() -> PipelineResult {
+    PipelineResult result;
+    result.state = State::ignore;
+    return result;
   }
 };
 
@@ -123,7 +171,21 @@ struct PipelineResult<void> {
   enum class State : std::uint8_t { ok, error, ignore };
 
   State state{State::ok};
-  ParseError error{};
+  std::unique_ptr<ParseError> error_{};
+
+  PipelineResult() = default;
+  PipelineResult(const PipelineResult& other) : state(other.state) {
+    if (other.error_) error_ = std::make_unique<ParseError>(*other.error_);
+  }
+  PipelineResult(PipelineResult&&) noexcept = default;
+  auto operator=(const PipelineResult& other) -> PipelineResult& {
+    if (this == &other) return *this;
+    state = other.state;
+    error_ =
+        other.error_ ? std::make_unique<ParseError>(*other.error_) : nullptr;
+    return *this;
+  }
+  auto operator=(PipelineResult&&) noexcept -> PipelineResult& = default;
 
   /** @brief Returns `true` when the result represents success. */
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
@@ -150,13 +212,17 @@ struct PipelineResult<void> {
     return state == State::ignore;
   }
 
+  [[nodiscard]] auto error() const -> const ParseError& { return *error_; }
+
   /**
    * @brief Creates a success result.
    *
    * @return A successful `PipelineResult<void>`.
    */
-  [[nodiscard]] static constexpr auto ok() -> PipelineResult<void> {
-    return {.state = State::ok};
+  [[nodiscard]] static auto ok() -> PipelineResult<void> {
+    PipelineResult result;
+    result.state = State::ok;
+    return result;
   }
 
   /**
@@ -165,9 +231,11 @@ struct PipelineResult<void> {
    * @param e The error to store.
    * @return A failed `PipelineResult<void>`.
    */
-  [[nodiscard]] static constexpr auto fail(ParseError e)
-      -> PipelineResult<void> {
-    return {.state = State::error, .error = std::move(e)};
+  [[nodiscard]] static auto fail(ParseError e) -> PipelineResult<void> {
+    PipelineResult result;
+    result.state = State::error;
+    result.error_ = std::make_unique<ParseError>(std::move(e));
+    return result;
   }
 
   /**
@@ -175,8 +243,10 @@ struct PipelineResult<void> {
    *
    * @return An ignored `PipelineResult<void>`.
    */
-  [[nodiscard]] static constexpr auto ignore() -> PipelineResult<void> {
-    return {.state = State::ignore};
+  [[nodiscard]] static auto ignore() -> PipelineResult<void> {
+    PipelineResult result;
+    result.state = State::ignore;
+    return result;
   }
 };
 
@@ -189,7 +259,7 @@ struct PipelineResult<void> {
  * @return A successful `PipelineResult<T>` holding `value`.
  */
 template <class T>
-[[nodiscard]] constexpr auto ok(T&& value)
+[[nodiscard]] auto ok(T&& value)
     -> PipelineResult<std::remove_cvref_t<T>> {
   return PipelineResult<std::remove_cvref_t<T>>::ok(std::forward<T>(value));
 }
@@ -199,7 +269,7 @@ template <class T>
  *
  * @return A successful `PipelineResult<void>`.
  */
-[[nodiscard]] constexpr auto ok() -> PipelineResult<void> {
+[[nodiscard]] auto ok() -> PipelineResult<void> {
   return PipelineResult<void>::ok();
 }
 
@@ -212,7 +282,7 @@ template <class T>
  * @return A failed `PipelineResult<T>` carrying `error`.
  */
 template <class T>
-[[nodiscard]] constexpr auto fail(ParseError error) -> PipelineResult<T> {
+[[nodiscard]] auto fail(ParseError error) -> PipelineResult<T> {
   return PipelineResult<T>::fail(std::move(error));
 }
 
@@ -224,7 +294,7 @@ template <class T>
  * @return An ignored `PipelineResult<T>`.
  */
 template <class T>
-[[nodiscard]] constexpr auto ignore() -> PipelineResult<T> {
+[[nodiscard]] auto ignore() -> PipelineResult<T> {
   return PipelineResult<T>::ignore();
 }
 
@@ -633,6 +703,9 @@ auto json_parse_object(ParserScanner& sc, std::string_view input, Tuple& fields)
 // ═══════════════════════════════════════════════════════════════════════════════
 namespace decode {
 
+template <class T>
+struct ParsedInPlace {};
+
 // integer<T> ──────────────────────────────────────────────────────────────────
 template <class T>
 struct IntegerFn {
@@ -645,12 +718,12 @@ struct IntegerFn {
                                       PipelineResult<std::string_view> in) const
       -> PipelineResult<T> {
     if (!in.have_value()) [[unlikely]]
-      return PipelineResult<T>::fail(in.error);
+      return PipelineResult<T>::fail(in.error());
     T r{};
     auto [p, ec] =
-        std::from_chars(in.value.data(), in.value.data() + in.value.size(), r);
+        std::from_chars(in.value().data(), in.value().data() + in.value().size(), r);
     if (ec != std::errc{}) [[unlikely]]
-      return json_fail<T>(ErrorCode::invalid_value, in.value);
+      return json_fail<T>(ErrorCode::invalid_value, in.value());
     return PipelineResult<T>::ok(r);
   }
 };
@@ -667,12 +740,12 @@ struct FloatingFn {
                                       PipelineResult<std::string_view> in) const
       -> PipelineResult<T> {
     if (!in.have_value()) [[unlikely]]
-      return PipelineResult<T>::fail(in.error);
+      return PipelineResult<T>::fail(in.error());
     T r{};
     auto [p, ec] =
-        std::from_chars(in.value.data(), in.value.data() + in.value.size(), r);
+        std::from_chars(in.value().data(), in.value().data() + in.value().size(), r);
     if (ec != std::errc{}) [[unlikely]]
-      return json_fail<T>(ErrorCode::invalid_value, in.value);
+      return json_fail<T>(ErrorCode::invalid_value, in.value());
     return PipelineResult<T>::ok(r);
   }
 };
@@ -688,11 +761,11 @@ struct BooleanFn {
                                       PipelineResult<std::string_view> in) const
       -> PipelineResult<bool> {
     if (!in.have_value()) [[unlikely]]
-      return PipelineResult<bool>::fail(in.error);
-    if (in.value == "true") [[likely]]
+      return PipelineResult<bool>::fail(in.error());
+    if (in.value() == "true") [[likely]]
       return PipelineResult<bool>::ok(true);
-    if (in.value == "false") return PipelineResult<bool>::ok(false);
-    return json_fail<bool>(ErrorCode::invalid_value, in.value);
+    if (in.value() == "false") return PipelineResult<bool>::ok(false);
+    return json_fail<bool>(ErrorCode::invalid_value, in.value());
   }
 };
 
@@ -721,8 +794,8 @@ struct OwnedStringFn {
                                       PipelineResult<std::string_view> in) const
       -> PipelineResult<std::string> {
     if (!in.have_value()) [[unlikely]]
-      return PipelineResult<std::string>::fail(in.error);
-    return PipelineResult<std::string>::ok(std::string(in.value));
+      return PipelineResult<std::string>::fail(in.error());
+    return PipelineResult<std::string>::ok(std::string(in.value()));
   }
 };
 
@@ -751,8 +824,8 @@ struct CustomFn {
       -> PipelineResult<std::invoke_result_t<decltype(F), const In&>> {
     using Out = std::invoke_result_t<decltype(F), const In&>;
     if (!in.have_value()) [[unlikely]]
-      return PipelineResult<Out>::fail(in.error);
-    return PipelineResult<Out>::ok(F(in.value));
+      return PipelineResult<Out>::fail(in.error());
+    return PipelineResult<Out>::ok(F(in.value()));
   }
 };
 
@@ -766,16 +839,29 @@ struct ParseToFn {
   using storage_type = void;
   template <class St>
   SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
-                                      PipelineResult<void>) const
-      -> PipelineResult<T> {
-    if (ctx.first_tok.kind != TokenKind::LBrace) [[unlikely]]
-      return json_fail<T>(ErrorCode::invalid_value, "expected {");
-    T result{};
-    auto fields = cli::as_tuple(result);
-    auto r = detail::json_parse_object_body(*ctx.scanner, ctx.input, fields);
-    if (!r.have_value()) [[unlikely]]
-      return PipelineResult<T>::fail(r.error);
-    return PipelineResult<T>::ok(std::move(result));
+                                      PipelineResult<void>) const {
+    if (ctx.first_tok.kind != TokenKind::LBrace) [[unlikely]] {
+      if constexpr (std::same_as<std::remove_cvref_t<St>, T>) {
+        return json_fail<ParsedInPlace<T>>(ErrorCode::invalid_value,
+                                           "expected {");
+      } else {
+        return json_fail<T>(ErrorCode::invalid_value, "expected {");
+      }
+    }
+    if constexpr (std::same_as<std::remove_cvref_t<St>, T>) {
+      auto fields = cli::as_tuple(ctx.arg.get());
+      auto r = detail::json_parse_object_body(*ctx.scanner, ctx.input, fields);
+      if (!r.have_value()) [[unlikely]]
+        return PipelineResult<ParsedInPlace<T>>::fail(r.error());
+      return PipelineResult<ParsedInPlace<T>>::ok(ParsedInPlace<T>{});
+    } else {
+      T result{};
+      auto fields = cli::as_tuple(result);
+      auto r = detail::json_parse_object_body(*ctx.scanner, ctx.input, fields);
+      if (!r.have_value()) [[unlikely]]
+        return PipelineResult<T>::fail(r.error());
+      return PipelineResult<T>::ok(std::move(result));
+    }
   }
 };
 
@@ -1072,8 +1158,17 @@ struct AssignFn {
                                       PipelineResult<T> in) const
       -> PipelineResult<void> {
     if (!in.have_value()) [[unlikely]]
-      return PipelineResult<void>::fail(in.error);
-    ctx.arg.get() = std::move(in.value);
+      return PipelineResult<void>::fail(in.error());
+    ctx.arg.get() = std::move(in.value());
+    return PipelineResult<void>::ok();
+  }
+
+  template <class T>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<T>&,
+                                      PipelineResult<decode::ParsedInPlace<T>>
+                                          in) const -> PipelineResult<void> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<void>::fail(in.error());
     return PipelineResult<void>::ok();
   }
 };
@@ -1089,11 +1184,23 @@ struct OnceFn {
                                       PipelineResult<T> in) const
       -> PipelineResult<void> {
     if (!in.have_value()) [[unlikely]]
-      return PipelineResult<void>::fail(in.error);
+      return PipelineResult<void>::fail(in.error());
     if (ctx.occurrences > 0) [[unlikely]]
       return PipelineResult<void>::fail({.code = ErrorCode::duplicate_argument,
                                          .subject = std::string(ctx.key)});
-    ctx.arg.get() = std::move(in.value);
+    ctx.arg.get() = std::move(in.value());
+    return PipelineResult<void>::ok();
+  }
+
+  template <class T>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<T>& ctx,
+                                      PipelineResult<decode::ParsedInPlace<T>>
+                                          in) const -> PipelineResult<void> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<void>::fail(in.error());
+    if (ctx.occurrences > 0) [[unlikely]]
+      return PipelineResult<void>::fail({.code = ErrorCode::duplicate_argument,
+                                         .subject = std::string(ctx.key)});
     return PipelineResult<void>::ok();
   }
 };
@@ -1109,8 +1216,17 @@ struct OverwriteFn {
                                       PipelineResult<T> in) const
       -> PipelineResult<void> {
     if (!in.have_value()) [[unlikely]]
-      return PipelineResult<void>::fail(in.error);
-    ctx.arg.get() = std::move(in.value);
+      return PipelineResult<void>::fail(in.error());
+    ctx.arg.get() = std::move(in.value());
+    return PipelineResult<void>::ok();
+  }
+
+  template <class T>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<T>&,
+                                      PipelineResult<decode::ParsedInPlace<T>>
+                                          in) const -> PipelineResult<void> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<void>::fail(in.error());
     return PipelineResult<void>::ok();
   }
 };
@@ -1126,9 +1242,18 @@ struct FirstWinsFn {
                                       PipelineResult<T> in) const
       -> PipelineResult<void> {
     if (!in.have_value()) [[unlikely]]
-      return PipelineResult<void>::fail(in.error);
+      return PipelineResult<void>::fail(in.error());
     if (ctx.occurrences == 0) [[likely]]
-      ctx.arg.get() = std::move(in.value);
+      ctx.arg.get() = std::move(in.value());
+    return PipelineResult<void>::ok();
+  }
+
+  template <class T>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<T>&,
+                                      PipelineResult<decode::ParsedInPlace<T>>
+                                          in) const -> PipelineResult<void> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<void>::fail(in.error());
     return PipelineResult<void>::ok();
   }
 };
@@ -1172,6 +1297,32 @@ inline constexpr auto reject_unknown_with_suggestion =
     ParsePipeline<RejectUnknownWithSuggestionFn{}>{};
 
 }  // namespace pack
+
+namespace detail {
+
+template <class T>
+SER20_ALWAYS_INLINE auto parse_object_in_place(ParseCtx<T>& ctx)
+    -> PipelineResult<void> {
+  if (ctx.first_tok.kind != TokenKind::LBrace) [[unlikely]]
+    return PipelineResult<void>::fail(
+        {.code = ErrorCode::invalid_value, .subject = "expected {"});
+  auto fields = cli::as_tuple(ctx.arg.get());
+  return json_parse_object_body(*ctx.scanner, ctx.input, fields);
+}
+
+template <class T>
+SER20_ALWAYS_INLINE auto skip_pending_value(ParseCtx<T>& ctx) -> void {
+  const auto& first = ctx.first_tok;
+  if (first.kind == TokenKind::Quote || first.kind == TokenKind::LBrace ||
+      first.kind == TokenKind::LBracket) {
+    json_skip_value(*ctx.scanner, first);
+  } else {
+    ctx.next_is_pending = true;
+    ctx.pending_tok = first;
+  }
+}
+
+}  // namespace detail
 
 
 namespace unknown {
@@ -1239,11 +1390,10 @@ struct String {
   template <class Prev>
   using storage_type = void;
 
-  constexpr auto operator()(PipelineCtx<void>,
-                            PipelineResult<std::string_view> input) const
+  auto operator()(PipelineCtx<void>, PipelineResult<std::string_view> input) const
       -> PipelineResult<std::string> {
-    if (!input.have_value()) return fail<std::string>(input.error);
-    return ok(std::string(input.value));
+    if (!input.have_value()) return fail<std::string>(input.error());
+    return ok(std::string(input.value()));
   }
 };
 
@@ -1265,7 +1415,7 @@ struct SetTrue {
   template <class T>
   auto operator()(PipelineCtx<bool> ctx, PipelineResult<T> input) const
       -> PipelineResult<void> {
-    if (!input.have_value()) return fail<void>(input.error);
+    if (!input.have_value()) return fail<void>(input.error());
     ctx.arg.get() = true;
     return ok();
   }
@@ -1285,7 +1435,7 @@ struct SetFalse {
   template <class T>
   auto operator()(PipelineCtx<bool> ctx, PipelineResult<T> input) const
       -> PipelineResult<void> {
-    if (!input.have_value()) return fail<void>(input.error);
+    if (!input.have_value()) return fail<void>(input.error());
     ctx.arg.get() = false;
     return ok();
   }
@@ -1305,7 +1455,7 @@ struct Toggle {
   template <class T>
   auto operator()(PipelineCtx<bool> ctx, PipelineResult<T> input) const
       -> PipelineResult<void> {
-    if (!input.have_value()) return fail<void>(input.error);
+    if (!input.have_value()) return fail<void>(input.error());
     ctx.arg.get() = !ctx.arg.get();
     return ok();
   }
@@ -1325,7 +1475,7 @@ struct Increment {
   template <class T>
   auto operator()(PipelineCtx<std::size_t> ctx, PipelineResult<T> input) const
       -> PipelineResult<void> {
-    if (!input.have_value()) return fail<void>(input.error);
+    if (!input.have_value()) return fail<void>(input.error());
     ++ctx.arg.get();
     return ok();
   }
@@ -1352,12 +1502,12 @@ struct SetOnce {
   template <class T>
   auto operator()(PipelineCtx<std::remove_cvref_t<T>> ctx,
                   PipelineResult<T> input) const -> PipelineResult<void> {
-    if (!input.have_value()) return fail<void>(input.error);
+    if (!input.have_value()) return fail<void>(input.error());
     // if (ctx.occurrences > 1) {
     //   return PipelineResult<void>::fail(detail::duplicate_argument_error(
-    //       ctx.index, detail::to_error_subject(input.value)));
+    //       ctx.index, detail::to_error_subject(input.value())));
     // }
-    ctx.arg.get() = std::move(input.value);
+    ctx.arg.get() = std::move(input.value());
     return ok();
   }
 };
@@ -1382,8 +1532,8 @@ struct Push {
   template <class T>
   auto operator()(PipelineCtx<std::vector<std::remove_cvref_t<T>>> ctx,
                   PipelineResult<T> input) const -> PipelineResult<void> {
-    if (!input.have_value()) return fail<void>(input.error);
-    ctx.arg.get().push_back(std::move(input.value));
+    if (!input.have_value()) return fail<void>(input.error());
+    ctx.arg.get().push_back(std::move(input.value()));
     return ok();
   }
 };
@@ -1409,8 +1559,8 @@ struct Insert {
   template <class T>
   auto operator()(PipelineCtx<std::set<std::remove_cvref_t<T>>> ctx,
                   PipelineResult<T> input) const -> PipelineResult<void> {
-    if (!input.have_value()) return fail<void>(input.error);
-    ctx.arg.get().insert(std::move(input.value));
+    if (!input.have_value()) return fail<void>(input.error());
+    ctx.arg.get().insert(std::move(input.value()));
     return ok();
   }
 };
@@ -1442,8 +1592,8 @@ struct Insert {
 //   auto operator()(PipelineCtx<storage_type<T>> ctx, PipelineResult<T> input)
 //   const
 //       -> PipelineResult<void> {
-//     if (!input.have_value()) return fail<void>(input.error);
-//     auto&& [key, value] = input.value;
+//     if (!input.have_value()) return fail<void>(input.error());
+//     auto&& [key, value] = input.value();
 //     ctx.arg.get().insert_or_assign(key, value);
 //     return ok();
 //   }
@@ -1466,9 +1616,9 @@ struct Insert {
 //   auto operator()(PipelineCtx<storage_type<T>> ctx, PipelineResult<T> input)
 //   const
 //       -> PipelineResult<void> {
-//     if (!input.have_value()) return fail<void>(input.error);
+//     if (!input.have_value()) return fail<void>(input.error());
 //     auto& out = ctx.arg.get();
-//     for (auto&& value : input.value) {
+//     for (auto&& value : input.value()) {
 //       out.emplace_back(value);
 //     }
 //     return ok();
@@ -1495,7 +1645,7 @@ struct MarkPresent {
   template <class T>
   auto operator()(PipelineCtx<bool> ctx, PipelineResult<T> input) const
       -> PipelineResult<void> {
-    if (!input.have_value()) return fail<void>(input.error);
+    if (!input.have_value()) return fail<void>(input.error());
     ctx.arg.get() = true;
     return ok();
   }
@@ -1524,9 +1674,9 @@ struct MarkPresent {
 //
 //   auto operator()(PipelineCtx<T*> ctx, PipelineResult<T> input) const
 //       -> PipelineResult<void> {
-//     if (!input.have_value()) return fail<void>(input.error);
+//     if (!input.have_value()) return fail<void>(input.error());
 //     if (T* ptr = ctx.arg.get(); ptr != nullptr) {
-//       *ptr = std::move(input.value);
+//       *ptr = std::move(input.value());
 //       return ok();
 //     }
 //     return PipelineResult<void>::fail(detail::validation_failed_error(
@@ -1573,11 +1723,11 @@ struct Callback {
     requires CallbackInvocable<Fn, T>
   auto operator()(PipelineCtx<std::monostate> ctx, PipelineResult<T> input) const
       -> PipelineResult<void> {
-    if (!input.have_value()) return fail<void>(input.error);
+    if (!input.have_value()) return fail<void>(input.error());
     if constexpr (requires(T& value) { Fn(ctx, value); }) {
-      Fn(ctx, input.value);
+      Fn(ctx, input.value());
     } else if constexpr (requires(T& value) { Fn(value); }) {
-      Fn(input.value);
+      Fn(input.value());
     } else {
       Fn();
     }

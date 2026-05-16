@@ -157,4 +157,19 @@ TEST(ParserTest, KnownKeyParsesCorrectly) {
   EXPECT_EQ(static_cast<int>(r.val), 55);
 }
 
+TEST(ParserTest, UnknownRejectPropagatesError) {
+  auto r = ser20::parse_result<StrictDoc>(R"({"extra": 55})");
+  ASSERT_TRUE(r.has_error());
+  EXPECT_EQ(r.error().code, ser20::ErrorCode::unknown_option);
+  EXPECT_EQ(r.error().subject, "extra");
+}
+
+TEST(ParserTest, NestedParseErrorPropagates) {
+  auto r = ser20::parse_result<Outer>(
+      R"({"inner": {"a": false, "b": 2}, "top": 99})");
+  ASSERT_TRUE(r.has_error());
+  EXPECT_EQ(r.error().code, ser20::ErrorCode::invalid_value);
+  EXPECT_EQ(r.error().subject, "false");
+}
+
 }  // namespace
