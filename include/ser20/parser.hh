@@ -51,37 +51,39 @@ SER20_ALWAYS_INLINE auto json_parse_object_body(ParserScanner& sc,
     -> PipelineResult<void> {
   // '{' already consumed by caller
   while (true) {
-    auto tok = sc.consume_next_token();
-    if (tok.is_end()) [[unlikely]]
+    const size_t pos = sc.next();
+    if (pos >= input.size()) [[unlikely]]
       break;
-    if (tok.kind == TokenKind::RBrace) [[unlikely]]
+    const char c = input[pos];
+    if (c == '}') [[unlikely]]
       return PipelineResult<void>::ok();
-    if (tok.kind == TokenKind::Comma) [[likely]]
+    if (c == ',') [[likely]]
       continue;
-    if (tok.kind != TokenKind::Quote) [[unlikely]]
+    if (c != '"') [[unlikely]]
       continue;  // unexpected, skip
 
-    ScannerToken key_close{};
-    ScannerToken colon_tok{};
-    sc.consume_next_two(key_close, colon_tok);
-    if (key_close.is_end()) [[unlikely]]
+    // pos = opening '"' of key name
+    size_t key_close{};
+    size_t colon_pos{};
+    sc.next_two(key_close, colon_pos);
+    if (key_close >= input.size()) [[unlikely]]
       break;
-    auto kstart = tok.pos + 1;
-    std::string_view key = input.substr(
-        kstart, key_close.pos > kstart ? key_close.pos - kstart : 0);
+    const size_t kstart = pos + 1;
+    std::string_view key =
+        input.substr(kstart, key_close > kstart ? key_close - kstart : 0);
 
-    if (colon_tok.is_end() || colon_tok.kind != TokenKind::Colon) [[unlikely]]
+    if (colon_pos >= input.size() || input[colon_pos] != ':') [[unlikely]]
       break;
 
-    auto first_tok = sc.consume_next_token();
-    if (first_tok.is_end()) [[unlikely]]
+    const size_t first_pos = sc.next();
+    if (first_pos >= input.size()) [[unlikely]]
       break;
 
     ParseCtxBase base{
         .scanner = &sc,
         .input = input,
-        .first_tok = first_tok,
-        .colon_pos = colon_tok.pos,
+        .first_pos = first_pos,
+        .colon_pos = colon_pos,
         .key = key,
         .occurrences = 0,
         .next_is_pending = false,
@@ -102,12 +104,12 @@ SER20_ALWAYS_INLINE auto json_parse_object_body(ParserScanner& sc,
         if (unknown_result.has_error()) [[unlikely]]
           return unknown_result;
       } else {
-        if (!base.next_is_pending) json_skip_value(sc, first_tok);
+        if (!base.next_is_pending) json_skip_value(sc, first_pos);
       }
     }
 
-    // After field parse: if scalar, pending_tok is the delimiter.
-    if (base.next_is_pending && base.pending_tok.kind == TokenKind::RBrace)
+    // After field parse: if scalar, pending_pos holds the delimiter position.
+    if (base.next_is_pending && input[base.pending_pos] == '}')
       return PipelineResult<void>::ok();
   }
   return PipelineResult<void>::ok();
@@ -116,8 +118,8 @@ SER20_ALWAYS_INLINE auto json_parse_object_body(ParserScanner& sc,
 template <class Tuple>
 auto json_parse_object(ParserScanner& sc, std::string_view input, Tuple& fields)
     -> PipelineResult<void> {
-  auto tok = sc.consume_next_token();
-  if (tok.is_end() || tok.kind != TokenKind::LBrace)
+  const size_t pos = sc.next();
+  if (pos >= input.size() || input[pos] != '{')
     return PipelineResult<void>::fail(
         {.code = ErrorCode::invalid_value, .subject = "{"});
   return json_parse_object_body(sc, input, fields);
@@ -135,9 +137,6 @@ struct JsonString {
 };
 
 // Constant<Key, Val> — member field that acts as a discriminant for Variant.
-// Placed as a data member (not base class) so cli::as_tuple counts it correctly.
-// When the JSON parser encounters the matching key, parse() validates/consumes
-// the value. VariantFn detects it by checking field types for discriminant_key.
 template <StringLiteral Key, auto Val>
 struct Constant {
   static constexpr std::string_view name{Key.data(), Key.size()};
@@ -146,17 +145,17 @@ struct Constant {
   static constexpr bool is_unknown_handler = false;
 
   SER20_ALWAYS_INLINE auto parse(ParseCtxBase& base) -> PipelineResult<void> {
-    const auto& f = base.first_tok;
-    if (f.kind == TokenKind::Quote) [[likely]] {
-      (void)base.scanner->consume_next_token();
-    } else if (f.kind == TokenKind::LBrace) {
-      json_consume_nested(*base.scanner, TokenKind::LBrace, TokenKind::RBrace);
-    } else if (f.kind == TokenKind::LBracket) {
-      json_consume_nested(*base.scanner, TokenKind::LBracket,
-                          TokenKind::RBracket);
+    const char c =
+        base.first_pos < base.input.size() ? base.input[base.first_pos] : '\0';
+    if (c == '"') {
+      (void)json_skip_string(*base.scanner);
+    } else if (c == '{') {
+      (void)json_skip_block(*base.scanner, '}');
+    } else if (c == '[') {
+      (void)json_skip_block(*base.scanner, ']');
     } else {
       base.next_is_pending = true;
-      base.pending_tok = f;
+      base.pending_pos = base.first_pos;
     }
     return PipelineResult<void>::ok();
   }

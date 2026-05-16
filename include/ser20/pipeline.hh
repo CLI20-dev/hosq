@@ -259,8 +259,7 @@ struct PipelineResult<void> {
  * @return A successful `PipelineResult<T>` holding `value`.
  */
 template <class T>
-[[nodiscard]] auto ok(T&& value)
-    -> PipelineResult<std::remove_cvref_t<T>> {
+[[nodiscard]] auto ok(T&& value) -> PipelineResult<std::remove_cvref_t<T>> {
   return PipelineResult<std::remove_cvref_t<T>>::ok(std::forward<T>(value));
 }
 
@@ -552,8 +551,8 @@ struct ParsePipelineStorage<ParsePipeline<Fns...>> {
 };
 
 template <auto Pipe>
-using parse_storage_t = typename ParsePipelineStorage<
-    std::remove_cvref_t<decltype(Pipe)>>::type;
+using parse_storage_t =
+    typename ParsePipelineStorage<std::remove_cvref_t<decltype(Pipe)>>::type;
 
 // ── whitespace utilities ──────────────────────────────────────────────────────
 SER20_ALWAYS_INLINE auto json_skip_ws(std::string_view s, std::size_t p) noexcept
@@ -585,8 +584,8 @@ SER20_ALWAYS_INLINE auto json_fail(ErrorCode code, std::string_view subject = {}
 namespace scan {
 
 // scalar ──────────────────────────────────────────────────────────────────────
-// first_tok must be a delimiter (Comma / RBrace / RBracket).
-// Extracts input[colon_pos+1 .. first_tok.pos) trimmed.
+// first_pos must be a delimiter (, } ]).
+// Extracts input[colon_pos+1 .. first_pos) trimmed.
 // Sets next_is_pending so the outer loop re-uses the delimiter.
 struct ScalarFn {
   template <class I>
@@ -597,15 +596,15 @@ struct ScalarFn {
   SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
                                       PipelineResult<void>) const
       -> PipelineResult<std::string_view> {
-    const auto& f = ctx.first_tok;
-    if (f.kind == TokenKind::Quote || f.kind == TokenKind::LBrace ||
-        f.kind == TokenKind::LBracket) [[unlikely]]
+    const char c =
+        ctx.first_pos < ctx.input.size() ? ctx.input[ctx.first_pos] : '\0';
+    if (c == '"' || c == '{' || c == '[') [[unlikely]]
       return json_fail<std::string_view>(ErrorCode::invalid_value,
                                          "expected scalar");
     ctx.next_is_pending = true;
-    ctx.pending_tok = f;
+    ctx.pending_pos = ctx.first_pos;
     auto s = json_skip_ws(ctx.input, ctx.colon_pos + 1);
-    auto e = json_rtrim(ctx.input, f.pos);
+    auto e = json_rtrim(ctx.input, ctx.first_pos);
     if (s >= e) [[unlikely]]
       return json_fail<std::string_view>(ErrorCode::invalid_value,
                                          "empty scalar");
@@ -614,7 +613,7 @@ struct ScalarFn {
 };
 
 // string ──────────────────────────────────────────────────────────────────────
-// first_tok must be Quote (opening).  Consumes the closing Quote.
+// first_pos must be the opening '"'.  Consumes the closing '"'.
 // Returns the content between the quotes (no escape resolution).
 struct StringFn {
   template <class I>
@@ -625,16 +624,17 @@ struct StringFn {
   SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
                                       PipelineResult<void>) const
       -> PipelineResult<std::string_view> {
-    if (ctx.first_tok.kind != TokenKind::Quote) [[unlikely]]
+    if (ctx.first_pos >= ctx.input.size() || ctx.input[ctx.first_pos] != '"')
+        [[unlikely]]
       return json_fail<std::string_view>(ErrorCode::invalid_value,
                                          "expected string");
-    auto close = ctx.scanner->skip_string();
-    if (close.is_end()) [[unlikely]]
+    const size_t close = json_skip_string(*ctx.scanner);
+    if (close >= ctx.input.size()) [[unlikely]]
       return json_fail<std::string_view>(ErrorCode::invalid_value,
                                          "unterminated string");
-    auto s = ctx.first_tok.pos + 1;
+    const size_t s = ctx.first_pos + 1;
     return PipelineResult<std::string_view>::ok(
-        ctx.input.substr(s, close.pos > s ? close.pos - s : 0));
+        ctx.input.substr(s, close > s ? close - s : 0));
   }
 };
 
@@ -647,11 +647,10 @@ struct ObjectRawFn {
   template <class St>
   auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
       -> PipelineResult<std::string_view> {
-    if (ctx.first_tok.kind != TokenKind::LBrace)
+    if (ctx.first_pos >= ctx.input.size() || ctx.input[ctx.first_pos] != '{')
       return json_fail<std::string_view>(ErrorCode::invalid_value, "expected {");
-    auto start = ctx.first_tok.pos;
-    auto end =
-        json_consume_nested(*ctx.scanner, TokenKind::LBrace, TokenKind::RBrace);
+    const size_t start = ctx.first_pos;
+    const size_t end = json_skip_block(*ctx.scanner, '}');
     return PipelineResult<std::string_view>::ok(
         ctx.input.substr(start, end - start));
   }
@@ -665,11 +664,10 @@ struct ArrayRawFn {
   template <class St>
   auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
       -> PipelineResult<std::string_view> {
-    if (ctx.first_tok.kind != TokenKind::LBracket)
+    if (ctx.first_pos >= ctx.input.size() || ctx.input[ctx.first_pos] != '[')
       return json_fail<std::string_view>(ErrorCode::invalid_value, "expected [");
-    auto start = ctx.first_tok.pos;
-    auto end = json_consume_nested(*ctx.scanner, TokenKind::LBracket,
-                                   TokenKind::RBracket);
+    const size_t start = ctx.first_pos;
+    const size_t end = json_skip_block(*ctx.scanner, ']');
     return PipelineResult<std::string_view>::ok(
         ctx.input.substr(start, end - start));
   }
@@ -720,8 +718,8 @@ struct IntegerFn {
     if (!in.have_value()) [[unlikely]]
       return PipelineResult<T>::fail(in.error());
     T r{};
-    auto [p, ec] =
-        std::from_chars(in.value().data(), in.value().data() + in.value().size(), r);
+    auto [p, ec] = std::from_chars(in.value().data(),
+                                   in.value().data() + in.value().size(), r);
     if (ec != std::errc{}) [[unlikely]]
       return json_fail<T>(ErrorCode::invalid_value, in.value());
     return PipelineResult<T>::ok(r);
@@ -742,8 +740,8 @@ struct FloatingFn {
     if (!in.have_value()) [[unlikely]]
       return PipelineResult<T>::fail(in.error());
     T r{};
-    auto [p, ec] =
-        std::from_chars(in.value().data(), in.value().data() + in.value().size(), r);
+    auto [p, ec] = std::from_chars(in.value().data(),
+                                   in.value().data() + in.value().size(), r);
     if (ec != std::errc{}) [[unlikely]]
       return json_fail<T>(ErrorCode::invalid_value, in.value());
     return PipelineResult<T>::ok(r);
@@ -830,7 +828,7 @@ struct CustomFn {
 };
 
 // parse_to<T> ─────────────────────────────────────────────────────────────────
-// first_tok must be LBrace.  Sub-scans the object into T.
+// first_pos must be '{'.  Sub-scans the object into T.
 template <class T>
 struct ParseToFn {
   template <class I>
@@ -840,7 +838,9 @@ struct ParseToFn {
   template <class St>
   SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
                                       PipelineResult<void>) const {
-    if (ctx.first_tok.kind != TokenKind::LBrace) [[unlikely]] {
+    const char c =
+        ctx.first_pos < ctx.input.size() ? ctx.input[ctx.first_pos] : '\0';
+    if (c != '{') [[unlikely]] {
       if constexpr (std::same_as<std::remove_cvref_t<St>, T>) {
         return json_fail<ParsedInPlace<T>>(ErrorCode::invalid_value,
                                            "expected {");
@@ -866,7 +866,7 @@ struct ParseToFn {
 };
 
 // vector<Pipe> ────────────────────────────────────────────────────────────────
-// first_tok must be LBracket.  Iterates elements, applying Pipe to each.
+// first_pos must be '['.  Iterates elements, applying Pipe to each.
 template <auto Pipe>
 struct VectorFn {
   using elem_t = parse_storage_t<Pipe>;
@@ -880,29 +880,29 @@ struct VectorFn {
   SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
                                       PipelineResult<void>) const
       -> PipelineResult<std::vector<elem_t>> {
-    if (ctx.first_tok.kind != TokenKind::LBracket) [[unlikely]]
+    const char fc =
+        ctx.first_pos < ctx.input.size() ? ctx.input[ctx.first_pos] : '\0';
+    if (fc != '[') [[unlikely]]
       return json_fail<std::vector<elem_t>>(ErrorCode::invalid_value,
                                             "expected [");
     ParserScanner& sc = *ctx.scanner;
     std::vector<elem_t> out;
 
     // last_pos: start of the current potential scalar element (after '[' or
-    // ','). just_saw_structured: true after consuming a Quote/LBrace/LBracket
+    // ','). just_saw_structured: true after consuming a string/object/array
     // element, so we skip the scalar check when the next ',' or ']' arrives.
-    std::size_t last_pos = ctx.first_tok.pos + 1;
+    std::size_t last_pos = ctx.first_pos + 1;
     bool just_saw_structured = false;
 
-    auto process_scalar = [&](ScannerToken delim) {
+    auto process_scalar = [&](size_t delim_pos) {
       auto s = json_skip_ws(ctx.input, last_pos);
-      auto e = json_rtrim(ctx.input, delim.pos);
+      auto e = json_rtrim(ctx.input, delim_pos);
       if (s >= e) return;
       elem_t val{};
-      // colon_pos is set to last_pos-1 so colon_pos+1 == last_pos (ScalarFn
-      // start)
       ParseCtxBase base{
           .scanner = &sc,
           .input = ctx.input,
-          .first_tok = delim,
+          .first_pos = delim_pos,
           .colon_pos = last_pos > 0 ? last_pos - 1 : 0,
       };
       ParseCtx<elem_t> ectx{base, val};
@@ -911,28 +911,29 @@ struct VectorFn {
     };
 
     while (true) {
-      auto tok = sc.consume_next_token();
-      if (tok.is_end()) break;
+      const size_t pos = sc.next();
+      if (pos >= ctx.input.size()) break;
+      const char c = ctx.input[pos];
 
-      if (tok.kind == TokenKind::RBracket) [[unlikely]] {
-        if (!just_saw_structured) process_scalar(tok);
+      if (c == ']') [[unlikely]] {
+        if (!just_saw_structured) process_scalar(pos);
         break;
       }
 
-      if (tok.kind == TokenKind::Comma) [[likely]] {
-        if (!just_saw_structured) process_scalar(tok);
-        last_pos = tok.pos + 1;
+      if (c == ',') [[likely]] {
+        if (!just_saw_structured) process_scalar(pos);
+        last_pos = pos + 1;
         just_saw_structured = false;
         continue;
       }
 
-      // Structured element: Quote, LBrace, LBracket
+      // Structured element: '"', '{', '['
       just_saw_structured = true;
       elem_t val{};
       ParseCtxBase base{
           .scanner = &sc,
           .input = ctx.input,
-          .first_tok = tok,
+          .first_pos = pos,
           .colon_pos = 0,
       };
       ParseCtx<elem_t> ectx{base, val};
@@ -959,7 +960,9 @@ struct ArrayFn {
   template <class St>
   auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
       -> PipelineResult<std::array<elem_t, N>> {
-    if (ctx.first_tok.kind != TokenKind::LBracket) [[unlikely]]
+    const char fc =
+        ctx.first_pos < ctx.input.size() ? ctx.input[ctx.first_pos] : '\0';
+    if (fc != '[') [[unlikely]]
       return PipelineResult<std::array<elem_t, N>>::fail(
           {.code = ErrorCode::invalid_value, .subject = "expected ["});
     ParserScanner& sc = *ctx.scanner;
@@ -967,25 +970,26 @@ struct ArrayFn {
     std::size_t n = 0;
 
     while (true) {
-      auto tok = sc.consume_next_token();
-      if (tok.is_end()) [[unlikely]]
+      const size_t pos = sc.next();
+      if (pos >= ctx.input.size()) [[unlikely]]
         break;
-      if (tok.kind == TokenKind::RBracket) [[unlikely]]
+      const char c = ctx.input[pos];
+      if (c == ']') [[unlikely]]
         break;
-      if (tok.kind == TokenKind::Comma) [[likely]]
+      if (c == ',') [[likely]]
         continue;
 
       if (n < N) [[likely]] {
         ParseCtxBase base{.scanner = &sc,
                           .input = ctx.input,
-                          .first_tok = tok,
+                          .first_pos = pos,
                           .colon_pos = 0};
         ParseCtx<elem_t> ectx{base, out[n]};
         auto r = pipe_t::invoke(ectx, PipelineResult<void>::ok());
         if (r.have_value()) [[likely]]
           ++n;
       } else {
-        json_skip_value(sc, tok);
+        json_skip_value(sc, pos);
       }
     }
 
@@ -994,7 +998,7 @@ struct ArrayFn {
 };
 
 // variant<Ts...> ──────────────────────────────────────────────────────────────
-// first_tok must be LBrace.  Tries each T in order; picks the one whose
+// first_pos must be '{'.  Tries each T in order; picks the one whose
 // Constant<> discriminant matches.
 template <class... Ts>
 struct VariantFn {
@@ -1007,31 +1011,36 @@ struct VariantFn {
   static auto find_disc(std::string_view obj, std::string_view key)
       -> std::string_view {
     ParserScanner sc(obj);
-    auto tok = sc.consume_next_token();
-    if (tok.is_end() || tok.kind != TokenKind::LBrace) return {};
+    // Consume '{'
+    size_t pos = sc.next();
+    if (pos >= obj.size() || obj[pos] != '{') return {};
     while (true) {
-      tok = sc.consume_next_token();
-      if (tok.is_end() || tok.kind == TokenKind::RBrace) return {};
-      if (tok.kind == TokenKind::Comma) continue;
-      if (tok.kind != TokenKind::Quote) continue;
-      auto kc = sc.consume_next_token();
-      if (kc.is_end()) return {};
-      auto ks = tok.pos + 1;
-      std::string_view k = obj.substr(ks, kc.pos > ks ? kc.pos - ks : 0);
-      auto colon = sc.consume_next_token();
-      if (colon.is_end()) return {};
-      auto first = sc.consume_next_token();
-      if (first.is_end()) return {};
+      pos = sc.next();
+      if (pos >= obj.size()) return {};
+      const char c = obj[pos];
+      if (c == '}') return {};
+      if (c == ',') continue;
+      if (c != '"') continue;
+      // pos = opening '"' of key
+      size_t kc{}, col{};
+      sc.next_two(kc, col);
+      if (kc >= obj.size()) return {};
+      const size_t ks = pos + 1;
+      std::string_view k = obj.substr(ks, kc > ks ? kc - ks : 0);
+      if (col >= obj.size() || obj[col] != ':') return {};
+      const size_t first = sc.next();
+      if (first >= obj.size()) return {};
       if (k == key) {
-        if (first.kind == TokenKind::Quote) {
-          auto cl = sc.consume_next_token();
-          auto vs = first.pos + 1;
-          return obj.substr(vs, cl.pos > vs ? cl.pos - vs : 0);
+        if (obj[first] == '"') {
+          // string discriminant
+          const size_t cl = json_skip_string(sc);
+          const size_t vs = first + 1;
+          return obj.substr(vs, cl > vs ? cl - vs : 0);
         }
-        // scalar discriminant
-        auto nxt = sc.consume_next_token();
-        auto vs = json_skip_ws(obj, colon.pos + 1);
-        auto ve = json_rtrim(obj, nxt.pos);
+        // scalar discriminant: read until next structural char
+        const size_t nxt = sc.next();
+        const size_t vs = json_skip_ws(obj, col + 1);
+        const size_t ve = json_rtrim(obj, nxt < obj.size() ? nxt : obj.size());
         return obj.substr(vs, ve > vs ? ve - vs : 0);
       }
       json_skip_value(sc, first);
@@ -1041,12 +1050,13 @@ struct VariantFn {
   template <class St>
   auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
       -> PipelineResult<std::variant<Ts...>> {
-    if (ctx.first_tok.kind != TokenKind::LBrace)
+    const char fc =
+        ctx.first_pos < ctx.input.size() ? ctx.input[ctx.first_pos] : '\0';
+    if (fc != '{')
       return json_fail<std::variant<Ts...>>(ErrorCode::invalid_value,
                                             "expected {");
-    auto obj_start = ctx.first_tok.pos;
-    auto obj_end =
-        json_consume_nested(*ctx.scanner, TokenKind::LBrace, TokenKind::RBrace);
+    const size_t obj_start = ctx.first_pos;
+    const size_t obj_end = json_skip_block(*ctx.scanner, '}');
     std::string_view obj = ctx.input.substr(obj_start, obj_end - obj_start);
 
     std::optional<std::variant<Ts...>> result;
@@ -1107,13 +1117,13 @@ struct MemberFn {
   SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
                                       PipelineResult<void>) const
       -> PipelineResult<void> {
-    const auto& f = ctx.first_tok;
-    if (f.kind == TokenKind::Quote || f.kind == TokenKind::LBrace ||
-        f.kind == TokenKind::LBracket) {
-      json_skip_value(*ctx.scanner, f);
+    const char c =
+        ctx.first_pos < ctx.input.size() ? ctx.input[ctx.first_pos] : '\0';
+    if (c == '"' || c == '{' || c == '[') {
+      json_skip_value(*ctx.scanner, ctx.first_pos);
     } else {
       ctx.next_is_pending = true;
-      ctx.pending_tok = f;
+      ctx.pending_pos = ctx.first_pos;
     }
     return p_type::invoke(ctx, PipelineResult<void>::ok());
   }
@@ -1164,9 +1174,9 @@ struct AssignFn {
   }
 
   template <class T>
-  SER20_ALWAYS_INLINE auto operator()(ParseCtx<T>&,
-                                      PipelineResult<decode::ParsedInPlace<T>>
-                                          in) const -> PipelineResult<void> {
+  SER20_ALWAYS_INLINE auto operator()(
+      ParseCtx<T>&, PipelineResult<decode::ParsedInPlace<T>> in) const
+      -> PipelineResult<void> {
     if (!in.have_value()) [[unlikely]]
       return PipelineResult<void>::fail(in.error());
     return PipelineResult<void>::ok();
@@ -1193,9 +1203,9 @@ struct OnceFn {
   }
 
   template <class T>
-  SER20_ALWAYS_INLINE auto operator()(ParseCtx<T>& ctx,
-                                      PipelineResult<decode::ParsedInPlace<T>>
-                                          in) const -> PipelineResult<void> {
+  SER20_ALWAYS_INLINE auto operator()(
+      ParseCtx<T>& ctx, PipelineResult<decode::ParsedInPlace<T>> in) const
+      -> PipelineResult<void> {
     if (!in.have_value()) [[unlikely]]
       return PipelineResult<void>::fail(in.error());
     if (ctx.occurrences > 0) [[unlikely]]
@@ -1222,9 +1232,9 @@ struct OverwriteFn {
   }
 
   template <class T>
-  SER20_ALWAYS_INLINE auto operator()(ParseCtx<T>&,
-                                      PipelineResult<decode::ParsedInPlace<T>>
-                                          in) const -> PipelineResult<void> {
+  SER20_ALWAYS_INLINE auto operator()(
+      ParseCtx<T>&, PipelineResult<decode::ParsedInPlace<T>> in) const
+      -> PipelineResult<void> {
     if (!in.have_value()) [[unlikely]]
       return PipelineResult<void>::fail(in.error());
     return PipelineResult<void>::ok();
@@ -1249,9 +1259,9 @@ struct FirstWinsFn {
   }
 
   template <class T>
-  SER20_ALWAYS_INLINE auto operator()(ParseCtx<T>&,
-                                      PipelineResult<decode::ParsedInPlace<T>>
-                                          in) const -> PipelineResult<void> {
+  SER20_ALWAYS_INLINE auto operator()(
+      ParseCtx<T>&, PipelineResult<decode::ParsedInPlace<T>> in) const
+      -> PipelineResult<void> {
     if (!in.have_value()) [[unlikely]]
       return PipelineResult<void>::fail(in.error());
     return PipelineResult<void>::ok();
@@ -1303,7 +1313,9 @@ namespace detail {
 template <class T>
 SER20_ALWAYS_INLINE auto parse_object_in_place(ParseCtx<T>& ctx)
     -> PipelineResult<void> {
-  if (ctx.first_tok.kind != TokenKind::LBrace) [[unlikely]]
+  const char c =
+      ctx.first_pos < ctx.input.size() ? ctx.input[ctx.first_pos] : '\0';
+  if (c != '{') [[unlikely]]
     return PipelineResult<void>::fail(
         {.code = ErrorCode::invalid_value, .subject = "expected {"});
   auto fields = cli::as_tuple(ctx.arg.get());
@@ -1312,18 +1324,17 @@ SER20_ALWAYS_INLINE auto parse_object_in_place(ParseCtx<T>& ctx)
 
 template <class T>
 SER20_ALWAYS_INLINE auto skip_pending_value(ParseCtx<T>& ctx) -> void {
-  const auto& first = ctx.first_tok;
-  if (first.kind == TokenKind::Quote || first.kind == TokenKind::LBrace ||
-      first.kind == TokenKind::LBracket) {
-    json_skip_value(*ctx.scanner, first);
+  const char c =
+      ctx.first_pos < ctx.input.size() ? ctx.input[ctx.first_pos] : '\0';
+  if (c == '"' || c == '{' || c == '[') {
+    json_skip_value(*ctx.scanner, ctx.first_pos);
   } else {
     ctx.next_is_pending = true;
-    ctx.pending_tok = first;
+    ctx.pending_pos = ctx.first_pos;
   }
 }
 
 }  // namespace detail
-
 
 namespace unknown {
 
@@ -1335,7 +1346,7 @@ struct IgnoreUnknownFn {
   template <class St>
   auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
       -> PipelineResult<void> {
-    if (!ctx.next_is_pending) json_skip_value(*ctx.scanner, ctx.first_tok);
+    if (!ctx.next_is_pending) json_skip_value(*ctx.scanner, ctx.first_pos);
     return PipelineResult<void>::ok();
   }
 };
@@ -1348,7 +1359,7 @@ struct RejectUnknownFn {
   template <class St>
   auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
       -> PipelineResult<void> {
-    if (!ctx.next_is_pending) json_skip_value(*ctx.scanner, ctx.first_tok);
+    if (!ctx.next_is_pending) json_skip_value(*ctx.scanner, ctx.first_pos);
     return PipelineResult<void>::fail(
         {.code = ErrorCode::unknown_option, .subject = std::string(ctx.key)});
   }
@@ -1362,7 +1373,7 @@ struct RejectWithSuggestionFn {
   template <class St>
   auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
       -> PipelineResult<void> {
-    if (!ctx.next_is_pending) json_skip_value(*ctx.scanner, ctx.first_tok);
+    if (!ctx.next_is_pending) json_skip_value(*ctx.scanner, ctx.first_pos);
     return PipelineResult<void>::fail(
         {.code = ErrorCode::unknown_option, .subject = std::string(ctx.key)});
   }
@@ -1390,7 +1401,8 @@ struct String {
   template <class Prev>
   using storage_type = void;
 
-  auto operator()(PipelineCtx<void>, PipelineResult<std::string_view> input) const
+  auto operator()(PipelineCtx<void>,
+                  PipelineResult<std::string_view> input) const
       -> PipelineResult<std::string> {
     if (!input.have_value()) return fail<std::string>(input.error());
     return ok(std::string(input.value()));

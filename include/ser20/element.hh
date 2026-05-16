@@ -87,7 +87,7 @@ struct ElemImpl : public ElementTag {
     ctx.occurrences = occurrences_;
     auto result = pipe_type::invoke(ctx, PipelineResult<void>::ok());
     base.next_is_pending = ctx.next_is_pending;
-    base.pending_tok = ctx.pending_tok;
+    base.pending_pos = ctx.pending_pos;
     if (result.have_value()) [[likely]]
       ++occurrences_;
     return result;

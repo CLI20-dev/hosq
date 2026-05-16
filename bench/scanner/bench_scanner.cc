@@ -200,11 +200,12 @@ static std::string make_twitter_like_escaped_random(size_t bytes) {
 
 template <typename Scanner>
 static size_t drain(Scanner& scanner) {
+  const std::string_view input = scanner.input();
   size_t acc = 0;
   while (true) {
-    const auto tok = scanner.consume_next_token();
-    if (tok.is_end()) break;
-    acc += tok.pos;
+    const size_t pos = scanner.next();
+    if (pos >= input.size()) break;
+    acc += pos;
   }
   return acc;
 }
@@ -371,7 +372,10 @@ static void BM_TwitterLikeEscapedRandom(benchmark::State& state) {
 
 static const std::string kTwitterJson = []() {
   std::ifstream f(TWITTER_JSON_PATH);
-  if (!f) { std::cerr << "cannot open " TWITTER_JSON_PATH "\n"; std::abort(); }
+  if (!f) {
+    std::cerr << "cannot open " TWITTER_JSON_PATH "\n";
+    std::abort();
+  }
   return std::string{std::istreambuf_iterator<char>(f), {}};
 }();
 
@@ -433,6 +437,5 @@ REGISTER(BM_TwitterLikeLongRandom);
 REGISTER(BM_TwitterLikeEscapedRandom);
 
 #undef REGISTER
-
 
 }  // namespace
