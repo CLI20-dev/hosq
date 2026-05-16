@@ -1,0 +1,36 @@
+{
+  "name": "test-json",
+  "active": true,
+  "deleted": false,
+  "value": null,
+  "text": "hello\nworld \"quoted\" \\ slash / unicode: \u3053\u3093\u306b\u3061\u306f",
+  "emptyString": "",
+  "number": -123.45e+6,
+  "emptyArray": [],
+  "array": [
+    1,
+    "two",
+    null,
+    true,
+    false,
+    {
+      "nested": "object"
+    },
+    [
+      "nested",
+      "array"
+    ]
+  ],
+  "emptyObject": {},
+  "object": {
+    "a": 1,
+    "b": null,
+    "c": {
+      "deep": [
+        {
+          "x": "y"
+        }
+      ]
+    }
+  }
+}
