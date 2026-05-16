@@ -1,10 +1,24 @@
 #pragma once
 
+#include <cstddef>
+#include <optional>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+
+#include "ser20/parse_context.hh"
 #include "ser20/pipeline.hh"
 #include "ser20/string_literal.hh"
 
 namespace ser20 {
 
+#if defined(__GNUC__) || defined(__clang__)
+#define SER20_ALWAYS_INLINE inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define SER20_ALWAYS_INLINE __forceinline
+#else
+#define SER20_ALWAYS_INLINE inline
+#endif
 
 struct ElementTag {};
 
@@ -30,90 +44,57 @@ enum class Presence { required, optional };
  * @tparam T The storage value type of the argument.
  */
 template <class T>
-struct ArgParameter {
-  // Presence presence{Presence::optional};  ///< Whether the argument is
-  // required. std::optional<T>
-  //     default_value{};  ///< Default value when the argument is absent.
-  // std::function<void(const T&)>
-  //     on_parse{};          ///< Callback invoked once after parsing completes.
-  // std::string_view env{};  ///< Environment variable name to fall back to when
-  //                          ///< the option is absent from the command line.
-};
+struct ArgParameter {};
 
-namespace detail {
-
-template <StringLiteral Name, auto A>
+template <StringLiteral Name, auto Pipe>
 struct ElemImpl : public ElementTag {
-  using value_type =
-      typename std::remove_cvref_t<decltype(std::get<1>(A.validate()))>::type;
-  ElemImpl() : ElemImpl(ArgParameter<value_type>{}) {}
-  ElemImpl(ArgParameter<value_type> param) : param_(std::move(param)) {}
+  using pipe_type = std::remove_cvref_t<decltype(Pipe)>;
+  using storage_type = parse_storage_t<Pipe>;
+  using value_type = storage_type;
 
-  // Bind to an external variable after construction.
-  // Allows: opt.bind(var)  or  opt = &var
-  auto bind(std::remove_pointer_t<value_type>& ref) -> ElemImpl&
-    requires std::is_pointer_v<value_type>
-  {
-    value_ = &ref;
-    return *this;
-  }
-  auto operator=(std::remove_pointer_t<value_type>* ptr) -> ElemImpl&
-    requires std::is_pointer_v<value_type>
-  {
-    value_ = ptr;
-    return *this;
+  ElemImpl() = default;
+  explicit ElemImpl(ArgParameter<value_type>) {}
+
+  static constexpr std::string_view name{Name.data(), Name.size()};
+  static constexpr bool is_unknown_handler = name.empty();
+
+  [[nodiscard]] auto value() const -> const storage_type& { return value_; }
+  [[nodiscard]] auto value() -> storage_type& { return value_; }
+  [[nodiscard]] auto occurrences() const -> std::size_t { return occurrences_; }
+  [[nodiscard]] auto operator*() -> storage_type& { return value_; }
+  [[nodiscard]] auto operator*() const -> const storage_type& { return value_; }
+  [[nodiscard]] auto operator->() -> storage_type* { return &value_; }
+  [[nodiscard]] auto operator->() const -> const storage_type* {
+    return &value_;
   }
 
-  static constexpr auto name = Name;
-
-  [[nodiscard]] auto value() const -> const value_type& { return value_; }
-  [[nodiscard]] auto value() -> value_type& { return value_; }
-  [[nodiscard]] auto occurrences() const -> std::size_t {
-    return occurrence_count_;
-  }
-  [[nodiscard]] auto operator*() -> value_type& { return value_; }
-  [[nodiscard]] auto operator*() const -> const value_type& { return value_; }
-  [[nodiscard]] auto operator->() -> value_type* { return &value_; }
-  [[nodiscard]] auto operator->() const -> const value_type* { return &value_; }
+  operator const storage_type&() const noexcept { return value_; }
+  operator storage_type&() noexcept { return value_; }
 
   template <class U>
-  [[nodiscard]] auto value_or(U&& fallback) const -> value_type {
-    return static_cast<value_type>(std::forward<U>(fallback));
+  [[nodiscard]] auto value_or(U&& fallback) const -> storage_type {
+    return static_cast<storage_type>(std::forward<U>(fallback));
   }
 
-  [[nodiscard]] explicit operator std::optional<value_type>() const {
+  [[nodiscard]] explicit operator std::optional<storage_type>() const {
     return std::nullopt;
   }
 
- protected:
-  static constexpr bool entry_is_optional =
-      std::remove_cvref_t<decltype(A)>::entry_is_optional;
-
-  // Called once when the option token is seen (before processing its values).
-  auto notify_option_seen() -> void { ++occurrence_count_; }
-
-  // Called once per value token associated with this option.
-  auto invoke_action(std::string_view key, std::string_view text,
-                     std::size_t index) -> PipelineResult<void> {
-    PipelineCtx<value_type> ctx{
-        .index = index,
-        .key = key,
-        .occurrences = occurrence_count_,
-        .arg = std::ref(value_),
-    };
-    return decltype(A)::invoke(ctx, PipelineResult<std::string_view>::ok(text));
-  }
-
-  [[nodiscard]] auto get_param() const -> const ArgParameter<value_type>& {
-    return param_;
+  SER20_ALWAYS_INLINE auto parse(ParseCtxBase& base) -> PipelineResult<void> {
+    ParseCtx<storage_type> ctx{base, value_};
+    ctx.occurrences = occurrences_;
+    auto result = pipe_type::invoke(ctx, PipelineResult<void>::ok());
+    base.next_is_pending = ctx.next_is_pending;
+    base.pending_tok = ctx.pending_tok;
+    if (result.have_value()) [[likely]]
+      ++occurrences_;
+    return result;
   }
 
  private:
-  ArgParameter<value_type> param_;
-  value_type value_{};
-  std::size_t occurrence_count_{};  // times the option token appeared
+  storage_type value_{};
+  std::size_t occurrences_{};
 };
 
-};  // namespace detail
-
-};  // namespace ser20
+#undef SER20_ALWAYS_INLINE
+}  // namespace ser20

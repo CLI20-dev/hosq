@@ -1,12 +1,18 @@
 
-#include <ser20/element.hh>
+#include <ser20/parser.hh>
 
 struct Json {
-  ser20::detail::ElemImpl<"name", ser20::pack::set_once> name;
-  ser20::detail::ElemImpl<"active", ser20::pack::set_once> active;
-  ser20::detail::ElemImpl<"deleted", ser20::pack::set_once> deleted;
+  ser20::ElemImpl<"name", ser20::scan::string | ser20::decode::string_view |
+                              ser20::pack::once>
+      name;
+  ser20::ElemImpl<"active", ser20::scan::scalar | ser20::decode::boolean |
+                                ser20::pack::once>
+      active;
+  ser20::ElemImpl<"deleted", ser20::scan::scalar | ser20::decode::boolean |
+                                 ser20::pack::once>
+      deleted;
 
-  ser20::detail::ElemImpl<"", ser20::pack::set_once> remainings;
+  ser20::ElemImpl<"", ser20::unknown::ignore> remainings;
 };
 
 auto main() -> int {}

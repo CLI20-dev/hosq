@@ -34,10 +34,11 @@ struct Matcher {
  private:
   template <std::size_t I, class Callback, class... Args>
   static constexpr auto find_impl(std::string_view str,
-                                  std::tuple<Args...>& args,
-                                  Callback&& cb) -> bool {
+                                  std::tuple<Args...>& args, Callback&& cb)
+      -> bool {
     if constexpr (I < sizeof...(Args)) {
-      using Arg = std::remove_cvref_t<std::tuple_element_t<I, std::tuple<Args...>>>;
+      using Arg =
+          std::remove_cvref_t<std::tuple_element_t<I, std::tuple<Args...>>>;
       if (str == Arg::name) {
         std::invoke(std::forward<Callback>(cb), std::get<I>(args));
         return true;

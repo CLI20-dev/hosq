@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <charconv>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -10,12 +12,15 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include "ser20/error.hh"
+#include "ser20/parse_context.hh"
+#include "ser20/to_tuple.hh"
 
 namespace ser20 {
 
@@ -108,8 +113,8 @@ struct PipelineResult {
  *
  * Pack actions such as `SetTrue` or `Push` write their result directly into the
  * argument storage referenced by `PipelineCtx::arg`; they do not pass a value
- * downstream, so `PipelineResult<void>` carries only an error, success, or ignore
- * state.
+ * downstream, so `PipelineResult<void>` carries only an error, success, or
+ * ignore state.
  */
 template <>
 struct PipelineResult<void> {
@@ -160,7 +165,8 @@ struct PipelineResult<void> {
    * @param e The error to store.
    * @return A failed `PipelineResult<void>`.
    */
-  [[nodiscard]] static constexpr auto fail(ParseError e) -> PipelineResult<void> {
+  [[nodiscard]] static constexpr auto fail(ParseError e)
+      -> PipelineResult<void> {
     return {.state = State::error, .error = std::move(e)};
   }
 
@@ -250,8 +256,9 @@ struct PipelineCtx {
  *
  * Conversion and validation actions do not have access to the final storage;
  * they receive `PipelineCtx<void>` which carries only the positional counters.
- * This specialisation also provides a converting constructor from `PipelineCtx<T>`
- * so that the parser can downcast when invoking non-terminal actions.
+ * This specialisation also provides a converting constructor from
+ * `PipelineCtx<T>` so that the parser can downcast when invoking non-terminal
+ * actions.
  */
 template <>
 struct PipelineCtx<void> {
@@ -307,24 +314,25 @@ template <auto... Fns>
 struct Pipeline {
   template <class Arg, class Result>
   [[nodiscard]]
-  static constexpr auto invoke(PipelineCtx<Arg>& ctx, PipelineResult<Result> input) {
-    return
-        []<auto FnHead, auto... FnTail>(
-            PipelineCtx<Arg>& ctx, PipelineResult<Result> input) -> decltype(auto) {
-          if (input.is_ignored()) {
-            using FinalIdentity = std::remove_cvref_t<decltype(std::get<2>(
-                Pipeline::template validate_impl<false, Result, FnHead,
-                                               FnTail...>()))>;
-            return PipelineResult<typename FinalIdentity::type>::ignore();
-          }
+  static constexpr auto invoke(PipelineCtx<Arg>& ctx,
+                               PipelineResult<Result> input) {
+    return []<auto FnHead, auto... FnTail>(
+               PipelineCtx<Arg>& ctx,
+               PipelineResult<Result> input) -> decltype(auto) {
+      if (input.is_ignored()) {
+        using FinalIdentity = std::remove_cvref_t<decltype(std::get<2>(
+            Pipeline::template validate_impl<false, Result, FnHead,
+                                             FnTail...>()))>;
+        return PipelineResult<typename FinalIdentity::type>::ignore();
+      }
 
-          auto next = FnHead(ctx, std::move(input));
-          if constexpr (sizeof...(FnTail) == 0) {
-            return next;
-          } else {
-            return Pipeline<FnTail...>::invoke(ctx, std::move(next));
-          }
-        }.template operator()<Fns...>(ctx, std::move(input));
+      auto next = FnHead(ctx, std::move(input));
+      if constexpr (sizeof...(FnTail) == 0) {
+        return next;
+      } else {
+        return Pipeline<FnTail...>::invoke(ctx, std::move(next));
+      }
+    }.template operator()<Fns...>(ctx, std::move(input));
   }
 
   template <class Arg, class Result>
@@ -337,7 +345,7 @@ struct Pipeline {
       if (input.is_ignored()) {
         using FinalIdentity = std::remove_cvref_t<decltype(std::get<2>(
             Pipeline::template validate_impl<false, Result, FnHead,
-                                           FnTail...>()))>;
+                                             FnTail...>()))>;
         return PipelineResult<typename FinalIdentity::type>::ignore();
       }
 
@@ -368,8 +376,9 @@ struct Pipeline {
           std::type_identity<typename Head::template after_type<Prev>>{});
     } else {
       if constexpr (!Head::template accepts_input<Prev>) {
-        static_assert(Head::template accepts_input<Prev>,
-                      "Pipeline step does not accept the previous step's output");
+        static_assert(
+            Head::template accepts_input<Prev>,
+            "Pipeline step does not accept the previous step's output");
         return std::make_tuple(false, std::type_identity<void>{},
                                std::type_identity<void>{});
       } else {
@@ -420,6 +429,800 @@ template <auto Fn, auto... Fns>
 constexpr auto operator|(Pipeline<Fns...>, Pipeline<Fn>) {
   return Pipeline<Fns..., Fn>{};
 }
+
+template <auto... Fns>
+struct ParsePipeline;
+
+template <>
+struct ParsePipeline<> {
+  template <class Ctx, class In>
+  static constexpr auto invoke(Ctx&, PipelineResult<In> value) {
+    return value;
+  }
+};
+
+template <auto FnHead, auto... FnTail>
+struct ParsePipeline<FnHead, FnTail...> {
+  template <class Ctx, class In>
+  static constexpr auto invoke(Ctx& ctx, PipelineResult<In> value)
+      -> decltype(auto) {
+    auto next = FnHead(ctx, std::move(value));
+    if constexpr (sizeof...(FnTail) == 0) {
+      return next;
+    } else {
+      return ParsePipeline<FnTail...>::invoke(ctx, std::move(next));
+    }
+  }
+};
+
+template <auto Fn, auto... Fns>
+constexpr auto operator|(ParsePipeline<Fns...>, ParsePipeline<Fn>) {
+  return ParsePipeline<Fns..., Fn>{};
+}
+
+template <class Entry, auto FnHead, auto... FnTail>
+struct ParseStorageOf {
+  using After =
+      typename std::remove_cvref_t<decltype(FnHead)>::template after_type<Entry>;
+  using type = typename ParseStorageOf<After, FnTail...>::type;
+};
+
+template <class Entry, auto FnLast>
+struct ParseStorageOf<Entry, FnLast> {
+  using type = typename std::remove_cvref_t<
+      decltype(FnLast)>::template storage_type<Entry>;
+};
+
+template <class PipelineType>
+struct ParsePipelineStorage;
+
+template <auto... Fns>
+struct ParsePipelineStorage<ParsePipeline<Fns...>> {
+  using type = typename ParseStorageOf<void, Fns...>::type;
+};
+
+template <auto Pipe>
+using parse_storage_t = typename ParsePipelineStorage<
+    std::remove_cvref_t<decltype(Pipe)>>::type;
+
+// ── whitespace utilities ──────────────────────────────────────────────────────
+SER20_ALWAYS_INLINE auto json_skip_ws(std::string_view s, std::size_t p) noexcept
+    -> std::size_t {
+  while (p < s.size() && (s[p] == ' ' || s[p] == '\t' || s[p] == '\r' ||
+                          s[p] == '\n')) [[unlikely]]
+    ++p;
+  return p;
+}
+SER20_ALWAYS_INLINE auto json_rtrim(std::string_view s, std::size_t e) noexcept
+    -> std::size_t {
+  while (e > 0 && (s[e - 1] == ' ' || s[e - 1] == '\t' || s[e - 1] == '\r' ||
+                   s[e - 1] == '\n')) [[unlikely]]
+    --e;
+  return e;
+}
+
+// ── error helpers ─────────────────────────────────────────────────────────────
+template <class T>
+SER20_ALWAYS_INLINE auto json_fail(ErrorCode code, std::string_view subject = {})
+    -> PipelineResult<T> {
+  return PipelineResult<T>::fail(
+      {.code = code, .subject = std::string(subject)});
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ser20::scan::*
+// ═══════════════════════════════════════════════════════════════════════════════
+namespace scan {
+
+// scalar ──────────────────────────────────────────────────────────────────────
+// first_tok must be a delimiter (Comma / RBrace / RBracket).
+// Extracts input[colon_pos+1 .. first_tok.pos) trimmed.
+// Sets next_is_pending so the outer loop re-uses the delimiter.
+struct ScalarFn {
+  template <class I>
+  using after_type = std::string_view;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
+                                      PipelineResult<void>) const
+      -> PipelineResult<std::string_view> {
+    const auto& f = ctx.first_tok;
+    if (f.kind == TokenKind::Quote || f.kind == TokenKind::LBrace ||
+        f.kind == TokenKind::LBracket) [[unlikely]]
+      return json_fail<std::string_view>(ErrorCode::invalid_value,
+                                         "expected scalar");
+    ctx.next_is_pending = true;
+    ctx.pending_tok = f;
+    auto s = json_skip_ws(ctx.input, ctx.colon_pos + 1);
+    auto e = json_rtrim(ctx.input, f.pos);
+    if (s >= e) [[unlikely]]
+      return json_fail<std::string_view>(ErrorCode::invalid_value,
+                                         "empty scalar");
+    return PipelineResult<std::string_view>::ok(ctx.input.substr(s, e - s));
+  }
+};
+
+// string ──────────────────────────────────────────────────────────────────────
+// first_tok must be Quote (opening).  Consumes the closing Quote.
+// Returns the content between the quotes (no escape resolution).
+struct StringFn {
+  template <class I>
+  using after_type = std::string_view;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
+                                      PipelineResult<void>) const
+      -> PipelineResult<std::string_view> {
+    if (ctx.first_tok.kind != TokenKind::Quote) [[unlikely]]
+      return json_fail<std::string_view>(ErrorCode::invalid_value,
+                                         "expected string");
+    auto close = ctx.scanner->consume_next_token();
+    if (close.is_end()) [[unlikely]]
+      return json_fail<std::string_view>(ErrorCode::invalid_value,
+                                         "unterminated string");
+    auto s = ctx.first_tok.pos + 1;
+    return PipelineResult<std::string_view>::ok(
+        ctx.input.substr(s, close.pos > s ? close.pos - s : 0));
+  }
+};
+
+// object_raw / array_raw ──────────────────────────────────────────────────────
+struct ObjectRawFn {
+  template <class I>
+  using after_type = std::string_view;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
+      -> PipelineResult<std::string_view> {
+    if (ctx.first_tok.kind != TokenKind::LBrace)
+      return json_fail<std::string_view>(ErrorCode::invalid_value, "expected {");
+    auto start = ctx.first_tok.pos;
+    auto end =
+        json_consume_nested(*ctx.scanner, TokenKind::LBrace, TokenKind::RBrace);
+    return PipelineResult<std::string_view>::ok(
+        ctx.input.substr(start, end - start));
+  }
+};
+
+struct ArrayRawFn {
+  template <class I>
+  using after_type = std::string_view;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
+      -> PipelineResult<std::string_view> {
+    if (ctx.first_tok.kind != TokenKind::LBracket)
+      return json_fail<std::string_view>(ErrorCode::invalid_value, "expected [");
+    auto start = ctx.first_tok.pos;
+    auto end = json_consume_nested(*ctx.scanner, TokenKind::LBracket,
+                                   TokenKind::RBracket);
+    return PipelineResult<std::string_view>::ok(
+        ctx.input.substr(start, end - start));
+  }
+};
+
+inline constexpr auto scalar = ParsePipeline<ScalarFn{}>{};
+inline constexpr auto string = ParsePipeline<StringFn{}>{};
+inline constexpr auto object_raw = ParsePipeline<ObjectRawFn{}>{};
+inline constexpr auto array_raw = ParsePipeline<ArrayRawFn{}>{};
+
+}  // namespace scan
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Forward declarations needed for mutual recursion
+// ═══════════════════════════════════════════════════════════════════════════════
+
+namespace detail {
+// json_parse_object_body: parse key-value pairs with sc positioned AFTER '{'.
+template <class Tuple>
+auto json_parse_object_body(ParserScanner& sc, std::string_view input,
+                            Tuple& fields) -> PipelineResult<void>;
+
+// json_parse_object: consume '{' then delegate to _body.
+template <class Tuple>
+auto json_parse_object(ParserScanner& sc, std::string_view input, Tuple& fields)
+    -> PipelineResult<void>;
+}  // namespace detail
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ser20::decode::*
+// ═══════════════════════════════════════════════════════════════════════════════
+namespace decode {
+
+// integer<T> ──────────────────────────────────────────────────────────────────
+template <class T>
+struct IntegerFn {
+  template <class I>
+  using after_type = T;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>&,
+                                      PipelineResult<std::string_view> in) const
+      -> PipelineResult<T> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<T>::fail(in.error);
+    T r{};
+    auto [p, ec] =
+        std::from_chars(in.value.data(), in.value.data() + in.value.size(), r);
+    if (ec != std::errc{}) [[unlikely]]
+      return json_fail<T>(ErrorCode::invalid_value, in.value);
+    return PipelineResult<T>::ok(r);
+  }
+};
+
+// floating<T> ─────────────────────────────────────────────────────────────────
+template <class T>
+struct FloatingFn {
+  template <class I>
+  using after_type = T;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>&,
+                                      PipelineResult<std::string_view> in) const
+      -> PipelineResult<T> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<T>::fail(in.error);
+    T r{};
+    auto [p, ec] =
+        std::from_chars(in.value.data(), in.value.data() + in.value.size(), r);
+    if (ec != std::errc{}) [[unlikely]]
+      return json_fail<T>(ErrorCode::invalid_value, in.value);
+    return PipelineResult<T>::ok(r);
+  }
+};
+
+// boolean ─────────────────────────────────────────────────────────────────────
+struct BooleanFn {
+  template <class I>
+  using after_type = bool;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>&,
+                                      PipelineResult<std::string_view> in) const
+      -> PipelineResult<bool> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<bool>::fail(in.error);
+    if (in.value == "true") [[likely]]
+      return PipelineResult<bool>::ok(true);
+    if (in.value == "false") return PipelineResult<bool>::ok(false);
+    return json_fail<bool>(ErrorCode::invalid_value, in.value);
+  }
+};
+
+// string_view ─────────────────────────────────────────────────────────────────
+struct StringViewFn {
+  template <class I>
+  using after_type = std::string_view;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>&,
+                                      PipelineResult<std::string_view> in) const
+      -> PipelineResult<std::string_view> {
+    return in;
+  }
+};
+
+// string (owned, escape-resolved TODO) ────────────────────────────────────────
+struct OwnedStringFn {
+  template <class I>
+  using after_type = std::string;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>&,
+                                      PipelineResult<std::string_view> in) const
+      -> PipelineResult<std::string> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<std::string>::fail(in.error);
+    return PipelineResult<std::string>::ok(std::string(in.value));
+  }
+};
+
+// identity ────────────────────────────────────────────────────────────────────
+struct IdentityFn {
+  template <class I>
+  using after_type = I;
+  template <class I>
+  using storage_type = void;
+  template <class St, class In>
+  auto operator()(ParseCtx<St>&, PipelineResult<In> in) const
+      -> PipelineResult<In> {
+    return in;
+  }
+};
+
+// custom<F> ───────────────────────────────────────────────────────────────────
+template <auto F>
+struct CustomFn {
+  template <class I>
+  using after_type = std::invoke_result_t<decltype(F), const I&>;
+  template <class I>
+  using storage_type = void;
+  template <class St, class In>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>&, PipelineResult<In> in) const
+      -> PipelineResult<std::invoke_result_t<decltype(F), const In&>> {
+    using Out = std::invoke_result_t<decltype(F), const In&>;
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<Out>::fail(in.error);
+    return PipelineResult<Out>::ok(F(in.value));
+  }
+};
+
+// parse_to<T> ─────────────────────────────────────────────────────────────────
+// first_tok must be LBrace.  Sub-scans the object into T.
+template <class T>
+struct ParseToFn {
+  template <class I>
+  using after_type = T;
+  template <class I>
+  using storage_type = void;
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
+                                      PipelineResult<void>) const
+      -> PipelineResult<T> {
+    if (ctx.first_tok.kind != TokenKind::LBrace) [[unlikely]]
+      return json_fail<T>(ErrorCode::invalid_value, "expected {");
+    T result{};
+    auto fields = cli::as_tuple(result);
+    auto r = detail::json_parse_object_body(*ctx.scanner, ctx.input, fields);
+    if (!r.have_value()) [[unlikely]]
+      return PipelineResult<T>::fail(r.error);
+    return PipelineResult<T>::ok(std::move(result));
+  }
+};
+
+// vector<Pipe> ────────────────────────────────────────────────────────────────
+// first_tok must be LBracket.  Iterates elements, applying Pipe to each.
+template <auto Pipe>
+struct VectorFn {
+  using elem_t = parse_storage_t<Pipe>;
+  using pipe_t = std::remove_cvref_t<decltype(Pipe)>;
+  template <class I>
+  using after_type = std::vector<elem_t>;
+  template <class I>
+  using storage_type = void;
+
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
+                                      PipelineResult<void>) const
+      -> PipelineResult<std::vector<elem_t>> {
+    if (ctx.first_tok.kind != TokenKind::LBracket) [[unlikely]]
+      return json_fail<std::vector<elem_t>>(ErrorCode::invalid_value,
+                                            "expected [");
+    ParserScanner& sc = *ctx.scanner;
+    std::vector<elem_t> out;
+
+    // last_pos: start of the current potential scalar element (after '[' or
+    // ','). just_saw_structured: true after consuming a Quote/LBrace/LBracket
+    // element, so we skip the scalar check when the next ',' or ']' arrives.
+    std::size_t last_pos = ctx.first_tok.pos + 1;
+    bool just_saw_structured = false;
+
+    auto process_scalar = [&](ScannerToken delim) {
+      auto s = json_skip_ws(ctx.input, last_pos);
+      auto e = json_rtrim(ctx.input, delim.pos);
+      if (s >= e) return;
+      elem_t val{};
+      // colon_pos is set to last_pos-1 so colon_pos+1 == last_pos (ScalarFn
+      // start)
+      ParseCtxBase base{
+          .scanner = &sc,
+          .input = ctx.input,
+          .first_tok = delim,
+          .colon_pos = last_pos > 0 ? last_pos - 1 : 0,
+      };
+      ParseCtx<elem_t> ectx{base, val};
+      auto r = pipe_t::invoke(ectx, PipelineResult<void>::ok());
+      if (r.have_value()) out.push_back(std::move(val));
+    };
+
+    while (true) {
+      auto tok = sc.consume_next_token();
+      if (tok.is_end()) break;
+
+      if (tok.kind == TokenKind::RBracket) [[unlikely]] {
+        if (!just_saw_structured) process_scalar(tok);
+        break;
+      }
+
+      if (tok.kind == TokenKind::Comma) [[likely]] {
+        if (!just_saw_structured) process_scalar(tok);
+        last_pos = tok.pos + 1;
+        just_saw_structured = false;
+        continue;
+      }
+
+      // Structured element: Quote, LBrace, LBracket
+      just_saw_structured = true;
+      elem_t val{};
+      ParseCtxBase base{
+          .scanner = &sc,
+          .input = ctx.input,
+          .first_tok = tok,
+          .colon_pos = 0,
+      };
+      ParseCtx<elem_t> ectx{base, val};
+      auto r = pipe_t::invoke(ectx, PipelineResult<void>::ok());
+      if (r.have_value()) out.push_back(std::move(val));
+    }
+
+    return PipelineResult<std::vector<elem_t>>::ok(std::move(out));
+  }
+};
+
+// array<N, Pipe> ──────────────────────────────────────────────────────────────
+// Like VectorFn but fills a fixed std::array<elem_t, N> — no heap allocation.
+// Elements beyond N are skipped. Scalar arrays are not supported.
+template <std::size_t N, auto Pipe>
+struct ArrayFn {
+  using elem_t = parse_storage_t<Pipe>;
+  using pipe_t = std::remove_cvref_t<decltype(Pipe)>;
+  template <class I>
+  using after_type = std::array<elem_t, N>;
+  template <class I>
+  using storage_type = void;
+
+  template <class St>
+  auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
+      -> PipelineResult<std::array<elem_t, N>> {
+    if (ctx.first_tok.kind != TokenKind::LBracket) [[unlikely]]
+      return PipelineResult<std::array<elem_t, N>>::fail(
+          {.code = ErrorCode::invalid_value, .subject = "expected ["});
+    ParserScanner& sc = *ctx.scanner;
+    std::array<elem_t, N> out{};
+    std::size_t n = 0;
+
+    while (true) {
+      auto tok = sc.consume_next_token();
+      if (tok.is_end()) [[unlikely]]
+        break;
+      if (tok.kind == TokenKind::RBracket) [[unlikely]]
+        break;
+      if (tok.kind == TokenKind::Comma) [[likely]]
+        continue;
+
+      if (n < N) [[likely]] {
+        ParseCtxBase base{.scanner = &sc,
+                          .input = ctx.input,
+                          .first_tok = tok,
+                          .colon_pos = 0};
+        ParseCtx<elem_t> ectx{base, out[n]};
+        auto r = pipe_t::invoke(ectx, PipelineResult<void>::ok());
+        if (r.have_value()) [[likely]]
+          ++n;
+      } else {
+        json_skip_value(sc, tok);
+      }
+    }
+
+    return PipelineResult<std::array<elem_t, N>>::ok(std::move(out));
+  }
+};
+
+// variant<Ts...> ──────────────────────────────────────────────────────────────
+// first_tok must be LBrace.  Tries each T in order; picks the one whose
+// Constant<> discriminant matches.
+template <class... Ts>
+struct VariantFn {
+  template <class I>
+  using after_type = std::variant<Ts...>;
+  template <class I>
+  using storage_type = void;
+
+  // Scan a top-level string value for the given key, without allocating.
+  static auto find_disc(std::string_view obj, std::string_view key)
+      -> std::string_view {
+    ParserScanner sc(obj);
+    auto tok = sc.consume_next_token();
+    if (tok.is_end() || tok.kind != TokenKind::LBrace) return {};
+    while (true) {
+      tok = sc.consume_next_token();
+      if (tok.is_end() || tok.kind == TokenKind::RBrace) return {};
+      if (tok.kind == TokenKind::Comma) continue;
+      if (tok.kind != TokenKind::Quote) continue;
+      auto kc = sc.consume_next_token();
+      if (kc.is_end()) return {};
+      auto ks = tok.pos + 1;
+      std::string_view k = obj.substr(ks, kc.pos > ks ? kc.pos - ks : 0);
+      auto colon = sc.consume_next_token();
+      if (colon.is_end()) return {};
+      auto first = sc.consume_next_token();
+      if (first.is_end()) return {};
+      if (k == key) {
+        if (first.kind == TokenKind::Quote) {
+          auto cl = sc.consume_next_token();
+          auto vs = first.pos + 1;
+          return obj.substr(vs, cl.pos > vs ? cl.pos - vs : 0);
+        }
+        // scalar discriminant
+        auto nxt = sc.consume_next_token();
+        auto vs = json_skip_ws(obj, colon.pos + 1);
+        auto ve = json_rtrim(obj, nxt.pos);
+        return obj.substr(vs, ve > vs ? ve - vs : 0);
+      }
+      json_skip_value(sc, first);
+    }
+  }
+
+  template <class St>
+  auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
+      -> PipelineResult<std::variant<Ts...>> {
+    if (ctx.first_tok.kind != TokenKind::LBrace)
+      return json_fail<std::variant<Ts...>>(ErrorCode::invalid_value,
+                                            "expected {");
+    auto obj_start = ctx.first_tok.pos;
+    auto obj_end =
+        json_consume_nested(*ctx.scanner, TokenKind::LBrace, TokenKind::RBrace);
+    std::string_view obj = ctx.input.substr(obj_start, obj_end - obj_start);
+
+    std::optional<std::variant<Ts...>> result;
+
+    auto try_one = [&]<class T>() -> bool {
+      T candidate{};
+      auto fields = cli::as_tuple(candidate);
+
+      // Find discriminant by scanning field member types for Constant<>
+      bool disc_ok = true;
+      std::apply(
+          [&](auto&... f) {
+            (
+                [&] {
+                  using FT = std::remove_cvref_t<decltype(f)>;
+                  if constexpr (requires {
+                                  FT::discriminant_key;
+                                  FT::discriminant_value;
+                                }) {
+                    if (find_disc(obj, FT::discriminant_key) !=
+                        FT::discriminant_value)
+                      disc_ok = false;
+                  }
+                }(),
+                ...);
+          },
+          fields);
+      if (!disc_ok) return false;
+
+      ParserScanner sub(obj);
+      auto r = detail::json_parse_object(sub, obj, fields);
+      if (!r.have_value()) return false;
+      result.emplace(std::in_place_type<T>, std::move(candidate));
+      return true;
+    };
+
+    bool ok = (try_one.template operator()<Ts>() || ...);
+    if (!ok)
+      return json_fail<std::variant<Ts...>>(ErrorCode::invalid_value,
+                                            "no variant match");
+    return PipelineResult<std::variant<Ts...>>::ok(std::move(*result));
+  }
+};
+
+// member<P> ───────────────────────────────────────────────────────────────────
+// Always skips the current value, then applies P as a policy.
+// P = pack::ignore       → silently skip (always ok)
+// P = pack::reject_*     → skip + signal error (outer pack::ignore eats it)
+template <auto P>
+struct MemberFn {
+  using p_type = std::remove_cvref_t<decltype(P)>;
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = void;
+
+  template <class St>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>& ctx,
+                                      PipelineResult<void>) const
+      -> PipelineResult<void> {
+    const auto& f = ctx.first_tok;
+    if (f.kind == TokenKind::Quote || f.kind == TokenKind::LBrace ||
+        f.kind == TokenKind::LBracket) {
+      json_skip_value(*ctx.scanner, f);
+    } else {
+      ctx.next_is_pending = true;
+      ctx.pending_tok = f;
+    }
+    return p_type::invoke(ctx, PipelineResult<void>::ok());
+  }
+};
+
+template <class T>
+inline constexpr auto integer = ParsePipeline<IntegerFn<T>{}>{};
+template <class T>
+inline constexpr auto floating = ParsePipeline<FloatingFn<T>{}>{};
+inline constexpr auto boolean = ParsePipeline<BooleanFn{}>{};
+inline constexpr auto string_view = ParsePipeline<StringViewFn{}>{};
+inline constexpr auto string = ParsePipeline<OwnedStringFn{}>{};
+inline constexpr auto identity = ParsePipeline<IdentityFn{}>{};
+template <auto F>
+inline constexpr auto custom = ParsePipeline<CustomFn<F>{}>{};
+template <class T>
+inline constexpr auto parse_to = ParsePipeline<ParseToFn<T>{}>{};
+template <auto Pipe>
+inline constexpr auto vector = ParsePipeline<VectorFn<Pipe>{}>{};
+template <class... Ts>
+inline constexpr auto variant = ParsePipeline<VariantFn<Ts...>{}>{};
+template <auto P>
+inline constexpr auto member = ParsePipeline<MemberFn<P>{}>{};
+template <std::size_t N, auto Pipe>
+inline constexpr auto array = ParsePipeline<ArrayFn<N, Pipe>{}>{};
+
+}  // namespace decode
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ser20::pack::*
+// ═══════════════════════════════════════════════════════════════════════════════
+namespace pack {
+
+// assign ──────────────────────────────────────────────────────────────────────
+struct AssignFn {
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = std::remove_cvref_t<I>;
+  template <class T>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<std::remove_cvref_t<T>>& ctx,
+                                      PipelineResult<T> in) const
+      -> PipelineResult<void> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<void>::fail(in.error);
+    ctx.arg.get() = std::move(in.value);
+    return PipelineResult<void>::ok();
+  }
+};
+
+// once ────────────────────────────────────────────────────────────────────────
+struct OnceFn {
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = std::remove_cvref_t<I>;
+  template <class T>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<std::remove_cvref_t<T>>& ctx,
+                                      PipelineResult<T> in) const
+      -> PipelineResult<void> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<void>::fail(in.error);
+    if (ctx.occurrences > 0) [[unlikely]]
+      return PipelineResult<void>::fail({.code = ErrorCode::duplicate_argument,
+                                         .subject = std::string(ctx.key)});
+    ctx.arg.get() = std::move(in.value);
+    return PipelineResult<void>::ok();
+  }
+};
+
+// overwrite ───────────────────────────────────────────────────────────────────
+struct OverwriteFn {
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = std::remove_cvref_t<I>;
+  template <class T>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<std::remove_cvref_t<T>>& ctx,
+                                      PipelineResult<T> in) const
+      -> PipelineResult<void> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<void>::fail(in.error);
+    ctx.arg.get() = std::move(in.value);
+    return PipelineResult<void>::ok();
+  }
+};
+
+// first_wins ──────────────────────────────────────────────────────────────────
+struct FirstWinsFn {
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = std::remove_cvref_t<I>;
+  template <class T>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<std::remove_cvref_t<T>>& ctx,
+                                      PipelineResult<T> in) const
+      -> PipelineResult<void> {
+    if (!in.have_value()) [[unlikely]]
+      return PipelineResult<void>::fail(in.error);
+    if (ctx.occurrences == 0) [[likely]]
+      ctx.arg.get() = std::move(in.value);
+    return PipelineResult<void>::ok();
+  }
+};
+
+// ignore ──────────────────────────────────────────────────────────────────────
+// Unconditionally succeeds — discards both value and any error from prior steps.
+// Used as the terminal pack step for unknown-field handlers.
+struct IgnoreFn {
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = std::monostate;
+  template <class St, class T>
+  SER20_ALWAYS_INLINE auto operator()(ParseCtx<St>&, PipelineResult<T>) const
+      -> PipelineResult<void> {
+    return PipelineResult<void>::ok();
+  }
+};
+
+// reject_unknown_with_suggestion ──────────────────────────────────────────────
+// Policy used inside decode::member<> — value already skipped by MemberFn.
+struct RejectUnknownWithSuggestionFn {
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = std::monostate;
+  template <class St>
+  auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
+      -> PipelineResult<void> {
+    return PipelineResult<void>::fail(
+        {.code = ErrorCode::unknown_option, .subject = std::string(ctx.key)});
+  }
+};
+
+inline constexpr auto assign = ParsePipeline<AssignFn{}>{};
+inline constexpr auto once = ParsePipeline<OnceFn{}>{};
+inline constexpr auto overwrite = ParsePipeline<OverwriteFn{}>{};
+inline constexpr auto first_wins = ParsePipeline<FirstWinsFn{}>{};
+inline constexpr auto ignore = ParsePipeline<IgnoreFn{}>{};
+inline constexpr auto reject_unknown_with_suggestion =
+    ParsePipeline<RejectUnknownWithSuggestionFn{}>{};
+
+}  // namespace pack
+
+
+namespace unknown {
+
+struct IgnoreUnknownFn {
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = std::monostate;
+  template <class St>
+  auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
+      -> PipelineResult<void> {
+    if (!ctx.next_is_pending) json_skip_value(*ctx.scanner, ctx.first_tok);
+    return PipelineResult<void>::ok();
+  }
+};
+
+struct RejectUnknownFn {
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = std::monostate;
+  template <class St>
+  auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
+      -> PipelineResult<void> {
+    if (!ctx.next_is_pending) json_skip_value(*ctx.scanner, ctx.first_tok);
+    return PipelineResult<void>::fail(
+        {.code = ErrorCode::unknown_option, .subject = std::string(ctx.key)});
+  }
+};
+
+struct RejectWithSuggestionFn {
+  template <class I>
+  using after_type = void;
+  template <class I>
+  using storage_type = std::monostate;
+  template <class St>
+  auto operator()(ParseCtx<St>& ctx, PipelineResult<void>) const
+      -> PipelineResult<void> {
+    if (!ctx.next_is_pending) json_skip_value(*ctx.scanner, ctx.first_tok);
+    return PipelineResult<void>::fail(
+        {.code = ErrorCode::unknown_option, .subject = std::string(ctx.key)});
+  }
+};
+
+inline constexpr auto ignore = ParsePipeline<IgnoreUnknownFn{}>{};
+inline constexpr auto reject = ParsePipeline<RejectUnknownFn{}>{};
+inline constexpr auto reject_with_suggestion =
+    ParsePipeline<RejectWithSuggestionFn{}>{};
+
+}  // namespace unknown
 
 namespace conversion {
 
@@ -636,7 +1439,8 @@ struct Insert {
 //   using storage_type = typename StorageTypeImpl<Prev>::type;
 //
 //   template <class T>
-//   auto operator()(PipelineCtx<storage_type<T>> ctx, PipelineResult<T> input) const
+//   auto operator()(PipelineCtx<storage_type<T>> ctx, PipelineResult<T> input)
+//   const
 //       -> PipelineResult<void> {
 //     if (!input.have_value()) return fail<void>(input.error);
 //     auto&& [key, value] = input.value;
@@ -659,7 +1463,8 @@ struct Insert {
 //       std::vector<std::ranges::range_value_t<std::remove_cvref_t<Prev>>>;
 //
 //   template <class T>
-//   auto operator()(PipelineCtx<storage_type<T>> ctx, PipelineResult<T> input) const
+//   auto operator()(PipelineCtx<storage_type<T>> ctx, PipelineResult<T> input)
+//   const
 //       -> PipelineResult<void> {
 //     if (!input.have_value()) return fail<void>(input.error);
 //     auto& out = ctx.arg.get();

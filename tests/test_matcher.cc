@@ -107,9 +107,9 @@ TEST(MatcherTest, LongNames) {
       Field<"very_long_field_name_that_goes_on_for_quite_a_while_aaa">{},
       Field<"very_long_field_name_that_goes_on_for_quite_a_while_bbb">{});
 
-  bool hit = Matcher::find(
-      "very_long_field_name_that_goes_on_for_quite_a_while_bbb", fields,
-      [](auto& f) { f.value = 42; });
+  bool hit =
+      Matcher::find("very_long_field_name_that_goes_on_for_quite_a_while_bbb",
+                    fields, [](auto& f) { f.value = 42; });
 
   EXPECT_TRUE(hit);
   EXPECT_EQ(std::get<0>(fields).value, 0);

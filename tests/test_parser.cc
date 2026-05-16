@@ -12,9 +12,11 @@ namespace {
 
 struct Point {
   ser20::ElemImpl<"x", ser20::scan::scalar | ser20::decode::integer<int> |
-                           ser20::pack::once> x;
+                           ser20::pack::once>
+      x;
   ser20::ElemImpl<"y", ser20::scan::scalar | ser20::decode::integer<int> |
-                           ser20::pack::once> y;
+                           ser20::pack::once>
+      y;
 };
 
 TEST(ParserTest, FlatObject) {
@@ -33,9 +35,11 @@ TEST(ParserTest, FlatObjectReverseOrder) {
 
 struct Named {
   ser20::ElemImpl<"name", ser20::scan::string | ser20::decode::string_view |
-                              ser20::pack::once> name;
+                              ser20::pack::once>
+      name;
   ser20::ElemImpl<"count", ser20::scan::scalar | ser20::decode::integer<int> |
-                               ser20::pack::once> count;
+                               ser20::pack::once>
+      count;
 };
 
 TEST(ParserTest, StringField) {
@@ -48,14 +52,15 @@ TEST(ParserTest, StringField) {
 
 struct WithIgnore {
   ser20::ElemImpl<"val", ser20::scan::scalar | ser20::decode::integer<int> |
-                             ser20::pack::once> val;
+                             ser20::pack::once>
+      val;
   ser20::ElemImpl<"", ser20::decode::member<ser20::pack::ignore> |
-                          ser20::pack::ignore> unknown;
+                          ser20::pack::ignore>
+      unknown;
 };
 
 TEST(ParserTest, IgnoreUnknownFields) {
-  auto w = ser20::parse<WithIgnore>(
-      R"({"extra": 99, "val": 7, "other": "x"})");
+  auto w = ser20::parse<WithIgnore>(R"({"extra": 99, "val": 7, "other": "x"})");
   EXPECT_EQ(static_cast<int>(w.val), 7);
 }
 
@@ -63,21 +68,23 @@ TEST(ParserTest, IgnoreUnknownFields) {
 
 struct Inner {
   ser20::ElemImpl<"a", ser20::scan::scalar | ser20::decode::integer<int> |
-                           ser20::pack::once> a;
+                           ser20::pack::once>
+      a;
   ser20::ElemImpl<"b", ser20::scan::scalar | ser20::decode::integer<int> |
-                           ser20::pack::once> b;
+                           ser20::pack::once>
+      b;
 };
 
 struct Outer {
   ser20::ElemImpl<"inner", ser20::decode::parse_to<Inner> | ser20::pack::once>
       inner;
   ser20::ElemImpl<"top", ser20::scan::scalar | ser20::decode::integer<int> |
-                             ser20::pack::once> top;
+                             ser20::pack::once>
+      top;
 };
 
 TEST(ParserTest, NestedObject) {
-  auto o = ser20::parse<Outer>(
-      R"({"inner": {"a": 1, "b": 2}, "top": 99})");
+  auto o = ser20::parse<Outer>(R"({"inner": {"a": 1, "b": 2}, "top": 99})");
   EXPECT_EQ(static_cast<int>(o.top), 99);
   const Inner& inner = o.inner;
   EXPECT_EQ(static_cast<int>(inner.a), 1);
@@ -87,12 +94,11 @@ TEST(ParserTest, NestedObject) {
 // ── Array of scalars ──────────────────────────────────────────────────────────
 
 struct IntList {
-  ser20::ElemImpl<
-      "vals",
-      ser20::decode::vector<
-          ser20::scan::scalar | ser20::decode::integer<int> |
-          ser20::pack::assign> |
-          ser20::pack::once> vals;
+  ser20::ElemImpl<"vals", ser20::decode::vector<ser20::scan::scalar |
+                                                ser20::decode::integer<int> |
+                                                ser20::pack::assign> |
+                              ser20::pack::once>
+      vals;
 };
 
 TEST(ParserTest, ArrayOfScalars) {
@@ -120,11 +126,10 @@ TEST(ParserTest, ArrayEmpty) {
 // ── Array of objects ──────────────────────────────────────────────────────────
 
 struct PointList {
-  ser20::ElemImpl<
-      "pts",
-      ser20::decode::vector<
-          ser20::decode::parse_to<Point> | ser20::pack::assign> |
-          ser20::pack::once> pts;
+  ser20::ElemImpl<"pts", ser20::decode::vector<ser20::decode::parse_to<Point> |
+                                               ser20::pack::assign> |
+                             ser20::pack::once>
+      pts;
 };
 
 TEST(ParserTest, ArrayOfObjects) {
@@ -142,7 +147,8 @@ TEST(ParserTest, ArrayOfObjects) {
 
 struct StrictDoc {
   ser20::ElemImpl<"val", ser20::scan::scalar | ser20::decode::integer<int> |
-                             ser20::pack::once> val;
+                             ser20::pack::once>
+      val;
   ser20::ElemImpl<"", ser20::unknown::reject_with_suggestion> unknown;
 };
 
