@@ -12,8 +12,8 @@ auto main() -> int {
   }
   const std::string input(std::istreambuf_iterator<char>(f), {});
 
-  ser20::Parser<> parser;
-  parser.parse(input);
+  // TODO: update to actual struct type once defined
+  (void)input;
 
   return 0;
 }

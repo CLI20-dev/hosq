@@ -6,9 +6,6 @@
 
 #include "ser20/matcher.hh"
 #include "ser20/string_literal.hh"
-#ifdef __ARM_NEON
-#include "ser20/matcher_neon.hh"
-#endif
 
 namespace {
 
@@ -416,16 +413,9 @@ DEFINE_MATCH_BMS(32L)
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
-#ifdef __ARM_NEON
-#define REGISTER(BM)                      \
-  BENCHMARK_TEMPLATE(BM, MatcherSimple);  \
-  BENCHMARK_TEMPLATE(BM, ser20::Matcher); \
-  BENCHMARK_TEMPLATE(BM, ser20::MatcherNeon)
-#else
 #define REGISTER(BM)                     \
   BENCHMARK_TEMPLATE(BM, MatcherSimple); \
   BENCHMARK_TEMPLATE(BM, ser20::Matcher)
-#endif
 
 REGISTER(BM_Match8_Mixed);
 REGISTER(BM_Match32_First);

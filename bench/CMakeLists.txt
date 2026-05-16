@@ -18,3 +18,4 @@ target_compile_features(ser20 INTERFACE cxx_std_20)
 
 add_subdirectory(scanner)
 add_subdirectory(matcher)
+add_subdirectory(twitter)

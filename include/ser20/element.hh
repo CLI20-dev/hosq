@@ -1,9 +1,10 @@
 #pragma once
 
-#include "ser20/action.hh"
+#include "ser20/pipeline.hh"
 #include "ser20/string_literal.hh"
 
 namespace ser20 {
+
 
 struct ElementTag {};
 
@@ -41,7 +42,7 @@ struct ArgParameter {
 
 namespace detail {
 
-template <StringLiteral Name, Action A>
+template <StringLiteral Name, auto A>
 struct ElemImpl : public ElementTag {
   using value_type =
       typename std::remove_cvref_t<decltype(std::get<1>(A.validate()))>::type;
@@ -93,14 +94,14 @@ struct ElemImpl : public ElementTag {
 
   // Called once per value token associated with this option.
   auto invoke_action(std::string_view key, std::string_view text,
-                     std::size_t index) -> ActionResult<void> {
-    ActionCtx<value_type> ctx{
+                     std::size_t index) -> PipelineResult<void> {
+    PipelineCtx<value_type> ctx{
         .index = index,
         .key = key,
         .occurrences = occurrence_count_,
         .arg = std::ref(value_),
     };
-    return decltype(A)::invoke(ctx, ActionResult<std::string_view>::ok(text));
+    return decltype(A)::invoke(ctx, PipelineResult<std::string_view>::ok(text));
   }
 
   [[nodiscard]] auto get_param() const -> const ArgParameter<value_type>& {

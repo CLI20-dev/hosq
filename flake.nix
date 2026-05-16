@@ -81,7 +81,8 @@
               pkgs.doxygen
               pkgs.emscripten
               pkgs.boost.dev
-              pkgs.cxxopts
+              pkgs.simdjson
+              pkgs.pkg-config
               pkgs.argparse
               google_bench
               config.treefmt.build.wrapper

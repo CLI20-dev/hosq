@@ -17,25 +17,25 @@ struct RGB {
 };
 
 struct JsonRGB {
-  json::ElemImpl<
+  ser20::ElemImpl<
       "r",
-      json::scan::scalar |
-      json::decode::integer<int> |
-      json::pack::once
+      ser20::scan::scalar |
+      ser20::decode::integer<int> |
+      ser20::pack::once
   > r;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "g",
-      json::scan::scalar |
-      json::decode::integer<int> |
-      json::pack::once
+      ser20::scan::scalar |
+      ser20::decode::integer<int> |
+      ser20::pack::once
   > g;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "b",
-      json::scan::scalar |
-      json::decode::integer<int> |
-      json::pack::once
+      ser20::scan::scalar |
+      ser20::decode::integer<int> |
+      ser20::pack::once
   > b;
 };
 
@@ -48,18 +48,18 @@ constexpr auto to_rgb = [](const JsonRGB& c) {
 };
 
 struct JsonVec2 {
-  json::ElemImpl<
+  ser20::ElemImpl<
       "x",
-      json::scan::scalar |
-      json::decode::integer<int> |
-      json::pack::once
+      ser20::scan::scalar |
+      ser20::decode::integer<int> |
+      ser20::pack::once
   > x;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "y",
-      json::scan::scalar |
-      json::decode::integer<int> |
-      json::pack::once
+      ser20::scan::scalar |
+      ser20::decode::integer<int> |
+      ser20::pack::once
   > y;
 };
 
@@ -70,159 +70,163 @@ constexpr auto to_vec2 = [](const JsonVec2& p) {
   };
 };
 
-struct Circle : json::Constant<"type", "circle"_json_string> {
-  json::ElemImpl<
+struct Circle {
+  ser20::Constant<"type", "circle"_json_string> constant;
+
+  ser20::ElemImpl<
       "color",
-      json::decode::parse_to<JsonRGB> |
-      json::decode::custom<to_rgb> |
-      json::pack::once
+      ser20::decode::parse_to<JsonRGB> |
+      ser20::decode::custom<to_rgb> |
+      ser20::pack::once
   > color;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "center",
-      json::decode::parse_to<JsonVec2> |
-      json::decode::custom<to_vec2> |
-      json::pack::once
+      ser20::decode::parse_to<JsonVec2> |
+      ser20::decode::custom<to_vec2> |
+      ser20::pack::once
   > center;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "radius",
-      json::scan::scalar |
-      json::decode::integer<int> |
-      json::pack::once
+      ser20::scan::scalar |
+      ser20::decode::integer<int> |
+      ser20::pack::once
   > radius;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "",
-      json::decode::member<json::pack::reject_unknown_with_suggestion> |
-      json::pack::ignore
+      ser20::decode::member<ser20::pack::reject_unknown_with_suggestion> |
+      ser20::pack::ignore
   > unknown;
 };
 
-struct Rectangle : json::Constant<"type", "rectangle"_json_string> {
-  json::ElemImpl<
+struct Rectangle {
+  ser20::Constant<"type", "rectangle"_json_string> constant;
+  ser20::ElemImpl<
       "color",
-      json::decode::parse_to<JsonRGB> |
-      json::decode::custom<to_rgb> |
-      json::pack::once
+      ser20::decode::parse_to<JsonRGB> |
+      ser20::decode::custom<to_rgb> |
+      ser20::pack::once
   > color;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "top_left",
-      json::decode::parse_to<JsonVec2> |
-      json::decode::custom<to_vec2> |
-      json::pack::once
+      ser20::decode::parse_to<JsonVec2> |
+      ser20::decode::custom<to_vec2> |
+      ser20::pack::once
   > top_left;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "width",
-      json::scan::scalar |
-      json::decode::integer<int> |
-      json::pack::once
+      ser20::scan::scalar |
+      ser20::decode::integer<int> |
+      ser20::pack::once
   > width;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "height",
-      json::scan::scalar |
-      json::decode::integer<int> |
-      json::pack::once
+      ser20::scan::scalar |
+      ser20::decode::integer<int> |
+      ser20::pack::once
   > height;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "",
-      json::decode::member<json::pack::reject_unknown_with_suggestion> |
-      json::pack::ignore
+      ser20::decode::member<ser20::pack::reject_unknown_with_suggestion> |
+      ser20::pack::ignore
   > unknown;
 };
 
-struct Triangle : json::Constant<"type", "triangle"_json_string> {
-  json::ElemImpl<
+struct Triangle {
+  ser20::Constant<"type", "triangle"_json_string> constant;
+  ser20::ElemImpl<
       "color",
-      json::decode::parse_to<JsonRGB> |
-      json::decode::custom<to_rgb> |
-      json::pack::once
+      ser20::decode::parse_to<JsonRGB> |
+      ser20::decode::custom<to_rgb> |
+      ser20::pack::once
   > color;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "vertex1",
-      json::decode::parse_to<JsonVec2> |
-      json::decode::custom<to_vec2> |
-      json::pack::once
+      ser20::decode::parse_to<JsonVec2> |
+      ser20::decode::custom<to_vec2> |
+      ser20::pack::once
   > vertex1;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "vertex2",
-      json::decode::parse_to<JsonVec2> |
-      json::decode::custom<to_vec2> |
-      json::pack::once
+      ser20::decode::parse_to<JsonVec2> |
+      ser20::decode::custom<to_vec2> |
+      ser20::pack::once
   > vertex2;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "vertex3",
-      json::decode::parse_to<JsonVec2> |
-      json::decode::custom<to_vec2> |
-      json::pack::once
+      ser20::decode::parse_to<JsonVec2> |
+      ser20::decode::custom<to_vec2> |
+      ser20::pack::once
   > vertex3;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "",
-      json::decode::member<json::pack::reject_unknown_with_suggestion> |
-      json::pack::ignore
+      ser20::decode::member<ser20::pack::reject_unknown_with_suggestion> |
+      ser20::pack::ignore
   > unknown;
 };
 
 using Shape =
-    json::Variant<
+    ser20::Variant<
         Circle,
         Rectangle,
         Triangle
     >;
 
 struct Metadata {
-  json::ElemImpl<
+  ser20::ElemImpl<
       "source",
-      json::scan::string |
-      json::decode::string_view |
-      json::pack::once
+      ser20::scan::string |
+      ser20::decode::string_view |
+      ser20::pack::once
   > source;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "version",
-      json::scan::scalar |
-      json::decode::integer<int> |
-      json::pack::once
+      ser20::scan::scalar |
+      ser20::decode::integer<int> |
+      ser20::pack::once
   > version;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "",
-      json::decode::member<json::pack::ignore> |
-      json::pack::ignore
+      ser20::decode::member<ser20::pack::ignore> |
+      ser20::pack::ignore
   > unknown;
 };
 
 struct Document {
-  json::ElemImpl<
+  ser20::ElemImpl<
       "data",
-      json::decode::vector<
-          json::decode::variant<
+      ser20::decode::vector<
+          ser20::decode::variant<
               Circle,
               Rectangle,
               Triangle
           > |
-          json::pack::assign
+          ser20::pack::assign
       > |
-      json::pack::once
+      ser20::pack::once
   > data;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "metadata",
-      json::decode::parse_to<Metadata> |
-      json::pack::once
+      ser20::decode::parse_to<Metadata> |
+      ser20::pack::once
   > metadata;
 
-  json::ElemImpl<
+  ser20::ElemImpl<
       "",
-      json::unknown::reject_with_suggestion
+      ser20::unknown::reject_with_suggestion
   > unknown;
 };
 
@@ -258,7 +262,7 @@ int main() {
   }
   )json";
 
-  auto document = json::parse<app::Document>(text);
+  auto document = ser20::parse<app::Document>(text);
 
   return 0;
 }
