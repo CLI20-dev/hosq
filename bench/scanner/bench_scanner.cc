@@ -4,6 +4,7 @@
 #include <iostream>
 #include <string>
 
+#include "allocation_counter.hh"
 #include "ser20/scanner.hh"
 #ifdef __ARM_NEON
 #include "ser20/scanner_neon.hh"
@@ -210,12 +211,21 @@ static size_t drain(Scanner& scanner) {
   return acc;
 }
 
+static void report_allocs(benchmark::State& state) {
+  const double iters = static_cast<double>(state.iterations());
+  state.counters["allocs"] =
+      std::round(static_cast<double>(bench::AllocationCounter::count()) / iters);
+  state.counters["alloc_bytes"] =
+      std::round(static_cast<double>(bench::AllocationCounter::bytes()) / iters);
+}
+
 // ─── Benchmark definitions ────────────────────────────────────────────────────
 
 template <typename Scanner>
 static void BM_WhitespaceSparse(benchmark::State& state) {
   const std::string input =
       make_whitespace_sparse(static_cast<size_t>(state.range(0)));
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -225,12 +235,14 @@ static void BM_WhitespaceSparse(benchmark::State& state) {
   }
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 template <typename Scanner>
 static void BM_StructuralSparse(benchmark::State& state) {
   const std::string input =
       make_structural_sparse(static_cast<size_t>(state.range(0)));
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -240,12 +252,14 @@ static void BM_StructuralSparse(benchmark::State& state) {
   }
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 template <typename Scanner>
 static void BM_FlatCompactObject(benchmark::State& state) {
   const std::string input =
       make_flat_object(static_cast<size_t>(state.range(0)));
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -255,12 +269,14 @@ static void BM_FlatCompactObject(benchmark::State& state) {
   }
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 template <typename Scanner>
 static void BM_PrettyObject(benchmark::State& state) {
   const std::string input =
       make_pretty_object(static_cast<size_t>(state.range(0)));
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -270,12 +286,14 @@ static void BM_PrettyObject(benchmark::State& state) {
   }
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 template <typename Scanner>
 static void BM_LongStringNoEscape(benchmark::State& state) {
   const std::string input =
       make_long_string_array(static_cast<size_t>(state.range(0)));
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -285,12 +303,14 @@ static void BM_LongStringNoEscape(benchmark::State& state) {
   }
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 template <typename Scanner>
 static void BM_EscapedStringHeavy(benchmark::State& state) {
   const std::string input =
       make_escaped_string_array(static_cast<size_t>(state.range(0)));
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -300,12 +320,14 @@ static void BM_EscapedStringHeavy(benchmark::State& state) {
   }
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 template <typename Scanner>
 static void BM_MixedRealistic(benchmark::State& state) {
   const std::string input =
       make_mixed_realistic(static_cast<size_t>(state.range(0)));
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -315,13 +337,14 @@ static void BM_MixedRealistic(benchmark::State& state) {
   }
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 template <typename Scanner>
 static void BM_TwitterLikeRandom(benchmark::State& state) {
   const std::string input =
       make_twitter_like_random(static_cast<size_t>(state.range(0)));
-
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -329,16 +352,16 @@ static void BM_TwitterLikeRandom(benchmark::State& state) {
     benchmark::DoNotOptimize(acc);
     benchmark::ClobberMemory();
   }
-
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 template <typename Scanner>
 static void BM_TwitterLikeLongRandom(benchmark::State& state) {
   const std::string input =
       make_twitter_like_long_random(static_cast<size_t>(state.range(0)));
-
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -346,16 +369,16 @@ static void BM_TwitterLikeLongRandom(benchmark::State& state) {
     benchmark::DoNotOptimize(acc);
     benchmark::ClobberMemory();
   }
-
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 template <typename Scanner>
 static void BM_TwitterLikeEscapedRandom(benchmark::State& state) {
   const std::string input =
       make_twitter_like_escaped_random(static_cast<size_t>(state.range(0)));
-
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(input);
     benchmark::DoNotOptimize(input.data());
@@ -363,9 +386,9 @@ static void BM_TwitterLikeEscapedRandom(benchmark::State& state) {
     benchmark::DoNotOptimize(acc);
     benchmark::ClobberMemory();
   }
-
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *
                           static_cast<int64_t>(input.size()));
+  report_allocs(state);
 }
 
 // ─── twitter.json real-file benchmark ────────────────────────────────────────
@@ -381,6 +404,7 @@ static const std::string kTwitterJson = []() {
 
 template <typename Scanner>
 static void BM_TwitterJson(benchmark::State& state) {
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     Scanner scanner(kTwitterJson);
     benchmark::DoNotOptimize(kTwitterJson.data());
@@ -390,6 +414,7 @@ static void BM_TwitterJson(benchmark::State& state) {
   }
   state.SetBytesProcessed(state.iterations() *
                           static_cast<int64_t>(kTwitterJson.size()));
+  report_allocs(state);
 }
 
 // ─── Registration ─────────────────────────────────────────────────────────────

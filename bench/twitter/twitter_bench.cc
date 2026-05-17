@@ -12,7 +12,18 @@
 #include <string_view>
 #include <vector>
 
+#include "allocation_counter.hh"
 #include "ser20/parser.hh"
+
+namespace {
+inline void report_allocs(benchmark::State& state) {
+  const double iters = static_cast<double>(state.iterations());
+  state.counters["allocs"] =
+      std::round(static_cast<double>(bench::AllocationCounter::count()) / iters);
+  state.counters["alloc_bytes"] =
+      std::round(static_cast<double>(bench::AllocationCounter::bytes()) / iters);
+}
+}  // namespace
 
 // ── glaze schema ──────────────────────────────────────────────────────────────
 
@@ -219,6 +230,7 @@ static void BM_simdjson_ondemand(benchmark::State& state) {
   simdjson::ondemand::parser parser;
   auto padded = simdjson::padded_string(kJson);
 
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     auto doc = parser.iterate(padded);
     int64_t sum = 0;
@@ -234,6 +246,7 @@ static void BM_simdjson_ondemand(benchmark::State& state) {
   }
   state.SetBytesProcessed(state.iterations() *
                           static_cast<int64_t>(kJson.size()));
+  report_allocs(state);
 }
 
 // ── simdjson (ondemand → materialize to vector) ───────────────────────────────
@@ -242,6 +255,7 @@ static void BM_simdjson_materialize(benchmark::State& state) {
   simdjson::ondemand::parser parser;
   auto padded = simdjson::padded_string(kJson);
 
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     auto doc = parser.iterate(padded);
     std::vector<tw::StatusPlain> statuses;
@@ -265,11 +279,13 @@ static void BM_simdjson_materialize(benchmark::State& state) {
   }
   state.SetBytesProcessed(state.iterations() *
                           static_cast<int64_t>(kJson.size()));
+  report_allocs(state);
 }
 
 // ── ser20 ─────────────────────────────────────────────────────────────────────
 
 static void BM_ser20(benchmark::State& state) {
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     auto doc = ser20::parse<tw::Twitter>(kJson);
     const std::vector<tw::Status>& statuses = doc.statuses;
@@ -280,11 +296,13 @@ static void BM_ser20(benchmark::State& state) {
   }
   state.SetBytesProcessed(state.iterations() *
                           static_cast<int64_t>(kJson.size()));
+  report_allocs(state);
 }
 
 // ── ser20 (array, no heap alloc for statuses) ─────────────────────────────────
 
 static void BM_ser20_array(benchmark::State& state) {
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     auto doc = ser20::parse<tw::TwitterArray>(kJson);
     const auto& arr =
@@ -304,11 +322,13 @@ static void BM_ser20_array(benchmark::State& state) {
   }
   state.SetBytesProcessed(state.iterations() *
                           static_cast<int64_t>(kJson.size()));
+  report_allocs(state);
 }
 
 // ── yyjson ────────────────────────────────────────────────────────────────────
 
 static void BM_yyjson(benchmark::State& state) {
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     yyjson_doc* doc = yyjson_read(kJson.data(), kJson.size(), 0);
     yyjson_val* root = yyjson_doc_get_root(doc);
@@ -331,11 +351,13 @@ static void BM_yyjson(benchmark::State& state) {
   }
   state.SetBytesProcessed(state.iterations() *
                           static_cast<int64_t>(kJson.size()));
+  report_allocs(state);
 }
 
 // ── RapidJSON (DOM) ───────────────────────────────────────────────────────────
 
 static void BM_rapidjson(benchmark::State& state) {
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     rapidjson::Document doc;
     doc.Parse(kJson.data(), kJson.size());
@@ -353,11 +375,13 @@ static void BM_rapidjson(benchmark::State& state) {
   }
   state.SetBytesProcessed(state.iterations() *
                           static_cast<int64_t>(kJson.size()));
+  report_allocs(state);
 }
 
 // ── nlohmann/json (DOM) ───────────────────────────────────────────────────────
 
 static void BM_nlohmann(benchmark::State& state) {
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     auto doc = nlohmann::json::parse(kJson);
     int64_t sum = 0;
@@ -374,11 +398,13 @@ static void BM_nlohmann(benchmark::State& state) {
   }
   state.SetBytesProcessed(state.iterations() *
                           static_cast<int64_t>(kJson.size()));
+  report_allocs(state);
 }
 
 // ── glaze (struct-based) ──────────────────────────────────────────────────────
 
 static void BM_glaze(benchmark::State& state) {
+  bench::AllocationCounter::reset();
   for (auto _ : state) {
     glz_tw::Twitter doc{};
     (void)glz::read<glz::opts{.error_on_unknown_keys = false}>(doc, kJson);
@@ -389,6 +415,7 @@ static void BM_glaze(benchmark::State& state) {
   }
   state.SetBytesProcessed(state.iterations() *
                           static_cast<int64_t>(kJson.size()));
+  report_allocs(state);
 }
 
 BENCHMARK(BM_simdjson_ondemand)->MinTime(2.0);

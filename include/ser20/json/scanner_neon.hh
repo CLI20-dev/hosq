@@ -6,6 +6,7 @@
 #include <bit>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <string_view>
 
 namespace ser20 {
@@ -28,41 +29,15 @@ class ScannerNeon {
         input_(input) {}
 
   [[nodiscard]]
-  SER20_ALWAYS_INLINE auto next() noexcept -> size_t {
-    const size_t c = cursor_;
-    if (c < count_) [[likely]] {
-      cursor_ = c + 1;
-      return batch_base_ + candidates_[c];
-    }
-    return next_slow();
-  }
-
-  [[nodiscard]]
-  SER20_ALWAYS_INLINE auto next_slow() noexcept -> size_t {
-    if (eof_) [[unlikely]] {
-      return input_.size();
-    }
+  SER20_ALWAYS_INLINE auto get_next_candidates() noexcept
+      -> std::span<const uint64_t> {
     refill_batch();
-    if (count_ == 0) [[unlikely]] {
-      return input_.size();
-    }
-    cursor_ = 1;
-    return batch_base_ + candidates_[0];
-  }
-
-  SER20_ALWAYS_INLINE void next_two(size_t& first, size_t& second) noexcept {
-    if (cursor_ + 1 < count_) [[likely]] {
-      first = batch_base_ + candidates_[cursor_++];
-      second = batch_base_ + candidates_[cursor_++];
-      return;
-    }
-    first = next();
-    second = next();
+    return {candidates_.data(), count_};
   }
 
   [[nodiscard]]
   auto eof() const noexcept -> bool {
-    return eof_ && cursor_ >= count_;
+    return eof_ && count_ == 0;
   }
 
   [[nodiscard]]
@@ -84,13 +59,9 @@ class ScannerNeon {
   size_t load_base_{0};         // base of the next chunk to load
   size_t full_chunk_end_{0};    // loads at load_base_ < this are safe full loads
 
-  // candidates_ store offsets (0..255) from chunk_base_.
-  // batch_base_ = chunk_base_, so next() returns chunk_base_ +
-  // candidates_[cursor_].
-  std::array<uint32_t, kBatchSize> candidates_{};
+  // candidates_ store absolute positions within input_.
+  std::array<uint64_t, kBatchSize> candidates_{};
   size_t count_{0};
-  size_t cursor_{0};
-  size_t batch_base_{0};  // absolute base of the currently loaded chunk
 
   bool eof_{false};
   std::string_view input_;
@@ -154,37 +125,41 @@ class ScannerNeon {
 
   SER20_ALWAYS_INLINE void refill_batch() noexcept {
     count_ = 0;
-    cursor_ = 0;
 
     // Find a chunk with at least one structural candidate.
     for (;;) {
       if (nonempty_masks_ != 0) break;
-      if (eof_) [[unlikely]]
+
+      if (eof_) [[unlikely]] {
         return;
+      }
+
       if (load_base_ < full_chunk_end_) [[likely]] {
         load_chunk_full();
       } else {
         load_chunk_tail();
-        if (eof_) [[unlikely]]
+        if (eof_) [[unlikely]] {
           return;
+        }
       }
     }
 
-    // Drain all non-empty lanes in this chunk into candidates_.
-    // candidates_ hold offsets 0..255 from chunk_base_.
-    batch_base_ = chunk_base_;
     while (count_ < kBatchSize && nonempty_masks_ != 0) {
-      const uint32_t lane =
-          static_cast<uint32_t>(std::countr_zero(nonempty_masks_));
+      const auto lane = static_cast<uint32_t>(std::countr_zero(nonempty_masks_));
       uint64_t m = masks_[lane];
-      const uint32_t lane_base = lane * static_cast<uint32_t>(kBlockSize);
+      const size_t lane_base = static_cast<size_t>(lane) * kBlockSize;
+
       while (m != 0 && count_ < kBatchSize) {
-        const auto off = static_cast<uint32_t>(std::countr_zero(m));
-        candidates_[count_++] = lane_base + off;
+        const auto off = static_cast<size_t>(std::countr_zero(m));
+        candidates_[count_++] = chunk_base_ + lane_base + off;
         m &= m - 1;
       }
+
       masks_[lane] = m;
-      if (m == 0) nonempty_masks_ &= nonempty_masks_ - 1;
+
+      if (m == 0) {
+        nonempty_masks_ &= nonempty_masks_ - 1;
+      }
     }
   }
 

@@ -1,14 +1,11 @@
 #pragma once
 
 #include <cstddef>
-#include <optional>
-#include <string_view>
 #include <type_traits>
 #include <utility>
 
-#include "ser20/parse_context.hh"
+#include "ser20/context.hh"
 #include "ser20/pipeline.hh"
-#include "ser20/string_literal.hh"
 
 namespace ser20 {
 
@@ -22,13 +19,20 @@ namespace ser20 {
 #endif
 #endif
 
+namespace detail {
+
 struct ElementTag {};
 
-/**
- * @brief Controls whether an element is required or optional in the command
- * line.
- */
-enum class Presence { required, optional };
+template <class T>
+struct IsPipeline : std::false_type {};
+
+template <auto... Fns>
+struct IsPipeline<Pipeline<Fns...>> : std::true_type {};
+
+template <class T>
+concept PipelineObject = IsPipeline<std::remove_cvref_t<T>>::value;
+
+};  // namespace detail
 
 /**
  * @brief Parameter bag used when constructing `ElemImpl` or `PositionalImpl`
@@ -45,20 +49,18 @@ enum class Presence { required, optional };
  *
  * @tparam T The storage value type of the argument.
  */
-template <class T>
-struct ArgParameter {};
+template <auto Decoder, auto Encoder>
+  requires detail::PipelineObject<decltype(Decoder)> &&
+           detail::PipelineObject<decltype(Encoder)>
+struct Elem : public detail::ElementTag {
+  using decoder_type = std::remove_cvref_t<decltype(Encoder)>;
+  using decoder_info = decltype(decoder_type::analyze_decoder());
+  using storage_type = typename std::tuple_element_t<1, decoder_info>::type;
+  using encoder_type = std::remove_cvref_t<decltype(Decoder)>;
+  using encoder_info =
+      decltype(encoder_type::template analyze_encoder<storage_type>());
 
-template <StringLiteral Name, auto Pipe>
-struct ElemImpl : public ElementTag {
-  using pipe_type = std::remove_cvref_t<decltype(Pipe)>;
-  using storage_type = parse_storage_t<Pipe>;
-  using value_type = storage_type;
-
-  ElemImpl() = default;
-  explicit ElemImpl(ArgParameter<value_type>) {}
-
-  static constexpr std::string_view name{Name.data(), Name.size()};
-  static constexpr bool is_unknown_handler = name.empty();
+  Elem() = default;
 
   [[nodiscard]] auto value() const -> const storage_type& { return value_; }
   [[nodiscard]] auto value() -> storage_type& { return value_; }
@@ -82,20 +84,77 @@ struct ElemImpl : public ElementTag {
     return std::nullopt;
   }
 
-  SER20_ALWAYS_INLINE auto parse(ParseCtxBase& base) -> PipelineResult<void> {
-    ParseCtx<storage_type> ctx{base, value_};
+  template <Reader R>
+  SER20_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R>& ctx)
+      -> Result<void, Error> {
     ctx.occurrences = occurrences_;
-    auto result = pipe_type::invoke(ctx, PipelineResult<void>::ok());
-    base.next_is_pending = ctx.next_is_pending;
-    base.pending_pos = ctx.pending_pos;
-    if (result.have_value()) [[likely]]
-      ++occurrences_;
+    auto result = decoder_type::invoke(ctx, Result<void, Error>{});
+    ++occurrences_;
     return result;
+  }
+
+  template <Writer W>
+  SER20_ALWAYS_INLINE auto encode(DecodeContext<storage_type, W>& ctx,
+                                  Result<storage_type, Error> value) const
+      -> Result<void, Error> {
+    return encoder_type::invoke(ctx, value);
   }
 
  private:
   storage_type value_{};
   std::size_t occurrences_{};
+};
+
+namespace detail {
+template <auto Decoder, auto Encoder>
+struct Elem;
+
+template <class T>
+struct IsElem : std::false_type {};
+
+template <auto Decoder, auto Encoder>
+struct IsElem<Elem<Decoder, Encoder>> : std::true_type {};
+
+template <class T>
+concept ElemLike = IsElem<std::remove_cvref_t<T>>::value;
+};  // namespace detail
+
+template <detail::ElemLike Key, detail::ElemLike Value>
+struct Entry : public detail::ElementTag {
+  using key_type = Key;
+  using value_type = Value;
+
+  Entry() = default;
+
+  [[nodiscard]] auto key() const -> const key_type& { return key_; }
+
+  [[nodiscard]] auto value() const -> const value_type& { return value_; }
+
+  [[nodiscard]] auto value() -> value_type& { return value_; }
+
+  [[nodiscard]] auto operator*() -> value_type& { return value_; }
+
+  [[nodiscard]] auto operator*() const -> const value_type& { return value_; }
+
+  [[nodiscard]] auto operator->() -> value_type* { return &value_; }
+
+  [[nodiscard]] auto operator->() const -> const value_type* { return &value_; }
+
+  template <class Context>
+  [[nodiscard]]
+  constexpr auto invoke_key(Context& ctx) {
+    return key_.invoke_decode(ctx);
+  }
+
+  template <class Context>
+  [[nodiscard]]
+  constexpr auto invoke_value(Context& ctx) {
+    return value_.invoke_decode(ctx);
+  }
+
+ private:
+  key_type key_{};
+  value_type value_{};
 };
 
 #undef SER20_ALWAYS_INLINE

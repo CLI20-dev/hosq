@@ -13,6 +13,14 @@ add_library(ser20::ser20 ALIAS ser20)
 target_include_directories(ser20 INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_compile_features(ser20 INTERFACE cxx_std_20)
 
+# Allocation tracking: OBJECT library so operator new/delete overrides are
+# always included in the final executable regardless of linker dead-stripping.
+add_library(bench_alloc OBJECT
+    allocation_counter.cc
+    allocation_new.cc
+)
+target_include_directories(bench_alloc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_subdirectory(scanner)
 add_subdirectory(matcher)
 add_subdirectory(twitter)

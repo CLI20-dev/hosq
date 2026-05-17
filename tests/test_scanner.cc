@@ -19,7 +19,7 @@ template <typename S>
 class ScannerTest : public ::testing::Test {};
 
 #ifdef __ARM_NEON
-using ScannerTypes = ::testing::Types<ser20::Scanner, ser20::ScannerNeon>;
+using ScannerTypes = ::testing::Types<ser20::ScannerSimple, ser20::ScannerNeon>;
 #else
 using ScannerTypes = ::testing::Types<ser20::Scanner>;
 #endif

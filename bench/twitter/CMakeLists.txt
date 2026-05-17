@@ -11,6 +11,7 @@ target_link_libraries(bench_twitter
         benchmark::benchmark
         benchmark::benchmark_main
         ser20::ser20
+        bench_alloc
         simdjson::simdjson
         ${yyjson_LIBRARIES}
         nlohmann_json::nlohmann_json

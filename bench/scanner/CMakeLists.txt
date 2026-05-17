@@ -4,6 +4,7 @@ target_link_libraries(bench_scanner
         benchmark::benchmark
         benchmark::benchmark_main
         ser20::ser20
+        bench_alloc
 )
 target_compile_options(bench_scanner PRIVATE
     $<IF:$<CXX_COMPILER_ID:MSVC>,/W4,-Wall;-Wextra>
