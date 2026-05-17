@@ -23,19 +23,31 @@ namespace ser20 {
 class ScannerNeon {
  public:
   explicit ScannerNeon(std::string_view input) noexcept
-      : eof_(input.empty()), input_(input) {}
+      : full_chunk_end_(input.size() & ~(kChunkSize - 1)),
+        eof_(input.empty()),
+        input_(input) {}
 
   [[nodiscard]]
   SER20_ALWAYS_INLINE auto next() noexcept -> size_t {
-    if (cursor_ >= count_) [[unlikely]] {
-      if (eof_) [[unlikely]]
-        return input_.size();
-      refill_batch();
-      if (count_ == 0) [[unlikely]]
-        return input_.size();
+    const size_t c = cursor_;
+    if (c < count_) [[likely]] {
+      cursor_ = c + 1;
+      return batch_base_ + candidates_[c];
     }
+    return next_slow();
+  }
 
-    return batch_base_ + candidates_[cursor_++];
+  [[nodiscard]]
+  SER20_ALWAYS_INLINE auto next_slow() noexcept -> size_t {
+    if (eof_) [[unlikely]] {
+      return input_.size();
+    }
+    refill_batch();
+    if (count_ == 0) [[unlikely]] {
+      return input_.size();
+    }
+    cursor_ = 1;
+    return batch_base_ + candidates_[0];
   }
 
   SER20_ALWAYS_INLINE void next_two(size_t& first, size_t& second) noexcept {
@@ -60,99 +72,119 @@ class ScannerNeon {
 
  private:
   static constexpr size_t kBlockSize = 64;
+  static constexpr size_t kChunkBlocks = 4;
+  static constexpr size_t kChunkSize = kBlockSize * kChunkBlocks;  // 256
   static constexpr size_t kBatchSize = 64;
 
   static_assert(std::has_single_bit(kBlockSize));
 
-  // structural_mask_ is the unconsumed structural mask for the current block.
-  uint64_t structural_mask_{0};
-  size_t block_base_{0};
-  size_t block_end_{0};
-  size_t index_{0};
+  std::array<uint64_t, kChunkBlocks> masks_{};
+  uint32_t nonempty_masks_{0};  // bit i set ↔ masks_[i] != 0
+  size_t chunk_base_{0};        // base of the currently loaded chunk
+  size_t load_base_{0};         // base of the next chunk to load
+  size_t full_chunk_end_{0};    // loads at load_base_ < this are safe full loads
 
+  // candidates_ store offsets (0..255) from chunk_base_.
+  // batch_base_ = chunk_base_, so next() returns chunk_base_ +
+  // candidates_[cursor_].
   std::array<uint32_t, kBatchSize> candidates_{};
   size_t count_{0};
   size_t cursor_{0};
-  size_t batch_base_{0};
+  size_t batch_base_{0};  // absolute base of the currently loaded chunk
 
   bool eof_{false};
   std::string_view input_;
 
-  SER20_ALWAYS_INLINE void load_full_block_at(size_t base) noexcept {
-    block_base_ = base;
-    block_end_ = base + kBlockSize;
-    structural_mask_ =
-        scan64(reinterpret_cast<const uint8_t*>(input_.data() + base));
+  SER20_ALWAYS_INLINE void refresh_nonempty_masks() noexcept {
+    nonempty_masks_ = (static_cast<uint32_t>(masks_[0] != 0) << 0) |
+                      (static_cast<uint32_t>(masks_[1] != 0) << 1) |
+                      (static_cast<uint32_t>(masks_[2] != 0) << 2) |
+                      (static_cast<uint32_t>(masks_[3] != 0) << 3);
   }
 
-  SER20_ALWAYS_INLINE void load_tail_block_at(size_t base) noexcept {
-    block_base_ = base;
-    block_end_ = input_.size();
-    const size_t remaining = input_.size() - base;
-    alignas(16) std::array<uint8_t, kBlockSize> tmp{};
-    std::memcpy(tmp.data(), input_.data() + base, remaining);
-    structural_mask_ = scan64(tmp.data());
-
-    // remaining is guaranteed to be 1..63 here.
-    structural_mask_ &= (uint64_t{1} << remaining) - 1;
+  // ── Fast path: all 4 blocks fit entirely — zero bounds checks
+  // ────────────────
+  SER20_ALWAYS_INLINE void load_chunk_full() noexcept {
+    chunk_base_ = load_base_;
+    load_base_ += kChunkSize;
+    const auto* p =
+        reinterpret_cast<const uint8_t*>(input_.data() + chunk_base_);
+    masks_[0] = scan64(p);
+    masks_[1] = scan64(p + kBlockSize);
+    masks_[2] = scan64(p + kBlockSize * 2);
+    masks_[3] = scan64(p + kBlockSize * 3);
+    refresh_nonempty_masks();
   }
 
-  SER20_ALWAYS_INLINE void load_block_at(size_t base) noexcept {
+  // ── Tail path: handles the final partial chunk and EOF
+  // ───────────────────────
+  SER20_ALWAYS_INLINE void load_chunk_tail() noexcept {
+    chunk_base_ = load_base_;
+    load_base_ += kChunkSize;
     const size_t size = input_.size();
-
-    // Precondition in hot path: base < size.
-    if (base + kBlockSize <= size) [[likely]] {
-      load_full_block_at(base);
-    } else {
-      load_tail_block_at(base);
-    }
-  }
-
-  SER20_ALWAYS_INLINE void advance_block() noexcept {
-    const size_t size = input_.size();
-
-    if (block_end_ >= size) [[unlikely]] {
+    if (chunk_base_ >= size) [[unlikely]] {
+      masks_.fill(0);
+      nonempty_masks_ = 0;
       eof_ = true;
-      index_ = size;
-      structural_mask_ = 0;
       return;
     }
-
-    index_ = block_end_;
-    load_block_at(block_end_);
+    for (size_t i = 0; i < kChunkBlocks; ++i) {
+      const size_t base = chunk_base_ + i * kBlockSize;
+      if (base >= size) [[unlikely]] {
+        for (size_t j = i; j < kChunkBlocks; ++j) masks_[j] = 0;
+        refresh_nonempty_masks();
+        return;
+      }
+      const size_t remaining = size - base;
+      if (remaining >= kBlockSize) [[likely]] {
+        masks_[i] =
+            scan64(reinterpret_cast<const uint8_t*>(input_.data() + base));
+      } else {
+        alignas(16) std::array<uint8_t, kBlockSize> tmp{};
+        std::memcpy(tmp.data(), input_.data() + base, remaining);
+        masks_[i] = scan64(tmp.data());
+        masks_[i] &= (uint64_t{1} << remaining) - 1;
+        for (size_t j = i + 1; j < kChunkBlocks; ++j) masks_[j] = 0;
+        refresh_nonempty_masks();
+        return;
+      }
+    }
+    refresh_nonempty_masks();
   }
 
   SER20_ALWAYS_INLINE void refill_batch() noexcept {
     count_ = 0;
     cursor_ = 0;
-    batch_base_ = index_;
 
+    // Find a chunk with at least one structural candidate.
     for (;;) {
-      if (structural_mask_ == 0) {
-        advance_block();
-
-        if (eof_) [[unlikely]] {
+      if (nonempty_masks_ != 0) break;
+      if (eof_) [[unlikely]]
+        return;
+      if (load_base_ < full_chunk_end_) [[likely]] {
+        load_chunk_full();
+      } else {
+        load_chunk_tail();
+        if (eof_) [[unlikely]]
           return;
-        }
-
-        if (structural_mask_ == 0) {
-          continue;
-        }
       }
+    }
 
-      const size_t base_delta = block_base_ - batch_base_;
-      uint32_t last_off = 0;
-
-      do {
-        const auto off =
-            static_cast<uint32_t>(std::countr_zero(structural_mask_));
-        candidates_[count_++] = static_cast<uint32_t>(base_delta + off);
-        last_off = off;
-        structural_mask_ &= structural_mask_ - 1;
-      } while (structural_mask_ && count_ < kBatchSize);
-
-      index_ = block_base_ + last_off + 1;
-      return;
+    // Drain all non-empty lanes in this chunk into candidates_.
+    // candidates_ hold offsets 0..255 from chunk_base_.
+    batch_base_ = chunk_base_;
+    while (count_ < kBatchSize && nonempty_masks_ != 0) {
+      const uint32_t lane =
+          static_cast<uint32_t>(std::countr_zero(nonempty_masks_));
+      uint64_t m = masks_[lane];
+      const uint32_t lane_base = lane * static_cast<uint32_t>(kBlockSize);
+      while (m != 0 && count_ < kBatchSize) {
+        const auto off = static_cast<uint32_t>(std::countr_zero(m));
+        candidates_[count_++] = lane_base + off;
+        m &= m - 1;
+      }
+      masks_[lane] = m;
+      if (m == 0) nonempty_masks_ &= nonempty_masks_ - 1;
     }
   }
 
@@ -168,7 +200,6 @@ class ScannerNeon {
     const uint64x2_t x = vreinterpretq_u64_u8(v);
     const uint64_t lo = vgetq_lane_u64(x, 0);
     const uint64_t hi = vgetq_lane_u64(x, 1);
-
     return static_cast<uint16_t>(pack8_lsb(lo) | (pack8_lsb(hi) << 8));
   }
 

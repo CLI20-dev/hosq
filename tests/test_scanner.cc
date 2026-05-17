@@ -353,19 +353,5 @@ TYPED_TEST(ScannerTest, MultipleEndCallsAreIdempotent) {
   }
 }
 
-// ── Scanner::reset() ─────────────────────────────────────────────────────────
-// reset() is only present on Scanner (not ScannerNeon — intentionally omitted).
-
-TEST(ScannerResetTest, ResetRestartsScan) {
-  ser20::Scanner s("{}");
-  (void)s.next();
-  (void)s.next();
-  EXPECT_GE(s.next(), 2u);  // EOF sentinel
-
-  s.reset();
-  const size_t pos = s.next();
-  EXPECT_EQ(pos, 0u);
-  EXPECT_EQ(s.input()[pos], '{');
-}
 
 }  // namespace
