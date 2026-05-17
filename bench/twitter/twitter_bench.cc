@@ -1,5 +1,9 @@
 #include <benchmark/benchmark.h>
 #include <simdjson.h>
+#include <yyjson.h>
+#include <rapidjson/document.h>
+#include <nlohmann/json.hpp>
+#include <glaze/glaze.hpp>
 
 #include <cassert>
 #include <cstdint>
@@ -9,6 +13,45 @@
 #include <vector>
 
 #include "ser20/parser.hh"
+
+// ── glaze schema ──────────────────────────────────────────────────────────────
+
+namespace glz_tw {
+
+struct User {
+  int64_t id{};
+  std::string name{};
+  std::string screen_name{};
+  int32_t followers_count{};
+  int32_t friends_count{};
+};
+
+struct Status {
+  int64_t id{};
+  std::string text{};
+  int32_t retweet_count{};
+  int32_t favorite_count{};
+  std::string lang{};
+  User user{};
+};
+
+struct Twitter {
+  std::vector<Status> statuses{};
+};
+
+static int64_t checksum(const Twitter& doc) {
+  int64_t sum = 0;
+  for (const auto& s : doc.statuses) {
+    sum += s.id;
+    sum += s.retweet_count;
+    sum += s.favorite_count;
+    sum += s.user.id;
+    sum += s.user.followers_count;
+  }
+  return sum;
+}
+
+}  // namespace glz_tw
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -263,7 +306,96 @@ static void BM_ser20_array(benchmark::State& state) {
                           static_cast<int64_t>(kJson.size()));
 }
 
+// ── yyjson ────────────────────────────────────────────────────────────────────
+
+static void BM_yyjson(benchmark::State& state) {
+  for (auto _ : state) {
+    yyjson_doc* doc = yyjson_read(kJson.data(), kJson.size(), 0);
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    yyjson_val* statuses = yyjson_obj_get(root, "statuses");
+    int64_t sum = 0;
+    yyjson_val* tweet;
+    yyjson_arr_iter iter;
+    yyjson_arr_iter_init(statuses, &iter);
+    while ((tweet = yyjson_arr_iter_next(&iter))) {
+      sum += yyjson_get_sint(yyjson_obj_get(tweet, "id"));
+      sum += yyjson_get_sint(yyjson_obj_get(tweet, "retweet_count"));
+      sum += yyjson_get_sint(yyjson_obj_get(tweet, "favorite_count"));
+      yyjson_val* user = yyjson_obj_get(tweet, "user");
+      sum += yyjson_get_sint(yyjson_obj_get(user, "id"));
+      sum += yyjson_get_sint(yyjson_obj_get(user, "followers_count"));
+    }
+    benchmark::DoNotOptimize(sum);
+    yyjson_doc_free(doc);
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() *
+                          static_cast<int64_t>(kJson.size()));
+}
+
+// ── RapidJSON (DOM) ───────────────────────────────────────────────────────────
+
+static void BM_rapidjson(benchmark::State& state) {
+  for (auto _ : state) {
+    rapidjson::Document doc;
+    doc.Parse(kJson.data(), kJson.size());
+    int64_t sum = 0;
+    for (auto& tweet : doc["statuses"].GetArray()) {
+      sum += tweet["id"].GetInt64();
+      sum += tweet["retweet_count"].GetInt();
+      sum += tweet["favorite_count"].GetInt();
+      const auto& user = tweet["user"];
+      sum += user["id"].GetInt64();
+      sum += user["followers_count"].GetInt();
+    }
+    benchmark::DoNotOptimize(sum);
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() *
+                          static_cast<int64_t>(kJson.size()));
+}
+
+// ── nlohmann/json (DOM) ───────────────────────────────────────────────────────
+
+static void BM_nlohmann(benchmark::State& state) {
+  for (auto _ : state) {
+    auto doc = nlohmann::json::parse(kJson);
+    int64_t sum = 0;
+    for (const auto& tweet : doc["statuses"]) {
+      sum += tweet["id"].get<int64_t>();
+      sum += tweet["retweet_count"].get<int32_t>();
+      sum += tweet["favorite_count"].get<int32_t>();
+      const auto& user = tweet["user"];
+      sum += user["id"].get<int64_t>();
+      sum += user["followers_count"].get<int32_t>();
+    }
+    benchmark::DoNotOptimize(sum);
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() *
+                          static_cast<int64_t>(kJson.size()));
+}
+
+// ── glaze (struct-based) ──────────────────────────────────────────────────────
+
+static void BM_glaze(benchmark::State& state) {
+  for (auto _ : state) {
+    glz_tw::Twitter doc{};
+    (void)glz::read<glz::opts{.error_on_unknown_keys = false}>(doc, kJson);
+    const auto sum = glz_tw::checksum(doc);
+    benchmark::DoNotOptimize(sum);
+    benchmark::DoNotOptimize(&doc);
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() *
+                          static_cast<int64_t>(kJson.size()));
+}
+
 BENCHMARK(BM_simdjson_ondemand)->MinTime(2.0);
 BENCHMARK(BM_simdjson_materialize)->MinTime(2.0);
+BENCHMARK(BM_yyjson)->MinTime(2.0);
+BENCHMARK(BM_rapidjson)->MinTime(2.0);
+BENCHMARK(BM_nlohmann)->MinTime(2.0);
+BENCHMARK(BM_glaze)->MinTime(2.0);
 BENCHMARK(BM_ser20)->MinTime(2.0);
 BENCHMARK(BM_ser20_array)->MinTime(2.0);

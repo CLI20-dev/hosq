@@ -60,7 +60,7 @@ struct ParseCtx<void> : ParseCtxBase {
 // ── String and block skipping ─────────────────────────────────────────────────
 
 // Skip past the closing '"' of a string.
-// Call after the opening '"' position has been obtained via next().
+// Call after the opening '"' has been obtained via scanner.next().
 // Returns the position of the closing '"', or input.size() on EOF.
 SER20_ALWAYS_INLINE auto json_skip_string(ParserScanner& scanner) -> size_t {
   const std::string_view input = scanner.input();
@@ -68,9 +68,10 @@ SER20_ALWAYS_INLINE auto json_skip_string(ParserScanner& scanner) -> size_t {
     const size_t pos = scanner.next();
     if (pos >= input.size()) return pos;
     if (input[pos] == '"') {
+      // Count consecutive backslashes before this '"'. Even count → unescaped.
       size_t count = 0;
       while (count < pos && input[pos - 1 - count] == '\\') ++count;
-      if ((count & 1u) == 0) return pos;  // unescaped
+      if ((count & 1u) == 0) return pos;
     }
   }
 }

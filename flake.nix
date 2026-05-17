@@ -84,6 +84,11 @@
               pkgs.simdjson
               pkgs.pkg-config
               pkgs.argparse
+              pkgs.yyjson
+              pkgs.rapidjson
+              pkgs.glaze
+              pkgs.nlohmann_json
+              pkgs.reflection-cpp
               google_bench
               config.treefmt.build.wrapper
               pkgs.hyperfine

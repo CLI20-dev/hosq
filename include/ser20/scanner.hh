@@ -37,14 +37,6 @@ class Scanner {
     return input_;
   }
 
-  void reset(size_t pos = 0) noexcept {
-    index_ = pos;
-    count_ = 0;
-    cursor_ = 0;
-    batch_base_ = pos;
-    eof_ = false;
-  }
-
  private:
   static constexpr size_t kBatchSize = 64;
   static constexpr size_t kMaxOffset = (size_t{1} << 16) - 1;

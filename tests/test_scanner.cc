@@ -338,24 +338,11 @@ TYPED_TEST(ScannerTest, BlockBoundaryTripleBackslash) {
   EXPECT_EQ(pos[3], 65u);
 }
 
-// ── reset() and eof() ─────────────────────────────────────────────────────────
-
-TYPED_TEST(ScannerTest, ResetRestartsScan) {
-  TypeParam s("{}");
-  (void)s.next();
-  (void)s.next();
-  EXPECT_GE(s.next(), 2u);  // EOF sentinel
-
-  s.reset();
-  const size_t pos = s.next();
-  EXPECT_EQ(pos, 0u);
-  EXPECT_EQ(s.input()[pos], '{');
-}
+// ── eof() and idempotent end ──────────────────────────────────────────────────
 
 TYPED_TEST(ScannerTest, EofAfterDrain) {
   TypeParam s("{}");
-  while (s.next() < 2u) {
-  }
+  while (s.next() < 2u) {}
   EXPECT_TRUE(s.eof());
 }
 
@@ -364,6 +351,21 @@ TYPED_TEST(ScannerTest, MultipleEndCallsAreIdempotent) {
   for (int i = 0; i < 5; ++i) {
     EXPECT_GE(s.next(), 0u);  // always returns input.size() == 0
   }
+}
+
+// ── Scanner::reset() ─────────────────────────────────────────────────────────
+// reset() is only present on Scanner (not ScannerNeon — intentionally omitted).
+
+TEST(ScannerResetTest, ResetRestartsScan) {
+  ser20::Scanner s("{}");
+  (void)s.next();
+  (void)s.next();
+  EXPECT_GE(s.next(), 2u);  // EOF sentinel
+
+  s.reset();
+  const size_t pos = s.next();
+  EXPECT_EQ(pos, 0u);
+  EXPECT_EQ(s.input()[pos], '{');
 }
 
 }  // namespace
