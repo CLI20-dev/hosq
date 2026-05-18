@@ -686,7 +686,7 @@ struct Pipeline {
           "Decoder pipeline defines storage_type<Input> more than once");
     }
 
-    using raw_return_type = typename decltype([] -> auto {
+    using raw_return_type = typename decltype([]() -> auto {
       if constexpr (std::same_as<In, void> &&
                     requires(Context& ctx) { FnHead(ctx); }) {
         return std::type_identity<
@@ -738,7 +738,7 @@ struct Pipeline {
                     "Encoder pipeline step must not define storage_type<Input>");
     }
 
-    using raw_return_type = typename decltype([] -> auto {
+    using raw_return_type = typename decltype([]() -> auto {
       if constexpr (std::same_as<In, void> &&
                     requires(Context& ctx) { FnHead(ctx); }) {
         return std::type_identity<

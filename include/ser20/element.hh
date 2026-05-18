@@ -88,23 +88,23 @@ struct Elem : public detail::ElementTag {
   SER20_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R>& ctx)
       -> Result<void, Error> {
     ctx.occurrences = occurrences_;
-    auto result = decoder_type::invoke(ctx, Result<void, Error>{});
+    auto result = decoder_type::invoke(ctx);
     if (result) ++occurrences_;
     return result;
   }
 
   template <WriterConcept W>
-  SER20_ALWAYS_INLINE auto encode(DecodeContext<storage_type, W>& ctx,
-                                  Result<storage_type, Error> value) const
+  SER20_ALWAYS_INLINE auto encode(Result<storage_type, Error> value,
+                                  DecodeContext<storage_type, W>& ctx) const
       -> Result<void, Error> {
-    return encoder_type::invoke(ctx, value);
+    return encoder_type::invoke(value, ctx);
   }
 
  protected:
   template <ReaderConcept R>
   SER20_ALWAYS_INLINE auto decode(R& reader) -> Result<void, Error> {
     DecodeContext<storage_type, R> ctx{reader, value_, occurrences_};
-    return decoder_type::invoke(ctx, Result<void, Error>{});
+    return decoder_type::invoke(ctx);
   }
 
  private:

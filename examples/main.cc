@@ -13,5 +13,5 @@
 // };
 
 auto main() -> int {
-  decltype(ser20::decode::noop)::analyze_decoder();
+  decltype(ser20::store::ignore)::analyze_decoder();
 }

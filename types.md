@@ -69,12 +69,12 @@
 // output: T
 // number 文字列を浮動小数点型 T に変換する
 
-[ ] ser20::decode::boolean
+[x] ser20::decode::boolean
 // input: std::string_view
 // output: bool
 // true / false を bool に変換する
 
-[ ] ser20::decode::string_view
+[x] ser20::decode::string_view
 // input: std::string_view
 // output: std::string_view
 // borrowed string_view のまま渡す
@@ -128,13 +128,13 @@
 // missing / null / decode failure を optional として扱う
 
 
-[ ] ser20::decode::custom<F>
+[x] ser20::decode::custom<F>
 // input: previous decode output
 // output: invoke_result_t<F, input>
 // user-defined conversion を適用する
 // enum 変換など、reflection が無い環境での名前解決もここに寄せる
 
-[ ] ser20::decode::identity
+[x] ser20::decode::identity
 // input: T
 // output: T
 // 変換せずそのまま渡す
@@ -143,7 +143,7 @@
 # validate
 
 ```cpp
-[ ] ser20::validate::match<V>
+[x] ser20::validate::match<V>
 // input: T
 // output: T
 // decoded value T が V と等しいことを検証する
@@ -151,26 +151,26 @@
 // 例: type tag の確認など
 //   ser20::validate::match<"circle"_json_string>
 
-[ ] ser20::validate::one_of<Vs...>
+[x] ser20::validate::one_of<Vs...>
 // input: T
 // output: T
 // decoded value T が Vs... のいずれかと等しいことを検証する
 // enum / string literal / numeric literal などの allowed choices に使う
 // 一致しない場合は invalid_choice を返す
 
-[ ] ser20::validate::range<Min, Max>
+[x] ser20::validate::range<Min, Max>
 // input: arithmetic T
 // output: T
 // decoded value T が [Min, Max] の範囲内であることを検証する
 // 範囲外の場合は validation_failed または out_of_range を返す
 // Min / Max は閉区間
 
-[ ] ser20::validate::min<Min>
+[x] ser20::validate::min<Min>
 // input: arithmetic T
 // output: T
 // decoded value T が Min 以上であることを検証する
 
-[ ] ser20::validate::max<Max>
+[x] ser20::validate::max<Max>
 // input: arithmetic T
 // output: T
 // decoded value T が Max 以下であることを検証する
@@ -181,23 +181,23 @@
 // null ではないことを検証する
 // JSON null / CBOR null / MessagePack nil などを拒否するために使う
 
-[ ] ser20::validate::non_empty
+[x] ser20::validate::non_empty
 // input: string-like | container-like T
 // output: T
 // decoded value T が empty ではないことを検証する
 // string / vector / array-like container などに使う
 
-[ ] ser20::validate::size<N>
+[x] ser20::validate::size<N>
 // input: string-like | container-like T
 // output: T
 // decoded value T の size() が N と等しいことを検証する
 
-[ ] ser20::validate::size_range<Min, Max>
+[x] ser20::validate::size_range<Min, Max>
 // input: string-like | container-like T
 // output: T
 // decoded value T の size() が [Min, Max] の範囲内であることを検証する
 
-[ ] ser20::validate::predicate<F>
+[x] ser20::validate::predicate<F>
 // input: T
 // output: T
 // user-defined predicate F(value) を適用する
@@ -205,14 +205,14 @@
 // false を返せば validation_failed
 // F は constexpr function object / function pointer / stateless lambda などを想定
 
-[ ] ser20::validate::custom<F>
+[x] ser20::validate::custom<F>
 // input: T
 // output: T
 // user-defined validation F(value) を適用する
 // F は bool / Result<void, Error> / Result<T, Error> などを返せる設計にしてよい
 // predicate より自由度の高い validation hook
 
-[ ] ser20::validate::identity
+[x] ser20::validate::identity
 // input: T
 // output: T
 // 何も検証せずそのまま渡す
@@ -222,7 +222,7 @@
 # store
 
 ```cpp
-[ ] ser20::store::assign
+[x] ser20::store::assign
 // input: T
 // output: T
 // decoded value T を field の保持型にする
@@ -245,12 +245,12 @@
 // decoded value T を field の保持型にする
 // 重複時は最初の値を保持する
 
-[ ] ser20::store::push
+[x] ser20::store::push
 // input: T
 // output: std::vector<T>
 // decoded value T を std::vector<T> に push_back して保持する
 
-[ ] ser20::store::emplace
+[x] ser20::store::emplace
 // input: T
 // output: std::vector<T>
 // decoded value T から std::vector<T> に emplace_back して保持する
@@ -265,7 +265,7 @@
 // output: appendable container/buffer for T
 // decoded value T を append 可能な container/buffer に追加して保持する
 
-[ ] ser20::store::ignore
+[x] ser20::store::ignore
 // input: T
 // output: ser20::ignored
 // decoded value T を保持しない
