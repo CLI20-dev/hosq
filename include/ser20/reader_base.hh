@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 
 #include "ser20/error.hh"
@@ -14,21 +15,33 @@ enum class TokenType : uint8_t {
   ObjectEnd,
   ArrayBegin,
   ArrayEnd,
-  SCALAR,
-  END,
+  ScalarBegin,
+  End,
 };
+
+enum class JsonTokenContext : std::uint8_t {
+  none = 0,
+  string,   // "foo"
+  literal,  // number / true / false / null
+};
+
+inline constexpr std::size_t unresolved_length =
+    std::numeric_limits<std::size_t>::max();
 
 struct Token {
   size_t offset;
-  size_t length;
+  mutable size_t length;
   TokenType type;
+  uint8_t context;
 };
 
 template <class T>
-concept Reader = requires(T t, const T ct) {
-  { t.next_token() } -> std::same_as<Result<Token, Error>>;
-  { t.peek_token() } -> std::same_as<Result<Token, Error>>;
-  { t.current_token() } -> std::same_as<Result<Token, Error>>;
+concept ReaderConcept = requires(T t, const T ct) {
+  { t.next_token() } -> std::same_as<Result<void, Error>>;
+  { t.current_token() } -> std::same_as<Token&>;
+  { ct.current_token() } -> std::same_as<const Token&>;
+  { t.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
+  { ct.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
   { ct.input() } -> std::same_as<std::string_view>;
 };
 

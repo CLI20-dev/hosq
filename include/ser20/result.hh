@@ -174,6 +174,14 @@ class Result {
 
  private:
   union Storage {
+    Storage() noexcept {}
+    ~Storage() noexcept {}
+
+    Storage(const Storage&) = delete;
+    Storage(Storage&&) = delete;
+    auto operator=(const Storage&) -> Storage& = delete;
+    auto operator=(Storage&&) -> Storage& = delete;
+
     T value;
     E error;
   };
@@ -185,51 +193,16 @@ class Result {
 template <class E>
 class Result<void, E> {
  public:
-  Result() noexcept : has_value_(true) {}
+  Result() noexcept = default;
 
-  Result(Unexpected<E> unexpected) : has_value_(false) {
-    new (&storage_.error) E(std::move(unexpected).value());
-  }
+  Result(Unexpected<E> unexpected)
+      : has_value_(false), error_(std::move(unexpected).value()) {}
 
-  Result(const Result& other) : has_value_(other.has_value_) {
-    if (!has_value_) {
-      new (&storage_.error) E(other.storage_.error);
-    }
-  }
-
-  Result(Result&& other) noexcept(std::is_nothrow_move_constructible_v<E>)
-      : has_value_(other.has_value_) {
-    if (!has_value_) {
-      new (&storage_.error) E(std::move(other.storage_.error));
-    }
-  }
-
-  auto operator=(const Result& other) -> Result& {
-    if (this == &other) {
-      return *this;
-    }
-
-    this->~Result();
-    new (this) Result(other);
-    return *this;
-  }
-
-  auto operator=(Result&& other) noexcept(
-      std::is_nothrow_move_constructible_v<E>) -> Result& {
-    if (this == &other) {
-      return *this;
-    }
-
-    this->~Result();
-    new (this) Result(std::move(other));
-    return *this;
-  }
-
-  ~Result() {
-    if (!has_value_) {
-      storage_.error.~E();
-    }
-  }
+  Result(const Result&) = default;
+  Result(Result&&) = default;
+  auto operator=(const Result&) -> Result& = default;
+  auto operator=(Result&&) -> Result& = default;
+  ~Result() = default;
 
   [[nodiscard]]
   explicit operator bool() const noexcept {
@@ -246,28 +219,24 @@ class Result<void, E> {
   [[nodiscard]]
   auto error() & -> E& {
     assert(!has_value_);
-    return storage_.error;
+    return error_;
   }
 
   [[nodiscard]]
   auto error() const& -> const E& {
     assert(!has_value_);
-    return storage_.error;
+    return error_;
   }
 
   [[nodiscard]]
   auto error() && -> E&& {
     assert(!has_value_);
-    return std::move(storage_.error);
+    return std::move(error_);
   }
 
  private:
-  union Storage {
-    E error;
-  };
-
-  bool has_value_;
-  Storage storage_;
+  bool has_value_{true};
+  E error_{};
 };
 
 }  // namespace ser20

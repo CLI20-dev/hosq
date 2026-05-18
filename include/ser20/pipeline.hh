@@ -7,7 +7,6 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <variant>
 
 #include "ser20/error.hh"
 #include "ser20/result.hh"
@@ -44,6 +43,12 @@ struct MissingAfterType;
 template <class Head, class Input>
 struct MissingStorageType;
 
+template <class Head, class Input>
+struct PipelineStepRejectedInput;
+
+template <class ExistingStorage, class Head, class Input>
+struct DuplicateStorageType;
+
 template <class T>
 consteval auto require_step_impl() -> void {
   if constexpr (!detail::HasAcceptsInput<T>) {
@@ -70,6 +75,18 @@ consteval auto require_storage_type() -> void {
   }
 }
 
+struct NoStorage {};
+
+template <class Head, class Input, class Storage, bool HasStorage>
+struct NextStorage {
+  using type = Storage;
+};
+
+template <class Head, class Input, class Storage>
+struct NextStorage<Head, Input, Storage, true> {
+  using type = typename Head::template storage_type<Input>;
+};
+
 template <auto Fn>
 consteval auto require_pipeline_callable() -> void {
   using FnType = std::remove_cvref_t<decltype(Fn)>;
@@ -80,6 +97,16 @@ enum class PipelineMode {
   decoder,
   encoder,
 };
+
+template <auto Fn, class Context, class Input>
+concept StepCallableWithConstContext =
+    requires(const Context& ctx, Result<Input, Error> input) {
+      Fn(ctx, std::move(input));
+    };
+
+template <auto Fn, class Context, class Input>
+concept StepCallableWithMutableContext = requires(
+    Context& ctx, Result<Input, Error> input) { Fn(ctx, std::move(input)); };
 
 }  // namespace detail
 
@@ -144,43 +171,123 @@ struct Pipeline {
         }.template operator()<Fns...>(ctx, std::move(input));
   }
 
-  template <detail::PipelineMode Mode, class Input, auto FnHead, auto... FnTail>
-  static constexpr auto analyze_impl() {
-    using Head = std::remove_cvref_t<decltype(FnHead)>;
-
-    static_assert(Head::template accepts_input<Input>,
-                  "Pipeline step does not accept the previous output type");
-
-    if constexpr (sizeof...(FnTail) == 0) {
-      if constexpr (Mode == detail::PipelineMode::decoder) {
-        detail::require_storage_type<Head, Input>();
-
-        return std::make_tuple(
-            true,
-            std::type_identity<typename Head::template storage_type<Input>>{});
-      } else {
-        static_assert(
-            !requires { typename Head::template after_type<Input>; },
-            "The last encoder action must be terminal and must not define "
-            "after_type<Input>");
-
-        return std::make_tuple(true, std::type_identity<void>{});
-      }
-    } else {
-      detail::require_after_type<Head, Input>();
-
-      using Next = typename Head::template after_type<Input>;
-      return analyze_impl<Mode, Next, FnTail...>();
-    }
-  }
-
   static constexpr auto analyze_decoder() {
-    return analyze_impl<detail::PipelineMode::decoder, void, Fns...>();
+    return analyze_decoder_impl<void, detail::NoStorage, Fns...>();
   }
 
   template <class Input>
   static constexpr auto analyze_encoder() {
-    return analyze_impl<detail::PipelineMode::encoder, Input, Fns...>();
+    return analyze_encoder_impl<Input, Fns...>();
+  }
+
+  template <class Context, class Input>
+  static consteval auto callable_with_const_context() -> bool {
+    return callable_with_const_context_impl<Context, Input, Fns...>();
+  }
+
+  template <class Context, class Input>
+  static consteval auto callable_with_mutable_context() -> bool {
+    return callable_with_mutable_context_impl<Context, Input, Fns...>();
+  }
+
+ private:
+  template <class Input, class Storage, auto FnHead, auto... FnTail>
+  static constexpr auto analyze_decoder_impl() {
+    using Head = std::remove_cvref_t<decltype(FnHead)>;
+
+    if constexpr (!Head::template accepts_input<Input>) {
+      static_assert(sizeof(detail::PipelineStepRejectedInput<Head, Input>) == 0,
+                    "Pipeline step does not accept the previous output type");
+    }
+
+    constexpr bool has_storage =
+        requires { typename Head::template storage_type<Input>; };
+
+    if constexpr (has_storage && !std::same_as<Storage, detail::NoStorage>) {
+      static_assert(
+          sizeof(detail::DuplicateStorageType<Storage, Head, Input>) == 0,
+          "Decoder pipeline defines storage_type<Input> more than once");
+    }
+
+    using NextStorage =
+        typename detail::NextStorage<Head, Input, Storage, has_storage>::type;
+
+    if constexpr (sizeof...(FnTail) == 0) {
+      if constexpr (std::same_as<NextStorage, detail::NoStorage>) {
+        static_assert(sizeof(detail::MissingStorageType<Head, Input>) == 0,
+                      "Decoder pipeline must define storage_type<Input> "
+                      "exactly once");
+      }
+
+      return std::make_tuple(true, std::type_identity<NextStorage>{});
+    } else {
+      detail::require_after_type<Head, Input>();
+
+      using Next = typename Head::template after_type<Input>;
+      return analyze_decoder_impl<Next, NextStorage, FnTail...>();
+    }
+  }
+
+  template <class Input, auto FnHead, auto... FnTail>
+  static constexpr auto analyze_encoder_impl() {
+    using Head = std::remove_cvref_t<decltype(FnHead)>;
+
+    if constexpr (!Head::template accepts_input<Input>) {
+      static_assert(sizeof(detail::PipelineStepRejectedInput<Head, Input>) == 0,
+                    "Pipeline step does not accept the previous output type");
+    }
+
+    if constexpr (sizeof...(FnTail) == 0) {
+      static_assert(
+          !requires { typename Head::template after_type<Input>; },
+          "The last encoder action must be terminal and must not define "
+          "after_type<Input>");
+
+      return std::make_tuple(true, std::type_identity<void>{});
+    } else {
+      detail::require_after_type<Head, Input>();
+
+      using Next = typename Head::template after_type<Input>;
+      return analyze_encoder_impl<Next, FnTail...>();
+    }
+  }
+
+  template <class Context, class Input, auto FnHead, auto... FnTail>
+  static consteval auto callable_with_const_context_impl() -> bool {
+    using Head = std::remove_cvref_t<decltype(FnHead)>;
+
+    if constexpr (!detail::StepCallableWithConstContext<FnHead, Context,
+                                                        Input>) {  // NOLINT
+      return false;
+    } else if constexpr (sizeof...(FnTail) == 0) {
+      return true;
+    } else if constexpr (!requires {
+                           typename Head::template after_type<Input>;
+                         }) {
+      return false;
+    } else {
+      using Next = typename Head::template after_type<Input>;
+      return callable_with_const_context_impl<Context, Next, FnTail...>();
+    }
+  }
+
+  template <class Context, class Input, auto FnHead, auto... FnTail>
+  static consteval auto callable_with_mutable_context_impl() -> bool {
+    using Head = std::remove_cvref_t<decltype(FnHead)>;
+
+    if constexpr (!detail::StepCallableWithMutableContext<FnHead, Context,
+                                                          Input>) {  // NOLINT
+      return false;
+    } else if constexpr (sizeof...(FnTail) == 0) {
+      return true;
+    } else if constexpr (!requires {
+                           typename Head::template after_type<Input>;
+                         }) {
+      return false;
+    } else {
+      using Next = typename Head::template after_type<Input>;
+      return callable_with_mutable_context_impl<Context, Next, FnTail...>();
+    }
   }
 };
 
@@ -205,6 +312,16 @@ struct Pipeline<> {
   template <class Input>
   static constexpr auto analyze_encoder() {
     return std::make_tuple(true, std::type_identity<void>{});
+  }
+
+  template <class Context, class Input>
+  static consteval auto callable_with_const_context() -> bool {
+    return true;
+  }
+
+  template <class Context, class Input>
+  static consteval auto callable_with_mutable_context() -> bool {
+    return true;
   }
 };
 

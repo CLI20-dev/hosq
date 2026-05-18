@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <tuple>
 
-namespace cli {
+namespace ser20 {
 
 #if defined(__cpp_structured_bindings) &&                           \
     __cpp_structured_bindings >= 202411L && defined(__cplusplus) && \
@@ -660,4 +660,4 @@ constexpr auto as_tuple (const T& t) {
 // clang-format on
 #endif
 
-}  // namespace cli
+}  // namespace ser20

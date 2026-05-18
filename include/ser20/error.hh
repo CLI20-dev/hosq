@@ -13,6 +13,10 @@ enum class ErrorCode {
   input_too_large,
   output_too_large,
   write_failed,
+
+  // Reader/Writer state
+  invalid_state,
+
   // Syntax / representation
   invalid_token,
   unexpected_token,
@@ -36,6 +40,9 @@ enum class ErrorCode {
   validation_failed,
   // Encode-side value problem
   invalid_object_state,
+
+  // Candidate
+  candidate_rejected,
 };
 
 enum class ErrorKind {

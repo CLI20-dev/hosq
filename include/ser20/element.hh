@@ -84,20 +84,27 @@ struct Elem : public detail::ElementTag {
     return std::nullopt;
   }
 
-  template <Reader R>
+  template <ReaderConcept R>
   SER20_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R>& ctx)
       -> Result<void, Error> {
     ctx.occurrences = occurrences_;
     auto result = decoder_type::invoke(ctx, Result<void, Error>{});
-    ++occurrences_;
+    if (result) ++occurrences_;
     return result;
   }
 
-  template <Writer W>
+  template <WriterConcept W>
   SER20_ALWAYS_INLINE auto encode(DecodeContext<storage_type, W>& ctx,
                                   Result<storage_type, Error> value) const
       -> Result<void, Error> {
     return encoder_type::invoke(ctx, value);
+  }
+
+ protected:
+  template <ReaderConcept R>
+  SER20_ALWAYS_INLINE auto decode(R& reader) -> Result<void, Error> {
+    DecodeContext<storage_type, R> ctx{reader, value_, occurrences_};
+    return decoder_type::invoke(ctx, Result<void, Error>{});
   }
 
  private:
@@ -156,6 +163,19 @@ struct Entry : public detail::ElementTag {
   key_type key_{};
   value_type value_{};
 };
+
+namespace detail {
+
+template <class T>
+struct IsEntry : std::false_type {};
+
+template <class K, class V>
+struct IsEntry<Entry<K, V>> : std::true_type {};
+
+template <class T>
+inline constexpr bool is_entry_v = IsEntry<std::remove_cvref_t<T>>::value;
+
+}  // namespace detail
 
 #undef SER20_ALWAYS_INLINE
 }  // namespace ser20

@@ -1,253 +1,302 @@
 #pragma once
 
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <span>
 #include <string_view>
-#include <vector>
+#include <type_traits>
 
+#include "ser20/error.hh"
 #include "ser20/reader_base.hh"
-
-#ifdef __ARM_NEON
-#include "ser20/json/scanner_neon.hh"
-#else
-#include "ser20/json/scanner.hh"
-#endif
+#include "ser20/result.hh"
 
 namespace ser20 {
+namespace json {
 
-#ifdef __ARM_NEON
-using Scanner = ScannerNeon;
-#else
-using Scanner = ScannerSimple;
-#endif
-
-class JsonReader {
+template <size_t MaxDepth = 1024>
+class Reader {
  public:
-  explicit JsonReader(std::string_view data) : scanner_(data), data_(data) {}
+  explicit Reader(std::string_view input) noexcept : input_(input) {}
+
+  Reader(const Reader&) = default;
+  auto operator=(const Reader&) -> Reader& = default;
+
+  Reader(Reader&&) = delete;
+  auto operator=(Reader&&) -> Reader& = delete;
+
+  ~Reader() = default;
 
   [[nodiscard]]
-  auto next_token() -> Result<Token, Error> {
-    if (peeked_) {
-      auto result = std::move(*peeked_);
-      peeked_.reset();
-      return result;
+  auto next_token() -> Result<void, Error> {
+    auto result = read_one();
+    if (!result) {
+      return unexpected(result.error());
     }
-    if (has_pending_) {
-      has_pending_ = false;
-      return pending_;
-    }
-    current_ = read_one();
-    return *current_;
+    current_ = *result;
+    return {};
   }
 
   [[nodiscard]]
-  auto peek_token() -> Result<Token, Error> {
-    if (!peeked_) {
-      peeked_ = next_token();
-    }
-    return *peeked_;
+  auto current_token() noexcept -> Token& {
+    return current_;
   }
 
   [[nodiscard]]
-  auto current_token() -> Result<Token, Error> {
-    if (!current_) {
-      current_ = next_token();
+  auto current_token() const noexcept -> const Token& {
+    return current_;
+  }
+
+  [[nodiscard]]
+  auto input() const noexcept -> std::string_view {
+    return input_;
+  }
+
+  auto advance(std::size_t n) const -> Result<void, Error> {
+    switch (current_.type) {
+      case TokenType::ScalarBegin:
+      case TokenType::ObjectBegin:
+      case TokenType::ArrayBegin:
+        break;
+
+      case TokenType::ObjectEnd:
+      case TokenType::ArrayEnd:
+      case TokenType::End:
+        return unexpected(Error{
+            .code = ErrorCode::unexpected_token,
+            .offset = current_.offset,
+        });
     }
-    return *current_;
+
+    if (n > input_.size() - pos_) {
+      return unexpected(Error{
+          .code = ErrorCode::unexpected_eof,
+          .offset = pos_,
+      });
+    }
+
+    pos_ += n;
+    return {};
   }
 
  private:
-  Scanner scanner_;
+  enum class ObjectContext : bool { object, array };
+  enum class Expect : uint8_t {
+    key,
+    key_or_end,
+    value,
+    value_or_end,
+    comma_delimiter,
+    colon_delimiter,
+  };
 
-  std::span<const uint64_t> batch_{};
-  size_t cursor_{0};
-
-  // Peeked result; empty means no lookahead is buffered.
-  std::optional<Result<Token, Error>> peeked_{};
-
-  // Valid structural token deferred after emitting a bare-scalar SCALAR.
-  bool has_pending_{false};
-  Token pending_{};
-  std::optional<Result<Token, Error>> current_{};
-
-  // Context stack: true = inside array, false = inside object.
-  std::vector<bool> ctx_{};
-
-  // Bare-scalar tracking.
-  bool expecting_value_{false};
-  size_t value_start_{0};
-
-  // ── helpers ────────────────────────────────────────────────────────────────
-
-  static auto is_ws(char c) noexcept -> bool {
+  [[nodiscard]]
+  static constexpr auto is_ws(char c) noexcept -> bool {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
   }
 
-  auto next_cadidates() noexcept -> size_t {
-    if (cursor_ >= batch_.size()) {
-      batch_ = scanner_.get_next_candidates();
-      cursor_ = 0;
-      if (batch_.empty()) {
-        return data_.size();
-      }
-    }
-    return static_cast<size_t>(batch_[cursor_++]);
+  [[nodiscard]]
+  static constexpr auto is_delim(char c) noexcept -> bool {
+    return c == ',' || c == ']' || c == '}';
   }
 
-  // Returns the position of the unescaped closing '"', or input().size() on
-  // unterminated string (caller must treat that as unexpected_eof).
-  auto string_close() -> size_t {
-    while (true) {
-      const size_t pos = next_cadidates();
-      if (pos >= data_.size()) return pos;
-      if (data_[pos] != '"') continue;
-      size_t bs = 0;
-      while (bs < pos && data_[pos - 1 - bs] == '\\') ++bs;
-      if ((bs & 1u) == 0u) return pos;
-    }
-  }
-
-  [[nodiscard]] auto trim(size_t s, size_t e) const noexcept
-      -> std::pair<size_t, size_t> {
-    while (s < e && is_ws(data_[s])) ++s;
-    while (e > s && is_ws(data_[e - 1])) --e;
-    return {s, e};
-  }
-
-  // Process the delimiter that terminates a bare scalar.
-  auto handle_delim_after_scalar(char c, size_t pos) -> void {
-    if (c == '}') {
-      if (!ctx_.empty()) ctx_.pop_back();
-      has_pending_ = true;
-      pending_ = Token{.offset = pos, .length = 1, .type = TokenType::ObjectEnd};
-    } else if (c == ']') {
-      if (!ctx_.empty()) ctx_.pop_back();
-      has_pending_ = true;
-      pending_ = Token{.offset = pos, .length = 1, .type = TokenType::ArrayEnd};
-    } else {  // ','
-      if (!ctx_.empty() && ctx_.back()) {
-        expecting_value_ = true;
-        value_start_ = pos + 1;
-      }
-    }
-  }
-
-  // ── state machine ──────────────────────────────────────────────────────────
-
+  [[nodiscard]]
   auto read_one() -> Result<Token, Error> {
-    while (true) {
-      const size_t pos = next_cadidates();
-      if (pos >= data_.size())
-        return Token{
-            .offset = data_.size(), .length = 0, .type = TokenType::END};
+    while (pos_ < input_.size()) {
+      const std::size_t pos = pos_;
+      const char c = input_[pos_++];
 
-      const char c = data_[pos];
-
-      if (expecting_value_) {
-        expecting_value_ = false;
-
-        if (c == '"') {
-          const size_t cl = string_close();
-          if (cl >= data_.size())
-            return unexpected(Error{ErrorCode::unexpected_eof});
-          return Token{.offset = pos + 1,
-                       .length = cl > pos + 1 ? cl - pos - 1 : 0,
-                       .type = TokenType::SCALAR};
-        }
-        if (c == '{') {
-          ctx_.push_back(false);
-          return Token{
-              .offset = pos, .length = 1, .type = TokenType::ObjectBegin};
-        }
-        if (c == '[') {
-          ctx_.push_back(true);
-          expecting_value_ = true;
-          value_start_ = pos + 1;
-          return Token{
-              .offset = pos, .length = 1, .type = TokenType::ArrayBegin};
-        }
-
-        // Bare scalar terminated by a delimiter.
-        auto [s, e] = trim(value_start_, pos);
-        if (s >= e) {
-          // Empty gap: handle delimiter directly (e.g. empty array []).
-          if (c == '}') {
-            if (!ctx_.empty()) ctx_.pop_back();
-            return Token{
-                .offset = pos, .length = 1, .type = TokenType::ObjectEnd};
-          }
-          if (c == ']') {
-            if (!ctx_.empty()) ctx_.pop_back();
-            return Token{
-                .offset = pos, .length = 1, .type = TokenType::ArrayEnd};
-          }
-          if (!ctx_.empty() && ctx_.back()) {
-            expecting_value_ = true;
-            value_start_ = pos + 1;
-          }
-          continue;
-        }
-
-        handle_delim_after_scalar(c, pos);
-        return Token{.offset = s, .length = e - s, .type = TokenType::SCALAR};
+      if (is_ws(c)) {
+        continue;
       }
 
       switch (c) {
-        case '{':
-          ctx_.push_back(false);
+        case '{': {
+          if (expect_ != Expect::value && expect_ != Expect::value_or_end) {
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_token, .offset = pos});
+          }
+          auto pushed = push_context(ObjectContext::object, pos);
+          if (!pushed) {
+            return unexpected(pushed.error());
+          }
+          expect_ = Expect::key_or_end;
+          pos_ = pos;
           return Token{
-              .offset = pos, .length = 1, .type = TokenType::ObjectBegin};
-
-        case '}':
-          if (!ctx_.empty()) ctx_.pop_back();
-          return Token{.offset = pos, .length = 1, .type = TokenType::ObjectEnd};
-
-        case '[':
-          ctx_.push_back(true);
-          expecting_value_ = true;
-          value_start_ = pos + 1;
-          return Token{
-              .offset = pos, .length = 1, .type = TokenType::ArrayBegin};
-
-        case ']':
-          if (!ctx_.empty()) ctx_.pop_back();
-          return Token{.offset = pos, .length = 1, .type = TokenType::ArrayEnd};
-
-        case '"': {
-          const size_t cl = string_close();
-          if (cl >= data_.size())
-            return unexpected(Error{ErrorCode::unexpected_eof});
-          return Token{.offset = pos + 1,
-                       .length = cl > pos + 1 ? cl - pos - 1 : 0,
-                       .type = TokenType::SCALAR};
+              .offset = pos,
+              .length = unresolved_length,
+              .type = TokenType::ObjectBegin,
+              .context = static_cast<std::uint8_t>(JsonTokenContext::none)};
         }
 
-        case ':':
-          expecting_value_ = true;
-          value_start_ = pos + 1;
-          continue;
+        case '[': {
+          if (expect_ != Expect::value && expect_ != Expect::value_or_end) {
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_token, .offset = pos});
+          }
+          auto pushed = push_context(ObjectContext::array, pos);
+          if (!pushed) {
+            return unexpected(pushed.error());
+          }
+          expect_ = Expect::value_or_end;
+          pos_ = pos;
+          return Token{
+              .offset = pos,
+              .length = unresolved_length,
+              .type = TokenType::ArrayBegin,
+              .context = static_cast<std::uint8_t>(JsonTokenContext::none)};
+        }
+        case '}':
+          if (ctx_size_ == 0 || current_ctx() != ObjectContext::object ||
+              (expect_ != Expect::key_or_end &&
+               expect_ != Expect::comma_delimiter)) {
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_token, .offset = pos});
+          }
+
+          pop_context();
+          expect_ = Expect::comma_delimiter;
+
+          return Token{
+              .offset = pos,
+              .length = 0,
+              .type = TokenType::ObjectEnd,
+              .context = static_cast<std::uint8_t>(JsonTokenContext::none)};
+
+        case ']':
+          if (ctx_size_ == 0 || current_ctx() != ObjectContext::array ||
+              (expect_ != Expect::value_or_end &&
+               expect_ != Expect::comma_delimiter)) {
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_token, .offset = pos});
+          }
+
+          pop_context();
+          expect_ = Expect::comma_delimiter;
+          return Token{
+              .offset = pos,
+              .length = 0,
+              .type = TokenType::ArrayEnd,
+              .context = static_cast<std::uint8_t>(JsonTokenContext::none)};
 
         case ',':
-          if (!ctx_.empty() && ctx_.back()) {
-            expecting_value_ = true;
-            value_start_ = pos + 1;
+          if (ctx_size_ == 0 || expect_ != Expect::comma_delimiter) {
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_token, .offset = pos});
           }
+
+          expect_ = current_ctx() == ObjectContext::object ? Expect::key
+                                                           : Expect::value;
           continue;
 
-        default:
+        case ':':
+          if (ctx_size_ == 0 || current_ctx() != ObjectContext::object ||
+              expect_ != Expect::colon_delimiter) {
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_token, .offset = pos});
+          }
+          expect_ = Expect::value;
           continue;
+
+        case '"': {
+          if (expect_ != Expect::key && expect_ != Expect::key_or_end &&
+              expect_ != Expect::value && expect_ != Expect::value_or_end) {
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_token, .offset = pos});
+          }
+
+          const bool is_key =
+              ctx_size_ != 0 && current_ctx() == ObjectContext::object &&
+              (expect_ == Expect::key || expect_ == Expect::key_or_end);
+
+          expect_ = is_key ? Expect::colon_delimiter : Expect::comma_delimiter;
+          pos_ = pos;
+          return Token{
+              .offset = pos,
+              .length = unresolved_length,
+              .type = TokenType::ScalarBegin,
+              .context = static_cast<std::uint8_t>(JsonTokenContext::string),
+          };
+        }
+
+        default:
+          if (expect_ != Expect::value && expect_ != Expect::value_or_end) {
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_token, .offset = pos});
+          }
+          expect_ = Expect::comma_delimiter;
+          pos_ = pos;
+          return Token{
+              .offset = pos,
+              .length = unresolved_length,
+              .type = TokenType::ScalarBegin,
+              .context = static_cast<std::uint8_t>(JsonTokenContext::literal),
+          };
       }
     }
+
+    if (ctx_size_ != 0 || expect_ != Expect::comma_delimiter) {
+      return unexpected(Error{
+          .code = ErrorCode::unexpected_eof,
+          .offset = input_.size(),
+      });
+    }
+
+    return Token{
+        .offset = input_.size(),
+        .length = 0,
+        .type = TokenType::End,
+        .context = static_cast<std::uint8_t>(JsonTokenContext::none),
+    };
+  }
+
+  [[nodiscard]]
+  auto current_ctx() const noexcept -> ObjectContext {
+    return ctx_.test(ctx_size_ - 1) ? ObjectContext::object
+                                    : ObjectContext::array;
+  }
+
+  auto push_context(ObjectContext type, std::size_t offset)
+      -> Result<void, Error> {
+    if (ctx_size_ >= MaxDepth) {
+      return unexpected(Error{
+          .code = ErrorCode::depth_limit_exceeded,
+          .offset = offset,
+      });
+    }
+
+    ctx_.set(ctx_size_++, type == ObjectContext::object);
+    return {};
+  }
+
+  auto pop_context() noexcept -> void {
+    --ctx_size_;
+    ctx_.reset(ctx_size_);
   }
 
  private:
-  std::string_view data_;
+  std::bitset<MaxDepth> ctx_{};
+  std::size_t ctx_size_{0};
+
+  std::string_view input_{};
+  Expect expect_{Expect::value};
+
+  Token current_{
+      .offset = 0,
+      .length = 0,
+      .type = TokenType::End,
+      .context = static_cast<std::uint8_t>(JsonTokenContext::none),
+  };
+
+  mutable std::size_t pos_{0};
 };
 
-template <>
-struct ReaderTraits<JsonReader> {
+static_assert(std::is_trivially_copyable_v<Reader<>>);
+static_assert(ReaderConcept<Reader<>>);
+
+}  // namespace json
+
+template <std::size_t MaxDepth>
+struct ReaderTraits<json::Reader<MaxDepth>> {
   static constexpr Format format = Format::json;
   static constexpr bool is_binary_format = false;
 };

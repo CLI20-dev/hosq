@@ -17,13 +17,13 @@ struct ScalarImpl {
   using after_type = std::string_view;
 
   template <DecodeContextLike Context>
-  auto operator()(Context ctx, Result<void, Error> input) const
+  auto operator()(const Context& ctx, Result<void, Error> input) const
       -> Result<std::string_view, Error> {
     if (!input) [[unlikely]] {
       return Unexpected<Error>{input.error()};
     }
     Result<Token, Error> token_result = ctx.reader->next_token();
-    if (token_result->type != TokenType::SCALAR) [[unlikely]] {
+    if (token_result->type != TokenType::ScalarBegin) [[unlikely]] {
       return Unexpected<Error>{Error{
           .code = ErrorCode::unexpected_token,
           .offset = token_result->offset,
