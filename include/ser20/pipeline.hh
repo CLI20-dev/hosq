@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "ser20/context.hh"
 #include "ser20/error.hh"
 #include "ser20/result.hh"
 
@@ -17,24 +18,8 @@ namespace detail {
 
 struct AnyInput {};
 
-template <class Fn>
-concept HasAcceptsInput = requires {
-  {
-    std::remove_cvref_t<Fn>::template accepts_input<AnyInput>
-  } -> std::convertible_to<bool>;
-};
-
-template <class Input>
-struct MissingAcceptsInput;
-
-template <class Head, class Input>
-struct MissingAfterType;
-
 template <class Head, class Input>
 struct MissingStorageType;
-
-template <class Head, class Input>
-struct PipelineStepRejectedInput;
 
 template <class ExistingStorage, class Head, class Input>
 struct DuplicateStorageType;
@@ -42,33 +27,9 @@ struct DuplicateStorageType;
 template <class Head, class Input>
 struct UnexpectedStorageType;
 
-template <class T>
-consteval auto require_step_impl() -> void {
-  if constexpr (!detail::HasAcceptsInput<T>) {
-    static_assert(sizeof(MissingAcceptsInput<T>) == 0,
-                  "ser20 step error: implementation type must define "
-                  "template<class Input> "
-                  "static constexpr bool accepts_input");
-  }
-}
-
-template <class Head, class Input>
-consteval auto require_after_type() -> void {
-  if constexpr (!requires { typename Head::template after_type<Input>; }) {
-    static_assert(sizeof(MissingAfterType<Head, Input>) == 0,
-                  "A non-terminal action must define after_type<Input>");
-  }
-}
-
-template <class Head, class Input>
-consteval auto require_storage_type() -> void {
-  if constexpr (!requires { typename Head::template storage_type<Input>; }) {
-    static_assert(sizeof(MissingStorageType<Head, Input>) == 0,
-                  "The last action must define storage_type<Input>");
-  }
-}
-
 struct NoStorage {};
+
+struct NotCallable {};
 
 template <class Head, class Input, class Storage, bool HasStorage>
 struct NextStorage {
@@ -80,27 +41,42 @@ struct NextStorage<Head, Input, Storage, true> {
   using type = typename Head::template storage_type<Input>;
 };
 
-template <auto Fn>
-consteval auto require_pipeline_callable() -> void {
-  using FnType = std::remove_cvref_t<decltype(Fn)>;
-  require_step_impl<FnType>();
-}
-
 enum class PipelineMode {
   decoder,
   encoder,
 };
 
-template <auto Fn>
-concept PipelineCallable = detail::HasAcceptsInput<decltype(Fn)>;
-
 template <class Head>
 static constexpr bool always_false = false;
+
+template <class R>
+struct StepOutput {
+  using type = std::remove_cvref_t<R>;
+};
+
+template <class T>
+struct StepOutput<Result<T, Error>> {
+  using type = T;
+};
+
+template <class R>
+using step_output_t = typename StepOutput<std::remove_cvref_t<R>>::type;
+
+template <class T>
+[[nodiscard]]
+constexpr auto expected(T&& value) -> Result<std::remove_cvref_t<T>, Error> {
+  return Result<std::remove_cvref_t<T>, Error>{std::forward<T>(value)};
+}
+
+[[nodiscard]]
+constexpr auto expected() -> Result<void, Error> {
+  return Result<void, Error>{};
+}
 
 }  // namespace detail
 
 template <auto... Fns>
-  requires(sizeof...(Fns) > 0 && (detail::PipelineCallable<Fns> && ...))
+  requires(sizeof...(Fns) > 0)
 struct Pipeline;
 
 namespace detail {
@@ -119,53 +95,39 @@ struct TailResultType<void, Context, Fn...> {
 template <class Value, class Context, auto... Fn>
 using tail_result_t = typename TailResultType<Value, Context, Fn...>::type;
 
-template <class Context, auto... FnTail>
-static constexpr auto continue_void_result(Result<void, Error> next,
-                                           Context& ctx) {
-  if (!next) [[unlikely]] {
-    using TailResult = detail::tail_result_t<void, Context, FnTail...>;
-    return TailResult{unexpected(std::move(next).error())};
-  }
-  return Pipeline<FnTail...>::invoke(ctx);
-}
-
-template <class Context, auto... FnTail>
-static constexpr auto continue_void_result(Result<void, Error> next,
-                                           const Context& ctx) {
-  if (!next) [[unlikely]] {
-    using TailResult = detail::tail_result_t<void, const Context, FnTail...>;
-    return TailResult{unexpected(std::move(next).error())};
-  }
-  return Pipeline<FnTail...>::invoke(ctx);
-}
-
-template <class Output, class Context, auto... FnTail>
+template <auto... FnTail, class Output, class Context>
 static constexpr auto continue_result(Result<Output, Error> next, Context& ctx) {
   if (!next) [[unlikely]] {
     using TailResult = detail::tail_result_t<Output, Context, FnTail...>;
     return TailResult{unexpected(std::move(next).error())};
   }
-  return Pipeline<FnTail...>::invoke(std::move(*next), ctx);
+
+  if constexpr (std::same_as<Output, void>) {
+    return Pipeline<FnTail...>::invoke(ctx);
+  } else {
+    return Pipeline<FnTail...>::invoke(std::move(*next), ctx);
+  }
 }
 
-template <class Output, class Context, auto... FnTail>
+template <auto... FnTail, class Output, class Context>
 static constexpr auto continue_result(Result<Output, Error> next,
                                       const Context& ctx) {
   if (!next) [[unlikely]] {
     using TailResult = detail::tail_result_t<Output, const Context, FnTail...>;
     return TailResult{unexpected(std::move(next).error())};
   }
-  return Pipeline<FnTail...>::invoke(std::move(*next), ctx);
+
+  if constexpr (std::same_as<Output, void>) {
+    return Pipeline<FnTail...>::invoke(ctx);
+  } else {
+    return Pipeline<FnTail...>::invoke(std::move(*next), ctx);
+  }
 }
 
 }  // namespace detail
 
 /**
  * @brief A compile-time pipeline of action functions applied sequentially.
- *
- * Each step must expose:
- * - `template<class I> static constexpr bool accepts_input`
- * - `template<class I> using after_type`
  *
  * Decoder pipelines must define `storage_type<I>` exactly once across the
  * whole pipeline. The step that defines it determines the decoder storage type;
@@ -180,7 +142,7 @@ static constexpr auto continue_result(Result<Output, Error> next,
  * @tparam Fns Pack of constexpr action objects forming the pipeline.
  */
 template <auto... Fns>
-  requires(sizeof...(Fns) > 0 && (detail::PipelineCallable<Fns> && ...))
+  requires(sizeof...(Fns) > 0)
 struct Pipeline {
   /**
    * @brief Invokes this pipeline from an explicit input value using a mutable
@@ -192,13 +154,11 @@ struct Pipeline {
    *
    * Supported step signatures are:
    * - `Fn(input, ctx) -> void`
-   * - `Fn(input, ctx) -> Result<void, Error>`
-   * - `Fn(input) -> void`
-   * - `Fn(input) -> Result<void, Error>`
-   * - `Fn(input, ctx) -> after_type<Input>`
    * - `Fn(input, ctx) -> Result<after_type<Input>, Error>`
-   * - `Fn(input) -> after_type<Input>`
+   * - `Fn(input, ctx) -> after_type<Input>`
+   * - `Fn(input) -> void`
    * - `Fn(input) -> Result<after_type<Input>, Error>`
+   * - `Fn(input) -> after_type<Input>`
    *
    * If a step returns `Result<..., Error>`, errors are propagated immediately
    * and the remaining steps are not invoked. Plain return values are forwarded
@@ -218,7 +178,6 @@ struct Pipeline {
     return []<auto FnHead, auto... FnTail>(Input input,
                                            Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
-      using After = typename Head::template after_type<Input>;
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
 
@@ -226,102 +185,68 @@ struct Pipeline {
       if constexpr (  //
           requires(Input i, Context& c) {
             { Fn(std::move(i), c) } -> std::same_as<void>;
-          } && std::same_as<After, void>) {
+          }) {
         if constexpr (last_function) {
           return Fn(std::move(input), ctx), Result<void, Error>{};
         } else {
           return Fn(std::move(input), ctx), Pipeline<FnTail...>::invoke(ctx);
         }
       }
-      // 2. Fn(input, ctx) -> Result<void, Error>
+      // 2. Fn(input, ctx) -> Result<AfterType, Error>
       else if constexpr (  //
           requires(Input i, Context& c) {
-            { Fn(std::move(i), c) } -> std::same_as<Result<void, Error>>;
-          } && std::same_as<After, void>) {
+            { Fn(std::move(i), c) } -> detail::Ser20ResultType;
+          }) {
         if constexpr (last_function) {
           return Fn(std::move(input), ctx);
         } else {
-          return detail::continue_void_result<Context, FnTail...>(
-              Fn(std::move(input), ctx), ctx);
+          return detail::continue_result<FnTail...>(Fn(std::move(input), ctx),
+                                                    ctx);
+        }
+      }
+      // 3. Fn(input, ctx) -> AfterType
+      else if constexpr (  //
+          requires(Input i, Context& c) {
+            { Fn(std::move(i), c) };
+          }) {
+        if constexpr (last_function) {
+          return detail::expected(Fn(std::move(input), ctx));
+        } else {
+          return Pipeline<FnTail...>::invoke(Fn(std::move(input), ctx), ctx);
         }
       }
       // 3. Fn(input) -> void
       else if constexpr (  //
           requires(Input i) {
             { Fn(std::move(i)) } -> std::same_as<void>;
-          } && std::same_as<After, void>) {
+          }) {
         if constexpr (last_function) {
           return Fn(std::move(input)), Result<void, Error>{};
         } else {
           return Fn(std::move(input)), Pipeline<FnTail...>::invoke(ctx);
         }
       }
-      // 4. Fn(input) -> Result<void, Error>
+      // 5. Fn(input) -> Result<AfterType, Error>
       else if constexpr (  //
           requires(Input i) {
-            { Fn(std::move(i)) } -> std::same_as<Result<void, Error>>;
-          } && std::same_as<After, void>) {
+            { Fn(std::move(i)) } -> detail::Ser20ResultType;
+          }) {
         if constexpr (last_function) {
           return Fn(std::move(input));
         } else {
-          return detail::continue_void_result<Context, FnTail...>(
-              Fn(std::move(input)), ctx);
+          return detail::continue_result<FnTail...>(Fn(std::move(input)), ctx);
         }
       }
-      // 5. Fn(input, ctx) -> AfterType
-      else if constexpr (  //
-          requires(Input i, Context& c) {
-            { Fn(std::move(i), c) } -> std::same_as<After>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Result<After, Error>{Fn(std::move(input), ctx)};
-        } else {
-          return Pipeline<FnTail...>::invoke(Fn(std::move(input), ctx), ctx);
-        }
-      }
-      // 6. Fn(input, ctx) -> Result<AfterType, Error>
-      else if constexpr (  //
-          requires(Input i, Context& c) {
-            { Fn(std::move(i), c) } -> std::same_as<Result<After, Error>>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Fn(std::move(input), ctx);
-        } else {
-          return detail::continue_result<After, Context, FnTail...>(
-              Fn(std::move(input), ctx), ctx);
-        }
-      }
-      // 7. Fn(input) -> AfterType
+      // 6. Fn(input) -> AfterType
       else if constexpr (  //
           requires(Input i) {
-            { Fn(std::move(i)) } -> std::same_as<After>;
-          } && !std::same_as<After, void>) {
+            { Fn(std::move(i)) };
+          }) {
         if constexpr (last_function) {
-          return Result<After, Error>{Fn(std::move(input))};
+          return detail::expected(Fn(std::move(input)));
         } else {
           return Pipeline<FnTail...>::invoke(Fn(std::move(input)), ctx);
         }
-      }
-      // 8. Fn(input) -> Result<AfterType, Error>
-      else if constexpr (  //
-          requires(Input i) {
-            { Fn(std::move(i)) } -> std::same_as<Result<After, Error>>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Fn(std::move(input));
-        } else {
-          return detail::continue_result<After, Context, FnTail...>(
-              Fn(std::move(input)), ctx);
-        }
-      } else if constexpr (std::same_as<After, void>) {
-        static_assert(
-            detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<Input> is void, "
-            "so the step must be callable as one of: "
-            "Fn(input, ctx) -> void, "
-            "Fn(input, ctx) -> Result<void, Error>, "
-            "Fn(input) -> void, "
-            "Fn(input) -> Result<void, Error>.");
       } else {
         static_assert(
             detail::always_false<Head>,
@@ -345,13 +270,11 @@ struct Pipeline {
    *
    * Supported step signatures are:
    * - `Fn(input, ctx) -> void`
-   * - `Fn(input, ctx) -> Result<void, Error>`
-   * - `Fn(input) -> void`
-   * - `Fn(input) -> Result<void, Error>`
-   * - `Fn(input, ctx) -> after_type<Input>`
    * - `Fn(input, ctx) -> Result<after_type<Input>, Error>`
-   * - `Fn(input) -> after_type<Input>`
+   * - `Fn(input, ctx) -> after_type<Input>`
+   * - `Fn(input) -> void`
    * - `Fn(input) -> Result<after_type<Input>, Error>`
+   * - `Fn(input) -> after_type<Input>`
    *
    * If a step returns `Result<..., Error>`, errors are propagated immediately
    * and the remaining steps are not invoked. Plain return values are forwarded
@@ -371,7 +294,6 @@ struct Pipeline {
     return []<auto FnHead, auto... FnTail>(
                Input input, const Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
-      using After = typename Head::template after_type<Input>;
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
 
@@ -379,102 +301,68 @@ struct Pipeline {
       if constexpr (  //
           requires(Input i, const Context& c) {
             { Fn(std::move(i), c) } -> std::same_as<void>;
-          } && std::same_as<After, void>) {
+          }) {
         if constexpr (last_function) {
           return Fn(std::move(input), ctx), Result<void, Error>{};
         } else {
           return Fn(std::move(input), ctx), Pipeline<FnTail...>::invoke(ctx);
         }
       }
-      // 2. Fn(input, ctx) -> Result<void, Error>
+      // 2. Fn(input, ctx) -> Result<AfterType, Error>
       else if constexpr (  //
           requires(Input i, const Context& c) {
-            { Fn(std::move(i), c) } -> std::same_as<Result<void, Error>>;
-          } && std::same_as<After, void>) {
+            { Fn(std::move(i), c) } -> detail::Ser20ResultType;
+          }) {
         if constexpr (last_function) {
           return Fn(std::move(input), ctx);
         } else {
-          return detail::continue_void_result<const Context, FnTail...>(
-              Fn(std::move(input), ctx), ctx);
+          return detail::continue_result<FnTail...>(Fn(std::move(input), ctx),
+                                                    ctx);
         }
       }
-      // 3. Fn(input) -> void
+      // 3. Fn(input, ctx) -> AfterType
+      else if constexpr (  //
+          requires(Input i, const Context& c) {
+            { Fn(std::move(i), c) };
+          }) {
+        if constexpr (last_function) {
+          return detail::expected(Fn(std::move(input), ctx));
+        } else {
+          return Pipeline<FnTail...>::invoke(Fn(std::move(input), ctx), ctx);
+        }
+      }
+      // 4. Fn(input) -> void
       else if constexpr (  //
           requires(Input i) {
             { Fn(std::move(i)) } -> std::same_as<void>;
-          } && std::same_as<After, void>) {
+          }) {
         if constexpr (last_function) {
           return Fn(std::move(input)), Result<void, Error>{};
         } else {
           return Fn(std::move(input)), Pipeline<FnTail...>::invoke(ctx);
         }
       }
-      // 4. Fn(input) -> Result<void, Error>
+      // 5. Fn(input) -> Result<AfterType, Error>
       else if constexpr (  //
           requires(Input i) {
-            { Fn(std::move(i)) } -> std::same_as<Result<void, Error>>;
-          } && std::same_as<After, void>) {
+            { Fn(std::move(i)) } -> detail::Ser20ResultType;
+          }) {
         if constexpr (last_function) {
           return Fn(std::move(input));
         } else {
-          return detail::continue_void_result<const Context, FnTail...>(
-              Fn(std::move(input)), ctx);
+          return detail::continue_result<FnTail...>(Fn(std::move(input)), ctx);
         }
       }
-      // 5. Fn(input, ctx) -> AfterType
-      else if constexpr (  //
-          requires(Input i, const Context& c) {
-            { Fn(std::move(i), c) } -> std::same_as<After>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Result<After, Error>{Fn(std::move(input), ctx)};
-        } else {
-          return Pipeline<FnTail...>::invoke(Fn(std::move(input), ctx), ctx);
-        }
-      }
-      // 6. Fn(input, ctx) -> Result<AfterType, Error>
-      else if constexpr (  //
-          requires(Input i, const Context& c) {
-            { Fn(std::move(i), c) } -> std::same_as<Result<After, Error>>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Fn(std::move(input), ctx);
-        } else {
-          return detail::continue_result<After, Context, FnTail...>(
-              Fn(std::move(input), ctx), ctx);
-        }
-      }
-      // 7. Fn(input) -> AfterType
+      // 6. Fn(input) -> AfterType
       else if constexpr (  //
           requires(Input i) {
-            { Fn(std::move(i)) } -> std::same_as<After>;
-          } && !std::same_as<After, void>) {
+            { Fn(std::move(i)) };
+          }) {
         if constexpr (last_function) {
-          return Result<After, Error>{Fn(std::move(input))};
+          return detail::expected(Fn(std::move(input)));
         } else {
           return Pipeline<FnTail...>::invoke(Fn(std::move(input)), ctx);
         }
-      }
-      // 8. Fn(input) -> Result<AfterType, Error>
-      else if constexpr (  //
-          requires(Input i) {
-            { Fn(std::move(i)) } -> std::same_as<Result<After, Error>>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Fn(std::move(input));
-        } else {
-          return detail::continue_result<After, Context, FnTail...>(
-              Fn(std::move(input)), ctx);
-        }
-      } else if constexpr (std::same_as<After, void>) {
-        static_assert(
-            detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<Input> is void, "
-            "so the step must be callable as one of: "
-            "Fn(input, ctx) -> void, "
-            "Fn(input, ctx) -> Result<void, Error>, "
-            "Fn(input) -> void, "
-            "Fn(input) -> Result<void, Error>.");
       } else {
         static_assert(
             detail::always_false<Head>,
@@ -499,13 +387,11 @@ struct Pipeline {
    *
    * Supported first-step signatures are:
    * - `Fn(ctx) -> void`
-   * - `Fn(ctx) -> Result<void, Error>`
-   * - `Fn() -> void`
-   * - `Fn() -> Result<void, Error>`
-   * - `Fn(ctx) -> after_type<void>`
    * - `Fn(ctx) -> Result<after_type<void>, Error>`
-   * - `Fn() -> after_type<void>`
+   * - `Fn(ctx) -> after_type<void>`
+   * - `Fn() -> void`
    * - `Fn() -> Result<after_type<void>, Error>`
+   * - `Fn() -> after_type<void>`
    *
    * If a step returns `Result<..., Error>`, errors are propagated immediately
    * and the remaining steps are not invoked. Plain return values are forwarded
@@ -522,7 +408,6 @@ struct Pipeline {
   static constexpr auto invoke(Context& ctx) {
     return []<auto FnHead, auto... FnTail>(Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
-      using After = typename Head::template after_type<void>;
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
 
@@ -530,99 +415,67 @@ struct Pipeline {
       if constexpr (  //
           requires(Context& c) {
             { Fn(c) } -> std::same_as<void>;
-          } && std::same_as<After, void>) {
+          }) {
         if constexpr (last_function) {
           return Fn(ctx), Result<void, Error>{};
         } else {
           return Fn(ctx), Pipeline<FnTail...>::invoke(ctx);
         }
       }
-      // 2. Fn(ctx) -> Result<void, Error>
+      // 2. Fn(ctx) -> Result<AfterType, Error>
       else if constexpr (  //
           requires(Context& c) {
-            { Fn(c) } -> std::same_as<Result<void, Error>>;
-          } && std::same_as<After, void>) {
+            { Fn(c) } -> detail::Ser20ResultType;
+          }) {
         if constexpr (last_function) {
           return Fn(ctx);
         } else {
-          return detail::continue_void_result<Context, FnTail...>(Fn(ctx), ctx);
+          return detail::continue_result<FnTail...>(Fn(ctx), ctx);
         }
       }
-      // 3. Fn() -> void
+      // 3. Fn(ctx) -> AfterType
+      else if constexpr (  //
+          requires(Context& c) {
+            { Fn(c) };
+          }) {
+        if constexpr (last_function) {
+          return detail::expected(Fn(ctx));
+        } else {
+          return Pipeline<FnTail...>::invoke(Fn(ctx), ctx);
+        }
+      }
+      // 4. Fn() -> void
       else if constexpr (  //
           requires() {
             { Fn() } -> std::same_as<void>;
-          } && std::same_as<After, void>) {
+          }) {
         if constexpr (last_function) {
           return Fn(), Result<void, Error>{};
         } else {
           return Fn(), Pipeline<FnTail...>::invoke(ctx);
         }
       }
-      // 4. Fn() -> Result<void, Error>
+      // 5. Fn() -> Result<AfterType, Error>
       else if constexpr (  //
           requires() {
-            { Fn() } -> std::same_as<Result<void, Error>>;
-          } && std::same_as<After, void>) {
+            { Fn() } -> detail::Ser20ResultType;
+          }) {
         if constexpr (last_function) {
           return Fn();
         } else {
-          return detail::continue_void_result<Context, FnTail...>(Fn(), ctx);
+          return detail::continue_result<FnTail...>(Fn(), ctx);
         }
       }
-      // 5. Fn(ctx) -> AfterType
-      else if constexpr (  //
-          requires(Context& c) {
-            { Fn(c) } -> std::same_as<After>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Result<After, Error>{Fn(ctx)};
-        } else {
-          return Pipeline<FnTail...>::invoke(Fn(ctx), ctx);
-        }
-      }
-      // 6. Fn(ctx) -> Result<AfterType, Error>
-      else if constexpr (  //
-          requires(Context& c) {
-            { Fn(c) } -> std::same_as<Result<After, Error>>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Fn(ctx);
-        } else {
-          return detail::continue_result<After, Context, FnTail...>(Fn(ctx),
-                                                                    ctx);
-        }
-      }
-      // 7. Fn() -> AfterType
+      // 6. Fn() -> AfterType
       else if constexpr (  //
           requires() {
-            { Fn() } -> std::same_as<After>;
-          } && !std::same_as<After, void>) {
+            { Fn() };
+          }) {
         if constexpr (last_function) {
-          return Result<After, Error>{Fn()};
+          return detail::expected(Fn());
         } else {
           return Pipeline<FnTail...>::invoke(Fn(), ctx);
         }
-      }
-      // 8. Fn() -> Result<AfterType, Error>
-      else if constexpr (  //
-          requires() {
-            { Fn() } -> std::same_as<Result<After, Error>>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Fn();
-        } else {
-          return detail::continue_result<After, Context, FnTail...>(Fn(), ctx);
-        }
-      } else if constexpr (std::same_as<After, void>) {
-        static_assert(
-            detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<void> is void, "
-            "so the step must be callable as one of: "
-            "Fn(ctx) -> void, "
-            "Fn(ctx) -> Result<void, Error>, "
-            "Fn() -> void, "
-            "Fn() -> Result<void, Error>.");
       } else {
         static_assert(
             detail::always_false<Head>,
@@ -647,13 +500,11 @@ struct Pipeline {
    *
    * Supported first-step signatures are:
    * - `Fn(ctx) -> void`
-   * - `Fn(ctx) -> Result<void, Error>`
-   * - `Fn() -> void`
-   * - `Fn() -> Result<void, Error>`
-   * - `Fn(ctx) -> after_type<void>`
    * - `Fn(ctx) -> Result<after_type<void>, Error>`
-   * - `Fn() -> after_type<void>`
+   * - `Fn(ctx) -> after_type<void>`
+   * - `Fn() -> void`
    * - `Fn() -> Result<after_type<void>, Error>`
+   * - `Fn() -> after_type<void>`
    *
    * If a step returns `Result<..., Error>`, errors are propagated immediately
    * and the remaining steps are not invoked. Plain return values are forwarded
@@ -671,7 +522,6 @@ struct Pipeline {
     return []<auto FnHead, auto... FnTail>(
                const Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
-      using After = typename Head::template after_type<void>;
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
 
@@ -679,101 +529,67 @@ struct Pipeline {
       if constexpr (  //
           requires(const Context& c) {
             { Fn(c) } -> std::same_as<void>;
-          } && std::same_as<After, void>) {
+          }) {
         if constexpr (last_function) {
           return Fn(ctx), Result<void, Error>{};
         } else {
           return Fn(ctx), Pipeline<FnTail...>::invoke(ctx);
         }
       }
-      // 2. Fn(ctx) -> Result<void, Error>
+      // 2. Fn(ctx) -> Result<AfterType, Error>
       else if constexpr (  //
           requires(const Context& c) {
-            { Fn(c) } -> std::same_as<Result<void, Error>>;
-          } && std::same_as<After, void>) {
+            { Fn(c) } -> detail::Ser20ResultType;
+          }) {
         if constexpr (last_function) {
           return Fn(ctx);
         } else {
-          return detail::continue_void_result<const Context, FnTail...>(Fn(ctx),
-                                                                        ctx);
+          return detail::continue_result<FnTail...>(Fn(ctx), ctx);
         }
       }
-      // 3. Fn() -> void
+      // 3. Fn(ctx) -> AfterType
+      else if constexpr (  //
+          requires(const Context& c) {
+            { Fn(c) };
+          }) {
+        if constexpr (last_function) {
+          return detail::expected(Fn(ctx));
+        } else {
+          return Pipeline<FnTail...>::invoke(Fn(ctx), ctx);
+        }
+      }
+      // 4. Fn() -> void
       else if constexpr (  //
           requires() {
             { Fn() } -> std::same_as<void>;
-          } && std::same_as<After, void>) {
+          }) {
         if constexpr (last_function) {
           return Fn(), Result<void, Error>{};
         } else {
           return Fn(), Pipeline<FnTail...>::invoke(ctx);
         }
       }
-      // 4. Fn() -> Result<void, Error>
+      // 5. Fn() -> Result<AfterType, Error>
       else if constexpr (  //
           requires() {
-            { Fn() } -> std::same_as<Result<void, Error>>;
-          } && std::same_as<After, void>) {
+            { Fn() } -> detail::Ser20ResultType;
+          }) {
         if constexpr (last_function) {
           return Fn();
         } else {
-          return detail::continue_void_result<const Context, FnTail...>(Fn(),
-                                                                        ctx);
+          return detail::continue_result<FnTail...>(Fn(), ctx);
         }
       }
-      // 5. Fn(ctx) -> AfterType
-      else if constexpr (  //
-          requires(const Context& c) {
-            { Fn(c) } -> std::same_as<After>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Result<After, Error>{Fn(ctx)};
-        } else {
-          return Pipeline<FnTail...>::invoke(Fn(ctx), ctx);
-        }
-      }
-      // 6. Fn(ctx) -> Result<AfterType, Error>
-      else if constexpr (  //
-          requires(const Context& c) {
-            { Fn(c) } -> std::same_as<Result<After, Error>>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Fn(ctx);
-        } else {
-          return detail::continue_result<After, Context, FnTail...>(Fn(ctx),
-                                                                    ctx);
-        }
-      }
-      // 7. Fn() -> AfterType
+      // 6. Fn() -> AfterType
       else if constexpr (  //
           requires() {
-            { Fn() } -> std::same_as<After>;
-          } && !std::same_as<After, void>) {
+            { Fn() };
+          }) {
         if constexpr (last_function) {
-          return Result<After, Error>{Fn()};
+          return detail::expected(Fn());
         } else {
           return Pipeline<FnTail...>::invoke(Fn(), ctx);
         }
-      }
-      // 8. Fn() -> Result<AfterType, Error>
-      else if constexpr (  //
-          requires() {
-            { Fn() } -> std::same_as<Result<After, Error>>;
-          } && !std::same_as<After, void>) {
-        if constexpr (last_function) {
-          return Fn();
-        } else {
-          return detail::continue_result<After, Context, FnTail...>(Fn(), ctx);
-        }
-      } else if constexpr (std::same_as<After, void>) {
-        static_assert(
-            detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<void> is void, "
-            "so the step must be callable as one of: "
-            "Fn(ctx) -> void, "
-            "Fn(ctx) -> Result<void, Error>, "
-            "Fn() -> void, "
-            "Fn() -> Result<void, Error>.");
       } else {
         static_assert(
             detail::always_false<Head>,
@@ -810,203 +626,201 @@ struct Pipeline {
   template <class Input, class Storage, auto FnHead, auto... FnTail>
   static constexpr auto analyze_decoder_impl() {
     using Head = std::remove_cvref_t<decltype(FnHead)>;
-    if constexpr (!Head::template accepts_input<Input>) {
-      static_assert(sizeof(detail::PipelineStepRejectedInput<Head, Input>) == 0,
-                    "Pipeline step does not accept the previous output type");
-    }
-    detail::require_after_type<Head, Input>();
-    using Next = typename Head::template after_type<Input>;
+    using Context = detail::AnyDecodeContext;
+    using In = std::remove_cvref_t<Input>;
+
     constexpr bool has_storage =
-        requires { typename Head::template storage_type<Input>; };
+        requires { typename Head::template storage_type<In>; };
+
+    using NextStorage =
+        typename detail::NextStorage<Head, Input, Storage, has_storage>::type;
+
     if constexpr (has_storage && !std::same_as<Storage, detail::NoStorage>) {
       static_assert(
           sizeof(detail::DuplicateStorageType<Storage, Head, Input>) == 0,
           "Decoder pipeline defines storage_type<Input> more than once");
     }
-    using NextStorage =
-        typename detail::NextStorage<Head, Input, Storage, has_storage>::type;
+
+    using raw_return_type = typename decltype([] -> auto {
+      if constexpr (std::same_as<In, void> &&
+                    requires(Context& ctx) { FnHead(ctx); }) {
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), Context&>>{};
+      } else if constexpr (std::same_as<In, void> && requires { FnHead(); }) {
+        return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
+      } else if constexpr (!std::same_as<In, void> &&
+                           requires(In in, Context& ctx) {
+                             FnHead(std::move(in), ctx);
+                           }) {
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), In&&, Context&>>{};
+      } else if constexpr (!std::same_as<In, void> &&
+                           requires(In in) { FnHead(std::move(in)); }) {
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), In&&>>{};
+      } else {
+        static_assert(
+            detail::always_false<Head>,
+            "Decoder pipeline step is not callable. It must be callable as "
+            "Fn(ctx) or Fn() when input is void, or Fn(input, ctx) or Fn(input) "
+            "when input is non-void.");
+      }
+    }())::type;
+
+    using after_type = detail::step_output_t<raw_return_type>;
+
     if constexpr (sizeof...(FnTail) == 0) {
       static_assert(
-          std::same_as<Next, void>,
-          "Decoder terminal action must have after_type<Input> = void");
-      if constexpr (std::same_as<NextStorage, detail::NoStorage>) {
-        static_assert(sizeof(detail::MissingStorageType<Head, Input>) == 0,
-                      "Decoder pipeline must define storage_type<Input> "
-                      "exactly once");
-      }
+          std::same_as<after_type, void>,
+          "Decoder terminal action must return void or Result<void, Error>");
+      static_assert(
+          !std::same_as<NextStorage, detail::NoStorage>,
+          "At least one decoder pipeline step must define storage_type<Input>");
       return std::make_tuple(true, std::type_identity<NextStorage>{});
     } else {
-      return analyze_decoder_impl<Next, NextStorage, FnTail...>();
+      return analyze_decoder_impl<after_type, NextStorage, FnTail...>();
     }
   }
 
   template <class Input, auto FnHead, auto... FnTail>
   static constexpr auto analyze_encoder_impl() {
     using Head = std::remove_cvref_t<decltype(FnHead)>;
+    using Context = detail::AnyEncodeContext;
+    using In = std::remove_cvref_t<Input>;
 
-    if constexpr (!Head::template accepts_input<Input>) {
-      static_assert(sizeof(detail::PipelineStepRejectedInput<Head, Input>) == 0,
-                    "Pipeline step does not accept the previous output type");
-    }
-    if constexpr (requires { typename Head::template storage_type<Input>; }) {
+    if constexpr (requires { typename Head::template storage_type<In>; }) {
       static_assert(sizeof(detail::UnexpectedStorageType<Head, Input>) == 0,
                     "Encoder pipeline step must not define storage_type<Input>");
     }
-    detail::require_after_type<Head, Input>();
-    using Next = typename Head::template after_type<Input>;
+
+    using raw_return_type = typename decltype([] -> auto {
+      if constexpr (std::same_as<In, void> &&
+                    requires(Context& ctx) { FnHead(ctx); }) {
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), Context&>>{};
+      } else if constexpr (std::same_as<In, void> && requires { FnHead(); }) {
+        return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
+      } else if constexpr (!std::same_as<In, void> &&
+                           requires(In in, Context& ctx) {
+                             FnHead(std::move(in), ctx);
+                           }) {
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), In&&, Context&>>{};
+      } else if constexpr (!std::same_as<In, void> &&
+                           requires(In in) { FnHead(std::move(in)); }) {
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), In&&>>{};
+      } else {
+        static_assert(
+            detail::always_false<Head>,
+            "Encoder pipeline step is not callable. It must be callable as "
+            "Fn(ctx) or Fn() when input is void, or Fn(input, ctx) or Fn(input) "
+            "when input is non-void.");
+      }
+    }())::type;
+
+    using after_type = detail::step_output_t<raw_return_type>;
 
     if constexpr (sizeof...(FnTail) == 0) {
       static_assert(
-          std::same_as<Next, void>,
-          "The last encoder action must have after_type<Input> = void");
+          std::same_as<after_type, void>,
+          "Encoder terminal action must return void or Result<void, Error>");
 
       return std::make_tuple(true, std::type_identity<void>{});
     } else {
-      return analyze_encoder_impl<Next, FnTail...>();
+      return analyze_encoder_impl<after_type, FnTail...>();
     }
   }
 
   template <class Context, class Input, auto FnHead, auto... FnTail>
   static consteval auto callable_with_const_context_impl() -> bool {
-    using Head = std::remove_cvref_t<decltype(FnHead)>;
+    using In = std::remove_cvref_t<Input>;
 
-    if constexpr (!requires { typename Head::template after_type<Input>; }) {
-      return false;
-    } else {
-      using After = typename Head::template after_type<Input>;
-
-      constexpr bool callable = []() consteval -> bool {
-        if constexpr (std::same_as<Input, void>) {
-          if constexpr (std::same_as<After, void>) {
-            return requires(const Context& ctx) {
-              { FnHead(ctx) } -> std::same_as<void>;
-            } || requires(const Context& ctx) {
-              { FnHead(ctx) } -> std::same_as<Result<void, Error>>;
-            } || requires {
-              { FnHead() } -> std::same_as<void>;
-            } || requires {
-              { FnHead() } -> std::same_as<Result<void, Error>>;
-            };
-          } else {
-            return requires(const Context& ctx) {
-              { FnHead(ctx) } -> std::same_as<After>;
-            } || requires(const Context& ctx) {
-              { FnHead(ctx) } -> std::same_as<Result<After, Error>>;
-            } || requires {
-              { FnHead() } -> std::same_as<After>;
-            } || requires {
-              { FnHead() } -> std::same_as<Result<After, Error>>;
-            };
-          }
+    using probe = decltype([]() consteval -> auto {
+      if constexpr (std::same_as<In, void>) {
+        if constexpr (requires(const Context& ctx) { FnHead(ctx); }) {
+          return std::type_identity<
+              std::invoke_result_t<decltype(FnHead), const Context&>>{};
+        } else if constexpr (requires { FnHead(); }) {
+          return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
         } else {
-          if constexpr (std::same_as<After, void>) {
-            return requires(Input input, const Context& ctx) {
-              { FnHead(std::move(input), ctx) } -> std::same_as<void>;
-            } || requires(Input input, const Context& ctx) {
-              {
-                FnHead(std::move(input), ctx)
-              } -> std::same_as<Result<void, Error>>;
-            } || requires(Input input) {
-              { FnHead(std::move(input)) } -> std::same_as<void>;
-            } || requires(Input input) {
-              { FnHead(std::move(input)) } -> std::same_as<Result<void, Error>>;
-            };
-          } else {
-            return requires(Input input, const Context& ctx) {
-              { FnHead(std::move(input), ctx) } -> std::same_as<After>;
-            } || requires(Input input, const Context& ctx) {
-              {
-                FnHead(std::move(input), ctx)
-              } -> std::same_as<Result<After, Error>>;
-            } || requires(Input input) {
-              { FnHead(std::move(input)) } -> std::same_as<After>;
-            } || requires(Input input) {
-              { FnHead(std::move(input)) } -> std::same_as<Result<After, Error>>;
-            };
-          }
+          return std::type_identity<detail::NotCallable>{};
         }
-      }();
-
-      if constexpr (!callable) {
-        return false;
-      } else if constexpr (sizeof...(FnTail) == 0) {
-        return true;
       } else {
-        return callable_with_const_context_impl<Context, After, FnTail...>();
+        if constexpr (requires(In input, const Context& ctx) {
+                        FnHead(std::move(input), ctx);
+                      }) {
+          return std::type_identity<
+              std::invoke_result_t<decltype(FnHead), In&&, const Context&>>{};
+        } else if constexpr (requires(In input) { FnHead(std::move(input)); }) {
+          return std::type_identity<
+              std::invoke_result_t<decltype(FnHead), In&&>>{};
+        } else {
+          return std::type_identity<detail::NotCallable>{};
+        }
       }
+    }());
+
+    using raw_return_type = typename probe::type;
+
+    if constexpr (std::same_as<raw_return_type, detail::NotCallable>) {
+      return false;
+    } else if constexpr (sizeof...(FnTail) == 0) {
+      return true;
+    } else {
+      using After = detail::step_output_t<raw_return_type>;
+      return callable_with_const_context_impl<Context, After, FnTail...>();
     }
   }
 
   template <class Context, class Input, auto FnHead, auto... FnTail>
   static consteval auto callable_with_mutable_context_impl() -> bool {
-    using Head = std::remove_cvref_t<decltype(FnHead)>;
+    using In = std::remove_cvref_t<Input>;
 
-    if constexpr (!requires { typename Head::template after_type<Input>; }) {
-      return false;
-    } else {
-      using After = typename Head::template after_type<Input>;
-
-      constexpr bool callable = []() consteval -> bool {
-        if constexpr (std::same_as<Input, void>) {
-          if constexpr (std::same_as<After, void>) {
-            return requires(Context& ctx) {
-              { FnHead(ctx) } -> std::same_as<void>;
-            } || requires(Context& ctx) {
-              { FnHead(ctx) } -> std::same_as<Result<void, Error>>;
-            } || requires {
-              { FnHead() } -> std::same_as<void>;
-            } || requires {
-              { FnHead() } -> std::same_as<Result<void, Error>>;
-            };
-          } else {
-            return requires(Context& ctx) {
-              { FnHead(ctx) } -> std::same_as<After>;
-            } || requires(Context& ctx) {
-              { FnHead(ctx) } -> std::same_as<Result<After, Error>>;
-            } || requires {
-              { FnHead() } -> std::same_as<After>;
-            } || requires {
-              { FnHead() } -> std::same_as<Result<After, Error>>;
-            };
-          }
+    using probe = decltype([]() consteval -> auto {
+      if constexpr (std::same_as<In, void>) {
+        if constexpr (requires(Context& ctx) { FnHead(ctx); }) {
+          return std::type_identity<
+              std::invoke_result_t<decltype(FnHead), Context&>>{};
+        } else if constexpr (requires { FnHead(); }) {
+          return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
         } else {
-          if constexpr (std::same_as<After, void>) {
-            return requires(Input input, Context& ctx) {
-              { FnHead(std::move(input), ctx) } -> std::same_as<void>;
-            } || requires(Input input, Context& ctx) {
-              {
-                FnHead(std::move(input), ctx)
-              } -> std::same_as<Result<void, Error>>;
-            } || requires(Input input) {
-              { FnHead(std::move(input)) } -> std::same_as<void>;
-            } || requires(Input input) {
-              { FnHead(std::move(input)) } -> std::same_as<Result<void, Error>>;
-            };
-          } else {
-            return requires(Input input, Context& ctx) {
-              { FnHead(std::move(input), ctx) } -> std::same_as<After>;
-            } || requires(Input input, Context& ctx) {
-              {
-                FnHead(std::move(input), ctx)
-              } -> std::same_as<Result<After, Error>>;
-            } || requires(Input input) {
-              { FnHead(std::move(input)) } -> std::same_as<After>;
-            } || requires(Input input) {
-              { FnHead(std::move(input)) } -> std::same_as<Result<After, Error>>;
-            };
-          }
+          return std::type_identity<detail::NotCallable>{};
         }
-      }();
-
-      if constexpr (!callable) {
-        return false;
-      } else if constexpr (sizeof...(FnTail) == 0) {
-        return true;
       } else {
-        return callable_with_mutable_context_impl<Context, After, FnTail...>();
+        if constexpr (requires(In input, Context& ctx) {
+                        FnHead(std::move(input), ctx);
+                      }) {
+          return std::type_identity<
+              std::invoke_result_t<decltype(FnHead), In&&, Context&>>{};
+        } else if constexpr (requires(In input) { FnHead(std::move(input)); }) {
+          return std::type_identity<
+              std::invoke_result_t<decltype(FnHead), In&&>>{};
+        } else {
+          return std::type_identity<detail::NotCallable>{};
+        }
       }
+    }());
+
+    using raw_return_type = typename probe::type;
+
+    if constexpr (std::same_as<raw_return_type, detail::NotCallable>) {
+      return false;
+    } else if constexpr (sizeof...(FnTail) == 0) {
+      return true;
+    } else {
+      using After = detail::step_output_t<raw_return_type>;
+      return callable_with_mutable_context_impl<Context, After, FnTail...>();
     }
   }
 };
+
+template <class T>
+inline constexpr auto step = []() -> auto { return Pipeline<T{}>{}; }();
+
+template <auto... Lhs, auto... Rhs>
+constexpr auto operator|(Pipeline<Lhs...>, Pipeline<Rhs...>) {
+  return Pipeline<Lhs..., Rhs...>{};
+}
 
 }  // namespace ser20

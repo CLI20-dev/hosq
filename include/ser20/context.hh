@@ -9,6 +9,22 @@
 
 namespace ser20 {
 
+namespace detail {
+
+struct AnyContext {
+  AnyContext() = delete;
+};
+
+struct AnyEncodeContext {
+  AnyEncodeContext() = delete;
+};
+
+struct AnyDecodeContext {
+  AnyDecodeContext() = delete;
+};
+
+};  // namespace detail
+
 template <class T, ReaderConcept R>
 struct DecodeContext {
   template <class, ReaderConcept>
@@ -16,6 +32,12 @@ struct DecodeContext {
 
   explicit DecodeContext(T& value, R& reader)
       : reader_(reader), input_(reader.input()), elem_(value) {}
+
+  // Probe-only constructor.
+  // Declared but intentionally not defined.
+  // Used only in unevaluated requires expressions.
+  /* implicit */ DecodeContext(detail::AnyContext /* context */);
+  /* implicit */ DecodeContext(detail::AnyDecodeContext /* context */);
 
   [[nodiscard]]
   auto reader() noexcept -> R& {
@@ -57,6 +79,12 @@ struct DecodeContext<void, R> {
   /* implicit */ DecodeContext(const DecodeContext<T, R>& other)
       : reader_(other.reader_), input_(other.input_) {}
 
+  // Probe-only constructor.
+  // Declared but intentionally not defined.
+  // Used only in unevaluated requires expressions.
+  /* implicit */ DecodeContext(detail::AnyContext /* context */);
+  /* implicit */ DecodeContext(detail::AnyDecodeContext /* context */);
+
   [[nodiscard]]
   auto reader() noexcept -> R& {
     return reader_.get();
@@ -82,6 +110,13 @@ struct EncodeContext {
   std::reference_wrapper<T> arg;
   std::reference_wrapper<W> writer;
   explicit EncodeContext(T& value, W& writer) : arg(value), writer(writer) {}
+
+  // Probe-only constructor.
+  // Declared but intentionally not defined.
+  // Used only in unevaluated requires expressions.
+  /* implicit */ EncodeContext(detail::AnyContext /* context */);
+  /* implicit */ EncodeContext(detail::AnyEncodeContext /* context */);
+
 };
 
 template <WriterConcept W>
@@ -89,6 +124,13 @@ struct EncodeContext<void, W> {
   template <class T>
   /*implicit*/ EncodeContext(EncodeContext<T, W>& other)
       : writer(other.writer) {}
+
+  // Probe-only constructor.
+  // Declared but intentionally not defined.
+  // Used only in unevaluated requires expressions.
+  /* implicit */ EncodeContext(detail::AnyContext /* context */);
+  /* implicit */ EncodeContext(detail::AnyEncodeContext /* context */);
+
   W* writer{nullptr};
 };
 
