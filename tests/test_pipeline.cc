@@ -448,3 +448,142 @@ TEST(PipelineChain, ErrorDoesNotStore) {
   ASSERT_FALSE(r.has_value());
   EXPECT_EQ(ctx.storage, 0);  // unchanged
 }
+
+// ── Mutable vs const context dispatch ────────────────────────────────────────
+//
+// A step with operator()(int, Ctx&) is matched by the mutable-context invoke
+// overload (case 1–3).  When invoked with a const context the requirement
+// `Fn(move(i), const_c)` fails for a non-const-ref parameter, so dispatch
+// falls through to the no-context form (case 4–6).
+//
+// We observe which branch was taken via the return value:
+//   mutable path → returns input unchanged
+//   no-ctx  path → returns input + 1000 (sentinel)
+
+struct DispatchTrackCtx {
+  int mutable_path_calls = 0;
+};
+
+struct DualDispatchStep {
+  // Mutable-context form — preferred by mutable invoke; increments counter.
+  auto operator()(int input, DispatchTrackCtx& ctx) const -> int {
+    ctx.mutable_path_calls++;
+    return input;
+  }
+  // Const-context form — selected by const invoke; returns sentinel value.
+  auto operator()(int input, const DispatchTrackCtx& /*ctx*/) const -> int {
+    return input + 1000;
+  }
+};
+
+TEST(PipelineDispatch, MutableContextUsesContextAwareOverload) {
+  using P = ser20::Pipeline<DualDispatchStep{}>;
+  DispatchTrackCtx ctx;
+  auto r = P::invoke(42, ctx);
+  ASSERT_TRUE(r.has_value());
+  EXPECT_EQ(*r, 42);               // mutable path: no sentinel
+  EXPECT_EQ(ctx.mutable_path_calls, 1);
+}
+
+TEST(PipelineDispatch, ConstContextFallsToNoContextOverload) {
+  using P = ser20::Pipeline<DualDispatchStep{}>;
+  const DispatchTrackCtx ctx{};
+  auto r = P::invoke(42, ctx);
+  ASSERT_TRUE(r.has_value());
+  EXPECT_EQ(*r, 1042);             // no-ctx path: input + 1000 sentinel
+  // ctx.mutable_path_calls is still 0 — never touched
+}
+
+TEST(PipelineDispatch, MutableContextChainAllStepsSeeMutableCtx) {
+  // Two DualDispatchSteps chained: both should take the mutable path.
+  using P = ser20::Pipeline<DualDispatchStep{}, DualDispatchStep{}>;
+  DispatchTrackCtx ctx;
+  auto r = P::invoke(3, ctx);
+  ASSERT_TRUE(r.has_value());
+  EXPECT_EQ(*r, 3);
+  EXPECT_EQ(ctx.mutable_path_calls, 2);
+}
+
+TEST(PipelineDispatch, ConstContextChainAllStepsFallToNoCtx) {
+  using P = ser20::Pipeline<DualDispatchStep{}, DualDispatchStep{}>;
+  const DispatchTrackCtx ctx{};
+  // First step: 3 + 1000 = 1003; second step: 1003 + 1000 = 2003
+  auto r = P::invoke(3, ctx);
+  ASSERT_TRUE(r.has_value());
+  EXPECT_EQ(*r, 2003);
+}
+
+// ── Early return: explicit invocation counting ────────────────────────────────
+//
+// Use a mutable context to count how many times each step is called.
+// Steps after an error must not be invoked.
+
+struct EarlyReturnCtx {
+  int a_calls = 0;
+  int b_calls = 0;
+};
+
+struct CountingStepA {
+  auto operator()(int input, EarlyReturnCtx& ctx) const -> int {
+    ctx.a_calls++;
+    return input;
+  }
+};
+
+struct CountingStepB {
+  auto operator()(int input, EarlyReturnCtx& ctx) const -> int {
+    ctx.b_calls++;
+    return input;
+  }
+};
+
+struct ErrorStep {
+  auto operator()(int) const -> ser20::Result<int, ser20::Error> {
+    return ser20::unexpected(
+        ser20::Error{.code = ser20::ErrorCode::validation_failed});
+  }
+};
+
+TEST(PipelineEarlyReturn, StepAfterErrorIsNotInvoked) {
+  using P = ser20::Pipeline<ErrorStep{}, CountingStepB{}>;
+  EarlyReturnCtx ctx;
+  auto r = P::invoke(42, ctx);
+  ASSERT_FALSE(r.has_value());
+  EXPECT_EQ(r.error().code, ser20::ErrorCode::validation_failed);
+  EXPECT_EQ(ctx.b_calls, 0);  // B must not have been called
+}
+
+TEST(PipelineEarlyReturn, StepsBeforeErrorAreInvoked) {
+  using P = ser20::Pipeline<CountingStepA{}, ErrorStep{}, CountingStepB{}>;
+  EarlyReturnCtx ctx;
+  auto r = P::invoke(42, ctx);
+  ASSERT_FALSE(r.has_value());
+  EXPECT_EQ(ctx.a_calls, 1);  // A was called before the error
+  EXPECT_EQ(ctx.b_calls, 0);  // B was not called after the error
+}
+
+TEST(PipelineEarlyReturn, AllStepsCalledOnSuccess) {
+  using P = ser20::Pipeline<CountingStepA{}, CountingStepB{}>;
+  EarlyReturnCtx ctx;
+  auto r = P::invoke(42, ctx);
+  ASSERT_TRUE(r.has_value());
+  EXPECT_EQ(ctx.a_calls, 1);
+  EXPECT_EQ(ctx.b_calls, 1);
+}
+
+TEST(PipelineEarlyReturn, OriginalErrorCodePreservedThroughChain) {
+  // Step A errors with validation_failed.
+  // Step B would error with invalid_choice if reached.
+  // The final error must be validation_failed (A's), not B's.
+  struct ErrorStepB {
+    auto operator()(int) const -> ser20::Result<int, ser20::Error> {
+      return ser20::unexpected(
+          ser20::Error{.code = ser20::ErrorCode::invalid_choice});
+    }
+  };
+  using P = ser20::Pipeline<ErrorStep{}, ErrorStepB{}>;
+  EarlyReturnCtx ctx;
+  auto r = P::invoke(42, ctx);
+  ASSERT_FALSE(r.has_value());
+  EXPECT_EQ(r.error().code, ser20::ErrorCode::validation_failed);
+}
