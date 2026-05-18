@@ -8,15 +8,10 @@ namespace detail {
 
 struct IgnoreImpl {
   template <class Input>
-  static constexpr bool accepts_input = true;
-
-  template <class Input>
   using storage_type = std::monostate;
 
-  template <class Context, class T>
-  auto operator()(Context, Result<T, Error>) const -> Result<void, Error> {
-    return Result<void, Error>{};
-  };
+  template <class T>
+  auto operator()(T) const -> void {};
 };
 
 };  // namespace detail

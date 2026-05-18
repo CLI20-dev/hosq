@@ -20,13 +20,6 @@ concept Number = (std::integral<std::remove_cvref_t<T>> &&
 
 template <Number T>
 struct NumberImpl {
-  template <class Input>
-  static constexpr bool accepts_input =
-      std::same_as<std::remove_cvref_t<Input>, std::string_view>;
-
-  template <class Input>
-  using after_type = std::remove_cvref_t<T>;
-
   template <DecodeContextLike Context>
   auto operator()(Context& ctx, Result<std::string_view, Error> input) const
       -> Result<std::remove_cvref_t<T>, Error> {
@@ -61,8 +54,5 @@ namespace ser20::decode {
 
 template <detail::Number T>
 inline constexpr auto number = ser20::step<detail::NumberImpl<T>>;
-
-
-
 
 }  // namespace ser20::decode

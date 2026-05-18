@@ -16,21 +16,29 @@ namespace ser20 {
 
 namespace detail {
 
+/// Placeholder input type used during static pipeline analysis when the true input is not yet known.
 struct AnyInput {};
 
+/// Incomplete type; instantiating it triggers a "missing storage_type" static_assert diagnostic.
 template <class Head, class Input>
 struct MissingStorageType;
 
+/// Incomplete type; instantiating it triggers a "duplicate storage_type" static_assert diagnostic.
 template <class ExistingStorage, class Head, class Input>
 struct DuplicateStorageType;
 
+/// Incomplete type; instantiating it triggers an "unexpected storage_type in encoder" static_assert diagnostic.
 template <class Head, class Input>
 struct UnexpectedStorageType;
 
+/// Sentinel: no step in the pipeline has declared a `storage_type` yet.
 struct NoStorage {};
 
+/// Sentinel returned by callability probes when a step cannot be invoked with the given arguments.
 struct NotCallable {};
 
+/// Computes the active storage type after a pipeline step.
+/// Adopts `Head::storage_type<Input>` when `HasStorage` is true; otherwise forwards `Storage` unchanged.
 template <class Head, class Input, class Storage, bool HasStorage>
 struct NextStorage {
   using type = Storage;
@@ -41,14 +49,17 @@ struct NextStorage<Head, Input, Storage, true> {
   using type = typename Head::template storage_type<Input>;
 };
 
+/// Distinguishes decoder pipelines (which read/deserialize data) from encoder pipelines (which write/serialize data).
 enum class PipelineMode {
   decoder,
   encoder,
 };
 
+/// Always-false helper for static_assert inside unreachable `constexpr if` branches.
 template <class Head>
 static constexpr bool always_false = false;
 
+/// Unwraps the value type `T` from `Result<T, Error>`; passes `R` through unchanged for non-Result types.
 template <class R>
 struct StepOutput {
   using type = std::remove_cvref_t<R>;
@@ -59,15 +70,18 @@ struct StepOutput<Result<T, Error>> {
   using type = T;
 };
 
+/// The unwrapped output type of a pipeline step: `T` for `Result<T, Error>`, `R` for everything else.
 template <class R>
 using step_output_t = typename StepOutput<std::remove_cvref_t<R>>::type;
 
+/// Wraps `value` in a successful `Result<T, Error>`, for use as a normalized pipeline step output.
 template <class T>
 [[nodiscard]]
 constexpr auto expected(T&& value) -> Result<std::remove_cvref_t<T>, Error> {
   return Result<std::remove_cvref_t<T>, Error>{std::forward<T>(value)};
 }
 
+/// Returns a successful `Result<void, Error>`, for use as a normalized pipeline step output.
 [[nodiscard]]
 constexpr auto expected() -> Result<void, Error> {
   return Result<void, Error>{};
@@ -127,17 +141,19 @@ static constexpr auto continue_result(Result<Output, Error> next,
 }  // namespace detail
 
 /**
- * @brief A compile-time pipeline of action functions applied sequentially.
+ * @brief A compile-time pipeline of constexpr action objects applied sequentially.
  *
- * Decoder pipelines must define `storage_type<I>` exactly once across the
- * whole pipeline. The step that defines it determines the decoder storage type;
- * it does not have to be the terminal step.
+ * Each step receives the output of the previous step as its input. Steps may
+ * return a plain value, `void`, `Result<Out, Error>`, or `Result<void, Error>`.
+ * When a step returns a `Result` error it is propagated immediately and
+ * the remaining steps are not invoked.
  *
- * Encoder pipelines must not define `storage_type<I>`.
+ * **Decoder role** (validated by `analyze_decoder()`): exactly one step across
+ * the pipeline must declare `storage_type<Input>`. That type becomes the
+ * decoder's storage type; it need not be the terminal step.
  *
- * At invocation, steps may return either a plain value, `void`,
- * `Result<T, Error>`, or `Result<void, Error>`. `Result` errors are propagated
- * immediately and remaining steps are not invoked.
+ * **Encoder role** (validated by `analyze_encoder()`): no step may declare
+ * `storage_type<Input>`.
  *
  * @tparam Fns Pack of constexpr action objects forming the pipeline.
  */
@@ -145,28 +161,26 @@ template <auto... Fns>
   requires(sizeof...(Fns) > 0)
 struct Pipeline {
   /**
-   * @brief Invokes this pipeline from an explicit input value using a mutable
-   * context.
+   * @brief Invokes this pipeline from an explicit input value using a mutable context.
    *
-   * Each step is dispatched according to its declared
-   * `after_type<Input>` and the call form it supports. Context-aware overloads
-   * are preferred over input-only overloads.
+   * Steps are matched left-to-right by their call signature. Context-aware
+   * forms are tried before no-context forms. The return value of each step
+   * flows as the input to the next step.
    *
-   * Supported step signatures are:
+   * Supported step signatures, tried in priority order:
    * - `Fn(input, ctx) -> void`
-   * - `Fn(input, ctx) -> Result<after_type<Input>, Error>`
-   * - `Fn(input, ctx) -> after_type<Input>`
+   * - `Fn(input, ctx) -> Result<Out, Error>`
+   * - `Fn(input, ctx) -> Out`
    * - `Fn(input) -> void`
-   * - `Fn(input) -> Result<after_type<Input>, Error>`
-   * - `Fn(input) -> after_type<Input>`
+   * - `Fn(input) -> Result<Out, Error>`
+   * - `Fn(input) -> Out`
    *
-   * If a step returns `Result<..., Error>`, errors are propagated immediately
-   * and the remaining steps are not invoked. Plain return values are forwarded
-   * to the next step without error checking. A terminal plain value is
-   * normalized to `Result<value_type, Error>`, and a terminal `void` return is
-   * normalized to `Result<void, Error>`.
+   * `Result` errors are propagated immediately; remaining steps are not
+   * invoked. Plain return values are forwarded without error-checking. A
+   * terminal plain value is normalized to `Result<Out, Error>`; a terminal
+   * `void` return is normalized to `Result<void, Error>`.
    *
-   * @tparam Input Input value type for the first step.
+   * @tparam Input  Input value type for the first step.
    * @tparam Context Mutable context type used by context-aware steps.
    * @param input Input value consumed by the first step.
    * @param ctx Mutable pipeline context.
@@ -261,28 +275,26 @@ struct Pipeline {
   };
 
   /**
-   * @brief Invokes this pipeline from an explicit input value using a const
-   * context.
+   * @brief Invokes this pipeline from an explicit input value using a const context.
    *
-   * Each step is dispatched according to its declared `after_type<Input>`.
-   * Context-aware overloads taking `const Context&` are preferred over
-   * input-only overloads.
+   * Steps are matched left-to-right by their call signature. Context-aware
+   * forms taking `const Context&` are tried before no-context forms. The
+   * return value of each step flows as the input to the next step.
    *
-   * Supported step signatures are:
+   * Supported step signatures, tried in priority order:
    * - `Fn(input, ctx) -> void`
-   * - `Fn(input, ctx) -> Result<after_type<Input>, Error>`
-   * - `Fn(input, ctx) -> after_type<Input>`
+   * - `Fn(input, ctx) -> Result<Out, Error>`
+   * - `Fn(input, ctx) -> Out`
    * - `Fn(input) -> void`
-   * - `Fn(input) -> Result<after_type<Input>, Error>`
-   * - `Fn(input) -> after_type<Input>`
+   * - `Fn(input) -> Result<Out, Error>`
+   * - `Fn(input) -> Out`
    *
-   * If a step returns `Result<..., Error>`, errors are propagated immediately
-   * and the remaining steps are not invoked. Plain return values are forwarded
-   * to the next step without error checking. A terminal plain value is
-   * normalized to `Result<value_type, Error>`, and a terminal `void` return is
-   * normalized to `Result<void, Error>`.
+   * `Result` errors are propagated immediately; remaining steps are not
+   * invoked. Plain return values are forwarded without error-checking. A
+   * terminal plain value is normalized to `Result<Out, Error>`; a terminal
+   * `void` return is normalized to `Result<void, Error>`.
    *
-   * @tparam Input Input value type for the first step.
+   * @tparam Input  Input value type for the first step.
    * @tparam Context Const context type used by context-aware steps.
    * @param input Input value consumed by the first step.
    * @param ctx Const pipeline context.
@@ -377,27 +389,25 @@ struct Pipeline {
   };
 
   /**
-   * @brief Invokes this pipeline without an explicit input value using a mutable
-   * context.
+   * @brief Invokes this pipeline without an explicit input value using a mutable context.
    *
-   * This overload is used when the first step's input type is `void`. Each step
-   * is dispatched according to its declared `after_type<void>` or the previous
-   * step's `after_type`. Context-aware overloads are preferred over no-argument
-   * overloads.
+   * Used when the first step takes no data input (input type is effectively
+   * `void`). Steps are matched by their call signature; context-aware forms
+   * are tried before no-argument forms. The return value of each step flows
+   * as the input to the next step.
    *
-   * Supported first-step signatures are:
+   * Supported step signatures, tried in priority order:
    * - `Fn(ctx) -> void`
-   * - `Fn(ctx) -> Result<after_type<void>, Error>`
-   * - `Fn(ctx) -> after_type<void>`
+   * - `Fn(ctx) -> Result<Out, Error>`
+   * - `Fn(ctx) -> Out`
    * - `Fn() -> void`
-   * - `Fn() -> Result<after_type<void>, Error>`
-   * - `Fn() -> after_type<void>`
+   * - `Fn() -> Result<Out, Error>`
+   * - `Fn() -> Out`
    *
-   * If a step returns `Result<..., Error>`, errors are propagated immediately
-   * and the remaining steps are not invoked. Plain return values are forwarded
-   * to the next step without error checking. A terminal plain value is
-   * normalized to `Result<value_type, Error>`, and a terminal `void` return is
-   * normalized to `Result<void, Error>`.
+   * `Result` errors are propagated immediately; remaining steps are not
+   * invoked. Plain return values are forwarded without error-checking. A
+   * terminal plain value is normalized to `Result<Out, Error>`; a terminal
+   * `void` return is normalized to `Result<void, Error>`.
    *
    * @tparam Context Mutable context type used by context-aware steps.
    * @param ctx Mutable pipeline context.
@@ -490,27 +500,25 @@ struct Pipeline {
   };
 
   /**
-   * @brief Invokes this pipeline without an explicit input value using a const
-   * context.
+   * @brief Invokes this pipeline without an explicit input value using a const context.
    *
-   * This overload is used when the first step's input type is `void`. Each step
-   * is dispatched according to its declared `after_type<void>` or the previous
-   * step's `after_type`. Context-aware overloads taking `const Context&` are
-   * preferred over no-argument overloads.
+   * Used when the first step takes no data input (input type is effectively
+   * `void`). Steps are matched by their call signature; context-aware forms
+   * taking `const Context&` are tried before no-argument forms. The return
+   * value of each step flows as the input to the next step.
    *
-   * Supported first-step signatures are:
+   * Supported step signatures, tried in priority order:
    * - `Fn(ctx) -> void`
-   * - `Fn(ctx) -> Result<after_type<void>, Error>`
-   * - `Fn(ctx) -> after_type<void>`
+   * - `Fn(ctx) -> Result<Out, Error>`
+   * - `Fn(ctx) -> Out`
    * - `Fn() -> void`
-   * - `Fn() -> Result<after_type<void>, Error>`
-   * - `Fn() -> after_type<void>`
+   * - `Fn() -> Result<Out, Error>`
+   * - `Fn() -> Out`
    *
-   * If a step returns `Result<..., Error>`, errors are propagated immediately
-   * and the remaining steps are not invoked. Plain return values are forwarded
-   * to the next step without error checking. A terminal plain value is
-   * normalized to `Result<value_type, Error>`, and a terminal `void` return is
-   * normalized to `Result<void, Error>`.
+   * `Result` errors are propagated immediately; remaining steps are not
+   * invoked. Plain return values are forwarded without error-checking. A
+   * terminal plain value is normalized to `Result<Out, Error>`; a terminal
+   * `void` return is normalized to `Result<void, Error>`.
    *
    * @tparam Context Const context type used by context-aware steps.
    * @param ctx Const pipeline context.
@@ -603,20 +611,57 @@ struct Pipeline {
     }.template operator()<Fns...>(ctx);
   };
 
+  /**
+   * @brief Statically validates this pipeline for use as a decoder.
+   *
+   * Checks that exactly one step declares `storage_type<Input>` and that
+   * the terminal step returns `void` or `Result<void, Error>`. Returns a
+   * tuple `{true, type_identity<StorageType>}` on success; fails via
+   * static_assert otherwise.
+   */
   static constexpr auto analyze_decoder() {
     return analyze_decoder_impl<void, detail::NoStorage, Fns...>();
   }
 
+  /**
+   * @brief Statically validates this pipeline for use as an encoder.
+   *
+   * Checks that no step declares `storage_type<Input>` and that the
+   * terminal step returns `void` or `Result<void, Error>`. Returns
+   * `{true, type_identity<void>}` on success; fails via static_assert otherwise.
+   *
+   * @tparam Input The value type the encoder pipeline will receive.
+   */
   template <class Input>
   static constexpr auto analyze_encoder() {
     return analyze_encoder_impl<Input, Fns...>();
   }
 
+  /**
+   * @brief Returns `true` if this pipeline can be invoked with a `const Context&`
+   * starting from the given `Input` type.
+   *
+   * Walks the step chain at compile time, checking that each step is callable
+   * with the appropriate input and `const Context&` (or no context).
+   *
+   * @tparam Context Context type to probe.
+   * @tparam Input   Input type for the first step.
+   */
   template <class Context, class Input>
   static consteval auto callable_with_const_context() -> bool {
     return callable_with_const_context_impl<Context, Input, Fns...>();
   }
 
+  /**
+   * @brief Returns `true` if this pipeline can be invoked with a mutable `Context&`
+   * starting from the given `Input` type.
+   *
+   * Walks the step chain at compile time, checking that each step is callable
+   * with the appropriate input and `Context&` (or no context).
+   *
+   * @tparam Context Context type to probe.
+   * @tparam Input   Input type for the first step.
+   */
   template <class Context, class Input>
   static consteval auto callable_with_mutable_context() -> bool {
     return callable_with_mutable_context_impl<Context, Input, Fns...>();
@@ -815,9 +860,11 @@ struct Pipeline {
   }
 };
 
+/// Convenience variable template that wraps a default-constructed `T` as a single-step `Pipeline<T{}>`.
 template <class T>
 inline constexpr auto step = []() -> auto { return Pipeline<T{}>{}; }();
 
+/// Concatenates two pipelines into a single `Pipeline` containing all steps of `Lhs` followed by `Rhs`.
 template <auto... Lhs, auto... Rhs>
 constexpr auto operator|(Pipeline<Lhs...>, Pipeline<Rhs...>) {
   return Pipeline<Lhs..., Rhs...>{};

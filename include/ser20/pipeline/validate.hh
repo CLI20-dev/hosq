@@ -8,14 +8,7 @@ namespace detail {
 
 struct IdentityImpl {
   template <class Input>
-  static constexpr bool accepts_input = true;
-
-  template <class Input>
-  using after_type = Input;
-
-  template <class Context, class Input>
-  auto operator()(Context, Result<Input, Error> input) const
-      -> Result<Input, Error> {
+  auto operator()(Input input) const -> Input {
     return input;
   };
 };
