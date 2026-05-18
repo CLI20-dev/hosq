@@ -1,21 +1,28 @@
 # scan
 
 ```cpp
-ser20::scan::scalar
+[x] ser20::scan::scalar
 // input: ser20::Scanner&
 // output: std::string_view
 // scanner を進め、scalar value を取り出して渡す
 // 対象: string / number / true / false / null
 // string の quote 除去はするが、escape 解決はしない
 
-ser20::scan::string
+[x] ser20::scan::string
 // input: ser20::Scanner&
 // output: std::string_view
 // scanner を進め、JSON string の中身だけを渡す
 // quote は含めない
 // escape 解決は decode 側で行う
 
-ser20::scan::object_raw
+[x] ser20::scan::literal
+// input: void
+// output: std::string_view
+// literal のみ受ける
+// number / true / false / null
+// string が来たら type_mismatch or unexpected_token
+
+[x] ser20::scan::object
 // input: ser20::Scanner&
 // output: std::string_view
 // scanner を進め、object 全体の入力範囲を渡す
@@ -33,7 +40,7 @@ ser20::scan::object_tokens
 // scanner を進め、object 内の structural token を heap buffer に積んで渡す
 // allocation を許可する scan primitive
 
-ser20::scan::array_raw
+[x] ser20::scan::array
 // input: ser20::Scanner&
 // output: std::string_view
 // scanner を進め、array 全体の入力範囲を渡す
@@ -51,16 +58,13 @@ ser20::scan::array_tokens
 // scanner を進め、array 内の structural token を heap buffer に積んで渡す
 // allocation を許可する scan primitive
 ```
+# decode_into
+直接構築 TODO
 
 # decode
 
 ```cpp
-ser20::decode::integer<T>
-// input: std::string_view
-// output: T
-// number 文字列を整数型 T に変換する
-
-ser20::decode::floating<T>
+[x] ser20::decode::number<T>
 // input: std::string_view
 // output: T
 // number 文字列を浮動小数点型 T に変換する

@@ -33,31 +33,24 @@ struct NumberImpl {
     if (!input) [[unlikely]] {
       return unexpected(input.error());
     }
-
     using Value = std::remove_cvref_t<T>;
-
     Value value{};
     const std::string_view view = input.value();
-
     const char* first = view.data();
     const char* last = view.data() + view.size();
-
     const auto result = std::from_chars(first, last, value);
-
     if (result.ec == std::errc::result_out_of_range) [[unlikely]] {
       return unexpected(Error{
           .code = ErrorCode::out_of_range,
           .offset = ctx.reader->current_token()->offset,
       });
     }
-
     if (result.ec != std::errc{} || result.ptr != last) [[unlikely]] {
       return unexpected(Error{
           .code = ErrorCode::invalid_number,
           .offset = ctx.reader->current_token()->offset,
       });
     }
-
     return value;
   }
 };
@@ -68,5 +61,8 @@ namespace ser20::decode {
 
 template <detail::Number T>
 inline constexpr auto number = ser20::step<detail::NumberImpl<T>>;
+
+
+
 
 }  // namespace ser20::decode

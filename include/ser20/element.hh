@@ -120,7 +120,7 @@ template <class T>
 struct IsElem : std::false_type {};
 
 template <auto Decoder, auto Encoder>
-struct IsElem<Elem<Decoder, Encoder>> : std::true_type {};
+struct IsElem<::ser20::Elem<Decoder, Encoder>> : std::true_type {};
 
 template <class T>
 concept ElemLike = IsElem<std::remove_cvref_t<T>>::value;

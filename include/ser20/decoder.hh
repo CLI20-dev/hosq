@@ -48,7 +48,7 @@ class Decoder {
               std::remove_cvref_t<decltype(as_tuple(t))>>>::value;
         })
   [[nodiscard]]
-  auto decode(T& t, std::string_view input) {
+  auto decode([[maybe_unused]]T& t, std::string_view input) {
     R reader_(input);
   }
 

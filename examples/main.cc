@@ -1,18 +1,17 @@
+#include <ser20/decoder.hh>
+#include <ser20/pipeline/scan.hh>
+#include <ser20/pipeline/store.hh>
+#include <ser20/pipeline/unknown.hh>
 
-#include <ser20/parser.hh>
+#include "ser20/pipeline/decode.hh"
 
-struct Json {
-  ser20::ElemImpl<"name", ser20::scan::string | ser20::decode::string_view |
-                              ser20::pack::once>
-      name;
-  ser20::ElemImpl<"active", ser20::scan::scalar | ser20::decode::boolean |
-                                ser20::pack::once>
-      active;
-  ser20::ElemImpl<"deleted", ser20::scan::scalar | ser20::decode::boolean |
-                                 ser20::pack::once>
-      deleted;
+// struct Json {
+//   ser20::Entry<ser20::Elem<ser20::decode::noop, ser20::unknown::ignore>,
+//                ser20::Elem<ser20::decode::noop | ser20::store::ignore,
+//                            ser20::unknown::ignore> >
+//       a;
+// };
 
-  ser20::ElemImpl<"", ser20::unknown::ignore> remainings;
-};
-
-auto main() -> int {}
+auto main() -> int {
+  decltype(ser20::decode::noop)::analyze_decoder();
+}

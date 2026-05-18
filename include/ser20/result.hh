@@ -4,7 +4,11 @@
 #include <type_traits>
 #include <utility>
 
+#include "ser20/error.hh"
+
 namespace ser20 {
+
+class ResultTag {};
 
 template <class E>
 class Unexpected {
@@ -38,31 +42,38 @@ auto unexpected(E error) -> Unexpected<E> {
 template <class T, class E>
 class Result {
  public:
-  Result(const T& value) : has_value_(true) { new (&storage_.value) T(value); }
+  using value_type = T;
+  using error_type = E;
+  using result_tag = ResultTag;
 
-  Result(T&& value) : has_value_(true) {
-    new (&storage_.value) T(std::move(value));
+  Result(const value_type& value) : has_value_(true) {
+    new (&storage_.value) value_type(value);
   }
 
-  Result(Unexpected<E> unexpected) : has_value_(false) {
-    new (&storage_.error) E(std::move(unexpected).value());
+  Result(value_type&& value) : has_value_(true) {
+    new (&storage_.value) value_type(std::move(value));
+  }
+
+  Result(Unexpected<error_type> unexpected) : has_value_(false) {
+    new (&storage_.error) error_type(std::move(unexpected).value());
   }
 
   Result(const Result& other) : has_value_(other.has_value_) {
     if (has_value_) {
-      new (&storage_.value) T(other.storage_.value);
+      new (&storage_.value) value_type(other.storage_.value);
     } else {
-      new (&storage_.error) E(other.storage_.error);
+      new (&storage_.error) error_type(other.storage_.error);
     }
   }
 
-  Result(Result&& other) noexcept(std::is_nothrow_move_constructible_v<T> &&
-                                  std::is_nothrow_move_constructible_v<E>)
+  Result(Result&& other) noexcept(
+      std::is_nothrow_move_constructible_v<value_type> &&
+      std::is_nothrow_move_constructible_v<error_type>)
       : has_value_(other.has_value_) {
     if (has_value_) {
-      new (&storage_.value) T(std::move(other.storage_.value));
+      new (&storage_.value) value_type(std::move(other.storage_.value));
     } else {
-      new (&storage_.error) E(std::move(other.storage_.error));
+      new (&storage_.error) error_type(std::move(other.storage_.error));
     }
   }
 
@@ -77,8 +88,8 @@ class Result {
   }
 
   auto operator=(Result&& other) noexcept(
-      std::is_nothrow_move_constructible_v<T> &&
-      std::is_nothrow_move_constructible_v<E>) -> Result& {
+      std::is_nothrow_move_constructible_v<value_type> &&
+      std::is_nothrow_move_constructible_v<error_type>) -> Result& {
     if (this == &other) {
       return *this;
     }
@@ -90,9 +101,9 @@ class Result {
 
   ~Result() {
     if (has_value_) {
-      storage_.value.~T();
+      storage_.value.~value_type();
     } else {
-      storage_.error.~E();
+      storage_.error.~error_type();
     }
   }
 
@@ -107,67 +118,67 @@ class Result {
   }
 
   [[nodiscard]]
-  auto value() & -> T& {
+  auto value() & -> value_type& {
     assert(has_value_);
     return storage_.value;
   }
 
   [[nodiscard]]
-  auto value() const& -> const T& {
+  auto value() const& -> const value_type& {
     assert(has_value_);
     return storage_.value;
   }
 
   [[nodiscard]]
-  auto value() && -> T&& {
+  auto value() && -> value_type&& {
     assert(has_value_);
     return std::move(storage_.value);
   }
 
   [[nodiscard]]
-  auto error() & -> E& {
+  auto error() & -> error_type& {
     assert(!has_value_);
     return storage_.error;
   }
 
   [[nodiscard]]
-  auto error() const& -> const E& {
+  auto error() const& -> const error_type& {
     assert(!has_value_);
     return storage_.error;
   }
 
   [[nodiscard]]
-  auto error() && -> E&& {
+  auto error() && -> error_type&& {
     assert(!has_value_);
     return std::move(storage_.error);
   }
 
   [[nodiscard]]
-  auto operator->() -> T* {
+  auto operator->() -> value_type* {
     assert(has_value_);
     return &storage_.value;
   }
 
   [[nodiscard]]
-  auto operator->() const -> const T* {
+  auto operator->() const -> const value_type* {
     assert(has_value_);
     return &storage_.value;
   }
 
   [[nodiscard]]
-  auto operator*() & -> T& {
+  auto operator*() & -> value_type& {
     assert(has_value_);
     return storage_.value;
   }
 
   [[nodiscard]]
-  auto operator*() const& -> const T& {
+  auto operator*() const& -> const value_type& {
     assert(has_value_);
     return storage_.value;
   }
 
   [[nodiscard]]
-  auto operator*() && -> T&& {
+  auto operator*() && -> value_type&& {
     assert(has_value_);
     return std::move(storage_.value);
   }
@@ -182,8 +193,8 @@ class Result {
     auto operator=(const Storage&) -> Storage& = delete;
     auto operator=(Storage&&) -> Storage& = delete;
 
-    T value;
-    E error;
+    value_type value;
+    error_type error;
   };
 
   bool has_value_;
@@ -193,9 +204,13 @@ class Result {
 template <class E>
 class Result<void, E> {
  public:
+  using value_type = void;
+  using error_type = E;
+  using result_tag = ResultTag;
+
   Result() noexcept = default;
 
-  Result(Unexpected<E> unexpected)
+  Result(Unexpected<error_type> unexpected)
       : has_value_(false), error_(std::move(unexpected).value()) {}
 
   Result(const Result&) = default;
@@ -217,26 +232,42 @@ class Result<void, E> {
   auto value() const noexcept -> void { assert(has_value_); }
 
   [[nodiscard]]
-  auto error() & -> E& {
+  auto error() & -> error_type& {
     assert(!has_value_);
     return error_;
   }
 
   [[nodiscard]]
-  auto error() const& -> const E& {
+  auto error() const& -> const error_type& {
     assert(!has_value_);
     return error_;
   }
 
   [[nodiscard]]
-  auto error() && -> E&& {
+  auto error() && -> error_type&& {
     assert(!has_value_);
     return std::move(error_);
   }
 
  private:
   bool has_value_{true};
-  E error_{};
+  error_type error_{};
 };
+
+namespace detail {
+
+template <class T>
+concept ResultType = requires {
+  typename std::remove_cvref_t<T>::result_tag;
+  typename std::remove_cvref_t<T>::value_type;
+  typename std::remove_cvref_t<T>::error_type;
+} && std::same_as<typename std::remove_cvref_t<T>::result_tag, ResultTag>;
+
+template <class T>
+concept Ser20ResultType =
+    ResultType<T> &&
+    std::same_as<typename std::remove_cvref_t<T>::error_type, Error>;
+
+}  // namespace detail
 
 }  // namespace ser20

@@ -52,6 +52,7 @@ enum class ErrorKind {
   schema,      ///< The value structure did not match the declared schema.
   conversion,  ///< A value could not be converted to the requested C++ type.
   validation,  ///< A value failed a validation rule.
+  matching,    ///< No matching candidate was found for the input.
 };
 
 [[nodiscard]] constexpr auto kind_of(ErrorCode code) noexcept -> ErrorKind {
@@ -64,6 +65,7 @@ enum class ErrorKind {
     case ErrorCode::output_too_large:
     case ErrorCode::write_failed:
       return ErrorKind::output;
+    case ErrorCode::invalid_state:
     case ErrorCode::invalid_token:
     case ErrorCode::unexpected_token:
     case ErrorCode::invalid_escape:
@@ -89,6 +91,8 @@ enum class ErrorKind {
       return ErrorKind::validation;
     case ErrorCode::unknown_error:
       return ErrorKind::syntax;
+    case ErrorCode::candidate_rejected:
+      return ErrorKind::matching;
   }
   return ErrorKind::syntax;
 }
@@ -110,6 +114,8 @@ enum class ErrorKind {
       return "output too large";
     case ErrorCode::write_failed:
       return "write failed";
+    case ErrorCode::invalid_state:
+      return "invalid state";
     case ErrorCode::invalid_token:
       return "invalid token";
     case ErrorCode::unexpected_token:
@@ -148,6 +154,8 @@ enum class ErrorKind {
       return "validation failed";
     case ErrorCode::invalid_object_state:
       return "invalid object state";
+    case ErrorCode::candidate_rejected:
+      return "candidate rejected";
   }
   return "unknown error";
 }
@@ -159,10 +167,6 @@ struct Error {
 
   [[nodiscard]] constexpr auto kind() const noexcept -> ErrorKind {
     return kind_of(code);
-  }
-
-  [[nodiscard]] constexpr auto has_error() const noexcept -> bool {
-    return code != ErrorCode::unknown_error;
   }
 };
 

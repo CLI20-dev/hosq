@@ -13,6 +13,9 @@ struct IgnoreImpl {
   template <class Input>
   using storage_type = std::monostate;
 
+  template <class Input>
+  using after_type = void;
+
   template <class Context, class T>
   auto operator()(Context, Result<T, Error>) const -> Result<void, Error> {
     return Result<void, Error>{};
