@@ -16,6 +16,7 @@ namespace json {
 template <size_t MaxDepth = 1024>
 class Reader {
  public:
+  using input_type = std::string_view;
   explicit Reader(std::string_view input) noexcept : input_(input) {}
 
   Reader(const Reader&) = default;

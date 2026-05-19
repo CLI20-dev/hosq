@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <string_view>
 
 #include "ser20/error.hh"
 #include "ser20/result.hh"
@@ -37,12 +36,13 @@ struct Token {
 
 template <class T>
 concept ReaderConcept = requires(T t, const T ct) {
+  typename T::input_type;
   { t.next_token() } -> std::same_as<Result<void, Error>>;
   { t.current_token() } -> std::same_as<Token&>;
   { ct.current_token() } -> std::same_as<const Token&>;
   { t.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
   { ct.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
-  { ct.input() } -> std::same_as<std::string_view>;
+  { ct.input() } -> std::same_as<typename T::input_type>;
 };
 
 enum class Format : uint8_t {
