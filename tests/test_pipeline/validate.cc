@@ -1,8 +1,9 @@
+#include "ser20/pipeline/validate.hh"
+
 #include <gtest/gtest.h>
 
 #include <string_view>
 
-#include "ser20/pipeline/validate.hh"
 #include "common.hh"
 
 using namespace std::string_view_literals;
@@ -159,4 +160,3 @@ TEST(ValidateIdentity, PassesThrough) {
   ASSERT_TRUE(r.has_value());
   EXPECT_EQ(*r, 7);
 }
-

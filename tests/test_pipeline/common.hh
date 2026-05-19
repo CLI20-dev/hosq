@@ -20,4 +20,3 @@ template <class P, class Input, class Ctx>
 auto pinvoke_with(Input input, Ctx& ctx) {
   return P::invoke(std::move(input), ctx);
 }
-

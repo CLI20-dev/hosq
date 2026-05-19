@@ -11,6 +11,17 @@ namespace ser20::scan {
 
 namespace json::detail {
 
+#if defined(__GNUC__) || defined(__clang__)
+#define SER20_ALWAYS_INLINE_ATTR __attribute__((always_inline))
+#define SER20_FUNCTION_ALWAYS_INLINE inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define SER20_ALWAYS_INLINE_ATTR
+#define SER20_FUNCTION_ALWAYS_INLINE __forceinline
+#else
+#define SER20_ALWAYS_INLINE_ATTR
+#define SER20_FUNCTION_ALWAYS_INLINE inline
+#endif
+
 [[nodiscard]]
 constexpr auto is_literal_end(char c) noexcept -> bool {
   return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ',' ||
@@ -18,27 +29,37 @@ constexpr auto is_literal_end(char c) noexcept -> bool {
 }
 
 template <class Reader>
-auto find_string_end(const Reader& reader, std::size_t quote_offset)
+SER20_FUNCTION_ALWAYS_INLINE auto find_string_end(const Reader& reader,
+                                                  std::size_t quote_offset)
     -> Result<std::size_t, Error> {
   const auto input = reader.input();
-  if (quote_offset >= input.size() || input[quote_offset] != '"') [[unlikely]] {
+  const char* const base = input.data();
+  const char* const end = base + input.size();
+
+  if (quote_offset >= input.size() || base[quote_offset] != '"') [[unlikely]] {
     return unexpected(Error{
         .code = ErrorCode::invalid_token,
         .offset = quote_offset,
     });
   }
-  std::size_t i = quote_offset + 1;
-  while (i < input.size()) {
-    const char c = input[i];
-    if (c == '\\') {
-      i += 2;
-      continue;
-    }
+
+  const char* p = base + quote_offset + 1;
+
+  while (p < end) {
+    const char c = *p++;
+
     if (c == '"') {
-      return i;
+      return static_cast<std::size_t>((p - 1) - base);
     }
-    ++i;
+
+    if (c == '\\') {
+      if (p >= end) [[unlikely]] {
+        break;
+      }
+      ++p;
+    }
   }
+
   return unexpected(Error{
       .code = ErrorCode::unexpected_eof,
       .offset = quote_offset,
@@ -46,7 +67,8 @@ auto find_string_end(const Reader& reader, std::size_t quote_offset)
 }
 
 template <class Reader>
-auto scan_literal(const Reader& reader, const Token& token)
+SER20_FUNCTION_ALWAYS_INLINE auto scan_literal(const Reader& reader,
+                                               const Token& token)
     -> Result<std::string_view, Error> {
   const auto input = reader.input();
   if (token.length == unresolved_length) {
@@ -65,7 +87,8 @@ auto scan_literal(const Reader& reader, const Token& token)
 }
 
 template <class Reader>
-auto scan_string(const Reader& reader, const Token& token)
+SER20_FUNCTION_ALWAYS_INLINE auto scan_string(const Reader& reader,
+                                              const Token& token)
     -> Result<std::string_view, Error> {
   const auto input = reader.input();
   if (token.length == unresolved_length) {
@@ -90,21 +113,24 @@ auto scan_string(const Reader& reader, const Token& token)
 }
 
 [[nodiscard]]
-constexpr auto is_literal_token(const Token& token) noexcept -> bool {
+SER20_FUNCTION_ALWAYS_INLINE constexpr auto is_literal_token(
+    const Token& token) noexcept -> bool {
   return token.type == TokenType::ScalarBegin &&
          static_cast<JsonTokenContext>(token.context) ==
              JsonTokenContext::literal;
 }
 
 [[nodiscard]]
-constexpr auto is_string_token(const Token& token) noexcept -> bool {
+SER20_FUNCTION_ALWAYS_INLINE constexpr auto is_string_token(
+    const Token& token) noexcept -> bool {
   return token.type == TokenType::ScalarBegin &&
          static_cast<JsonTokenContext>(token.context) ==
              JsonTokenContext::string;
 }
 
 [[nodiscard]]
-constexpr auto is_scalar_token(const Token& token) noexcept -> bool {
+SER20_FUNCTION_ALWAYS_INLINE constexpr auto is_scalar_token(
+    const Token& token) noexcept -> bool {
   return is_literal_token(token) || is_string_token(token);
 }
 
@@ -116,7 +142,8 @@ template <class>
 inline constexpr bool always_false = false;
 
 template <class Reader>
-auto scan_literal_for(const Reader& reader, const Token& token)
+SER20_FUNCTION_ALWAYS_INLINE auto scan_literal_for(const Reader& reader,
+                                                   const Token& token)
     -> Result<std::string_view, Error> {
   using R = std::remove_cvref_t<Reader>;
 
@@ -136,7 +163,8 @@ auto scan_literal_for(const Reader& reader, const Token& token)
 }
 
 template <class Reader>
-auto scan_string_for(const Reader& reader, const Token& token)
+SER20_FUNCTION_ALWAYS_INLINE auto scan_string_for(const Reader& reader,
+                                                  const Token& token)
     -> Result<std::string_view, Error> {
   using R = std::remove_cvref_t<Reader>;
 
@@ -155,7 +183,8 @@ auto scan_string_for(const Reader& reader, const Token& token)
 }
 
 template <class Reader>
-auto scan_scalar_for(const Reader& reader, const Token& token)
+SER20_FUNCTION_ALWAYS_INLINE auto scan_scalar_for(const Reader& reader,
+                                                  const Token& token)
     -> Result<std::string_view, Error> {
   using R = std::remove_cvref_t<Reader>;
   if constexpr (ReaderTraits<R>::format == Format::json) {
@@ -176,8 +205,8 @@ auto scan_scalar_for(const Reader& reader, const Token& token)
 }
 
 template <class Reader>
-auto scan_compound_by_tokens(Reader& reader, const Token& token,
-                             TokenType expected_begin)
+SER20_FUNCTION_ALWAYS_INLINE auto scan_compound_by_tokens(
+    Reader& reader, const Token& token, TokenType expected_begin)
     -> Result<std::string_view, Error> {
   if (token.type != expected_begin) [[unlikely]] {
     return unexpected(Error{
@@ -252,7 +281,8 @@ auto scan_compound_by_tokens(Reader& reader, const Token& token,
 }
 
 template <class Reader>
-auto scan_object_for(Reader& reader, const Token& token)
+SER20_FUNCTION_ALWAYS_INLINE auto scan_object_for(Reader& reader,
+                                                  const Token& token)
     -> Result<std::string_view, Error> {
   using R = std::remove_cvref_t<Reader>;
   if constexpr (ReaderTraits<R>::format == Format::json) {
@@ -264,7 +294,8 @@ auto scan_object_for(Reader& reader, const Token& token)
 }
 
 template <class Reader>
-auto scan_array_for(Reader& reader, const Token& token)
+SER20_FUNCTION_ALWAYS_INLINE auto scan_array_for(Reader& reader,
+                                                 const Token& token)
     -> Result<std::string_view, Error> {
   using R = std::remove_cvref_t<Reader>;
   if constexpr (ReaderTraits<R>::format == Format::json) {
@@ -330,3 +361,6 @@ inline constexpr auto object = ser20::step<detail::ScanObjectImpl>;
 inline constexpr auto array = ser20::step<detail::ScanArrayImpl>;
 
 }  // namespace ser20::scan
+
+#undef SER20_ALWAYS_INLINE_ATTR
+#undef SER20_FUNCTION_ALWAYS_INLINE

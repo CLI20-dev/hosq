@@ -297,9 +297,6 @@ class Decoder {
   std::reference_wrapper<R> reader_ref_{reader_};
 };
 
-#undef SER20_ALWAYS_INLINE_ATTR
-#undef SER20_FUNCTION_ALWAYS_INLINE
-
 namespace detail {
 
 template <ReaderConcept R>
@@ -349,3 +346,6 @@ auto decode_into(T& t, typename R::input_type input) -> Result<void, Error> {
 }
 
 }  // namespace ser20
+
+#undef SER20_ALWAYS_INLINE_ATTR
+#undef SER20_FUNCTION_ALWAYS_INLINE

@@ -2,10 +2,10 @@
 
 #include <string_view>
 
+#include "common.hh"
 #include "ser20/pipeline/decode.hh"
 #include "ser20/pipeline/store.hh"
 #include "ser20/pipeline/validate.hh"
-#include "common.hh"
 
 using namespace std::string_view_literals;
 
@@ -190,4 +190,3 @@ TEST(PipelineEarlyReturn, OriginalErrorCodePreservedThroughChain) {
   ASSERT_FALSE(r.has_value());
   EXPECT_EQ(r.error().code, ser20::ErrorCode::validation_failed);
 }
-

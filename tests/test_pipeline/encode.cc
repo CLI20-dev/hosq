@@ -1,8 +1,9 @@
+#include "ser20/pipeline/encode.hh"
+
 #include <gtest/gtest.h>
 
 #include <string_view>
 
-#include "ser20/pipeline/encode.hh"
 #include "common.hh"
 
 using namespace std::string_view_literals;
@@ -55,4 +56,3 @@ TEST(EncodeIdentity, PassesThrough) {
   ASSERT_TRUE(r.has_value());
   EXPECT_EQ(*r, 7);
 }
-

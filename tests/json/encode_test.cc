@@ -1,4 +1,4 @@
-#include "ser20/encoder.hh"
+#include "ser20/pipeline/encode.hh"
 
 #include <gtest/gtest.h>
 
@@ -8,9 +8,9 @@
 #include <string_view>
 #include <variant>
 
+#include "ser20/encoder.hh"
 #include "ser20/json/compact_writer.hh"
 #include "ser20/pipeline/decode.hh"
-#include "ser20/pipeline/encode.hh"
 #include "ser20/pipeline/match.hh"
 #include "ser20/pipeline/scan.hh"
 #include "ser20/pipeline/store.hh"
@@ -71,21 +71,18 @@ struct WriteJsonKey {
 };
 
 template <ser20::StringLiteral Name>
-using Key =
-    ser20::Elem<ser20::noop_decoder, ser20::step<WriteJsonKey<Name>>>;
+using Key = ser20::Elem<ser20::noop_decoder, ser20::step<WriteJsonKey<Name>>>;
 
-using StringValue = ser20::Elem<ser20::scan::string |
-                                    ser20::decode::string_view |
-                                    ser20::store::once,
-                                ser20::encode::string_view |
-                                    ser20::step<WriteJsonString>>;
+using StringValue =
+    ser20::Elem<ser20::scan::string | ser20::decode::string_view |
+                    ser20::store::once,
+                ser20::encode::string_view | ser20::step<WriteJsonString>>;
 
 template <class T>
-using NumberValue = ser20::Elem<ser20::scan::literal |
-                                    ser20::decode::number<T> |
-                                    ser20::store::once,
-                                ser20::encode::number<T> |
-                                    ser20::step<WriteJsonLiteral>>;
+using NumberValue =
+    ser20::Elem<ser20::scan::literal | ser20::decode::number<T> |
+                    ser20::store::once,
+                ser20::encode::number<T> | ser20::step<WriteJsonLiteral>>;
 
 struct Address {
   ser20::Entry<Key<"city">, StringValue> city;
@@ -142,10 +139,9 @@ TEST(EncodeJson, CanEncodeIntoExistingWriterStream) {
 
   ASSERT_TRUE(writer.write({.length = 0, .type = TT::ArrayBegin, .context = 0})
                   .has_value());
-  ASSERT_TRUE(
-      ser20::Encoder<ser20::json::CompactWriter<>>::encode_to_writer(user,
-                                                                      writer)
-          .has_value());
+  ASSERT_TRUE(ser20::Encoder<ser20::json::CompactWriter<>>::encode_to_writer(
+                  user, writer)
+                  .has_value());
   ASSERT_TRUE(writer.write({.length = 0, .type = TT::ArrayEnd, .context = 0})
                   .has_value());
   ASSERT_TRUE(

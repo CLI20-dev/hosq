@@ -1,9 +1,10 @@
+#include "ser20/pipeline/decode.hh"
+
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <string_view>
 
-#include "ser20/pipeline/decode.hh"
 #include "common.hh"
 
 using namespace std::string_view_literals;
@@ -126,4 +127,3 @@ TEST(DecodeCustom, ResultReturn) {
   ASSERT_FALSE(err.has_value());
   EXPECT_EQ(err.error().code, ser20::ErrorCode::out_of_range);
 }
-

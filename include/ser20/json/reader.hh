@@ -222,31 +222,13 @@ class Reader {
    *   - @ref ErrorCode::unexpected_eof    — @p n exceeds the remaining input.
    */
   auto advance(std::size_t n) const -> Result<void, Error> {
-    switch (current_.type) {
-      case TokenType::ScalarBegin:
-      case TokenType::ObjectBegin:
-      case TokenType::ArrayBegin:
-        break;
-
-      case TokenType::ObjectEnd:
-      case TokenType::ArrayEnd:
-      case TokenType::End:
-        return unexpected(Error{
-            .code = ErrorCode::unexpected_token,
-            .offset = current_.offset,
-        });
-    }
-
     if (n > input_.size() - pos_) {
       return unexpected(Error{
           .code = ErrorCode::unexpected_eof,
           .offset = pos_,
       });
     }
-
-    if (current_.length == unresolved_length) {
-      current_.length = n;
-    }
+    current_.length = n;
     pos_ += n;
     return {};
   }
@@ -289,7 +271,7 @@ class Reader {
 
   [[nodiscard]]
   auto read_one() -> Result<Token, Error> {
-    while (pos_ < input_.size()) {
+    while (pos_ < input_.size()) [[likely]] {
       const std::size_t pos = pos_;
       const char c = input_[pos_++];
 
@@ -342,10 +324,8 @@ class Reader {
             return unexpected(
                 Error{.code = ErrorCode::unexpected_token, .offset = pos});
           }
-
           pop_context();
           expect_ = Expect::comma_delimiter;
-
           return Token{
               .offset = pos,
               .length = 0,

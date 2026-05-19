@@ -1,11 +1,12 @@
+#include "ser20/pipeline/store.hh"
+
 #include <gtest/gtest.h>
 
 #include <string_view>
 #include <vector>
 
-#include "ser20/pipeline/decode.hh"
-#include "ser20/pipeline/store.hh"
 #include "common.hh"
+#include "ser20/pipeline/decode.hh"
 
 using namespace std::string_view_literals;
 
@@ -50,4 +51,3 @@ TEST(StoreIgnore, DiscardsValue) {
   auto r = pinvoke<P>("123"sv);
   EXPECT_TRUE(r.has_value());
 }
-

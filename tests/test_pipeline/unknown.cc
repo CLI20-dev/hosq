@@ -1,6 +1,7 @@
+#include "ser20/pipeline/unknown.hh"
+
 #include <gtest/gtest.h>
 
-#include "ser20/pipeline/unknown.hh"
 #include "common.hh"
 
 TEST(UnknownIdentity, PassesThrough) {
@@ -9,4 +10,3 @@ TEST(UnknownIdentity, PassesThrough) {
   ASSERT_TRUE(r.has_value());
   EXPECT_EQ(*r, 42);
 }
-

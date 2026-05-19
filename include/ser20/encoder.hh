@@ -13,7 +13,8 @@ namespace ser20 {
 
 #if defined(__GNUC__) || defined(__clang__)
 #define SER20_ENCODER_ALWAYS_INLINE_ATTR __attribute__((always_inline))
-#define SER20_ENCODER_FUNCTION_ALWAYS_INLINE inline __attribute__((always_inline))
+#define SER20_ENCODER_FUNCTION_ALWAYS_INLINE \
+  inline __attribute__((always_inline))
 #elif defined(_MSC_VER)
 #define SER20_ENCODER_ALWAYS_INLINE_ATTR
 #define SER20_ENCODER_FUNCTION_ALWAYS_INLINE __forceinline
@@ -113,15 +114,15 @@ class Encoder {
     }
 
     auto result = std::apply(
-        [&](const auto&... entry) SER20_ENCODER_ALWAYS_INLINE_ATTR
-            -> Result<void, Error> {
-          Result<void, Error> current{};
-          ([&]() SER20_ENCODER_ALWAYS_INLINE_ATTR -> bool {
-            current = encode_one_member(entry);
-            return !current;
-          }() || ...);
-          return current;
-        },
+        [&](const auto&... entry)
+            SER20_ENCODER_ALWAYS_INLINE_ATTR -> Result<void, Error> {
+              Result<void, Error> current{};
+              ([&]() SER20_ENCODER_ALWAYS_INLINE_ATTR -> bool {
+                current = encode_one_member(entry);
+                return !current;
+              }() || ...);
+              return current;
+            },
         ser20::as_tuple(t));
     if (!result) {
       return unexpected(result.error());
@@ -141,8 +142,8 @@ class Encoder {
 
   template <class Entry>
   [[nodiscard]]
-  SER20_ENCODER_FUNCTION_ALWAYS_INLINE auto encode_one_member(
-      const Entry& entry) -> Result<void, Error> {
+  SER20_ENCODER_FUNCTION_ALWAYS_INLINE auto encode_one_member(const Entry& entry)
+      -> Result<void, Error> {
     auto key_result = encode_entry_key(entry);
     if (!key_result) {
       return unexpected(key_result.error());
@@ -156,8 +157,8 @@ class Encoder {
 
   template <class Entry>
   [[nodiscard]]
-  SER20_ENCODER_FUNCTION_ALWAYS_INLINE auto encode_entry_key(
-      const Entry& entry) -> Result<void, Error> {
+  SER20_ENCODER_FUNCTION_ALWAYS_INLINE auto encode_entry_key(const Entry& entry)
+      -> Result<void, Error> {
     using E = std::remove_cvref_t<Entry>;
     if constexpr (E::category == detail::EntryCategory::ElemElem ||
                   E::category == detail::EntryCategory::ElemSchema) {
@@ -201,4 +202,3 @@ auto encode_into(const T& t, W& writer) -> Result<void, Error> {
 }
 
 }  // namespace ser20
-

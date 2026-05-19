@@ -203,8 +203,14 @@ static size_t drain(json::Reader<>& reader, std::string_view input) {
             JsonTokenContext::string) {
           size_t i = tok.offset + 1;  // skip opening "
           while (i < input.size()) {
-            if (input[i] == '\\') { i += 2; continue; }
-            if (input[i] == '"') { ++i; break; }
+            if (input[i] == '\\') {
+              i += 2;
+              continue;
+            }
+            if (input[i] == '"') {
+              ++i;
+              break;
+            }
             ++i;
           }
           len = i - tok.offset;
@@ -212,8 +218,8 @@ static size_t drain(json::Reader<>& reader, std::string_view input) {
           size_t i = tok.offset;
           while (i < input.size()) {
             const char c = input[i];
-            if (c == ' ' || c == '\t' || c == '\r' || c == '\n' ||
-                c == ',' || c == ']' || c == '}')
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ',' ||
+                c == ']' || c == '}')
               break;
             ++i;
           }
@@ -248,32 +254,32 @@ static void report_allocs(benchmark::State& state) {
 
 // ─── Benchmark definitions ────────────────────────────────────────────────────
 
-#define DEFINE_BM(Name, maker)                                              \
-  static void BM_##Name(benchmark::State& state) {                         \
-    const std::string input = maker(static_cast<size_t>(state.range(0)));  \
-    bench::AllocationCounter::reset();                                      \
-    for (auto _ : state) {                                                  \
-      json::Reader<> reader;                                                \
-      reader.reset(input);                                                  \
-      benchmark::DoNotOptimize(input.data());                               \
-      size_t acc = drain(reader, input);                                    \
-      benchmark::DoNotOptimize(acc);                                        \
-      benchmark::ClobberMemory();                                           \
-    }                                                                       \
-    state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *     \
-                            static_cast<int64_t>(input.size()));            \
-    report_allocs(state);                                                   \
+#define DEFINE_BM(Name, maker)                                            \
+  static void BM_##Name(benchmark::State& state) {                        \
+    const std::string input = maker(static_cast<size_t>(state.range(0))); \
+    bench::AllocationCounter::reset();                                    \
+    for (auto _ : state) {                                                \
+      json::Reader<> reader;                                              \
+      reader.reset(input);                                                \
+      benchmark::DoNotOptimize(input.data());                             \
+      size_t acc = drain(reader, input);                                  \
+      benchmark::DoNotOptimize(acc);                                      \
+      benchmark::ClobberMemory();                                         \
+    }                                                                     \
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) *    \
+                            static_cast<int64_t>(input.size()));          \
+    report_allocs(state);                                                 \
   }
 
-DEFINE_BM(WhitespaceSparse,         make_whitespace_sparse)
-DEFINE_BM(StructuralSparse,         make_structural_sparse)
-DEFINE_BM(FlatCompactObject,        make_flat_object)
-DEFINE_BM(PrettyObject,             make_pretty_object)
-DEFINE_BM(LongStringNoEscape,       make_long_string_array)
-DEFINE_BM(EscapedStringHeavy,       make_escaped_string_array)
-DEFINE_BM(MixedRealistic,           make_mixed_realistic)
-DEFINE_BM(TwitterLikeRandom,        make_twitter_like_random)
-DEFINE_BM(TwitterLikeLongRandom,    make_twitter_like_long_random)
+DEFINE_BM(WhitespaceSparse, make_whitespace_sparse)
+DEFINE_BM(StructuralSparse, make_structural_sparse)
+DEFINE_BM(FlatCompactObject, make_flat_object)
+DEFINE_BM(PrettyObject, make_pretty_object)
+DEFINE_BM(LongStringNoEscape, make_long_string_array)
+DEFINE_BM(EscapedStringHeavy, make_escaped_string_array)
+DEFINE_BM(MixedRealistic, make_mixed_realistic)
+DEFINE_BM(TwitterLikeRandom, make_twitter_like_random)
+DEFINE_BM(TwitterLikeLongRandom, make_twitter_like_long_random)
 DEFINE_BM(TwitterLikeEscapedRandom, make_twitter_like_escaped_random)
 
 #undef DEFINE_BM

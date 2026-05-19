@@ -12,6 +12,17 @@
 #include "ser20/error.hh"
 #include "ser20/result.hh"
 
+#if defined(__GNUC__) || defined(__clang__)
+#define SER20_ALWAYS_INLINE_ATTR __attribute__((always_inline))
+#define SER20_FUNCTION_ALWAYS_INLINE inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define SER20_ALWAYS_INLINE_ATTR
+#define SER20_FUNCTION_ALWAYS_INLINE __forceinline
+#else
+#define SER20_ALWAYS_INLINE_ATTR
+#define SER20_FUNCTION_ALWAYS_INLINE inline
+#endif
+
 namespace ser20 {
 
 namespace detail {
@@ -202,7 +213,8 @@ struct Pipeline {
    */
   template <class Input, class Context>
   [[nodiscard]]
-  static constexpr auto invoke(Input input, Context& ctx) {
+  SER20_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Input input,
+                                                            Context& ctx) {
     return []<auto FnHead, auto... FnTail>(Input input,
                                            Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
@@ -317,7 +329,8 @@ struct Pipeline {
    */
   template <class Input, class Context>
   [[nodiscard]]
-  static constexpr auto invoke(Input input, const Context& ctx) {
+  SER20_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Input input,
+                                                            const Context& ctx) {
     return []<auto FnHead, auto... FnTail>(
                Input input, const Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
@@ -431,7 +444,7 @@ struct Pipeline {
    */
   template <class Context>
   [[nodiscard]]
-  static constexpr auto invoke(Context& ctx) {
+  SER20_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Context& ctx) {
     return []<auto FnHead, auto... FnTail>(Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
       constexpr auto Fn = FnHead;
@@ -543,9 +556,9 @@ struct Pipeline {
    */
   template <class Context>
   [[nodiscard]]
-  static constexpr auto invoke(const Context& ctx) {
+  SER20_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(const Context& ctx) {
     return []<auto FnHead, auto... FnTail>(
-               const Context& ctx) -> decltype(auto) {
+               const Context& ctx) SER20_ALWAYS_INLINE_ATTR -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
@@ -880,7 +893,8 @@ struct Pipeline {
 /// Convenience variable template that wraps a default-constructed `T` as a
 /// single-step `Pipeline<T{}>`.
 template <class T>
-inline constexpr auto step = []() -> auto { return Pipeline<T{}>{}; }();
+inline constexpr auto step =
+    []() SER20_ALWAYS_INLINE_ATTR -> auto { return Pipeline<T{}>{}; }();
 
 /// Concatenates two pipelines into a single `Pipeline` containing all steps of
 /// `Lhs` followed by `Rhs`.
@@ -890,3 +904,6 @@ constexpr auto operator|(Pipeline<Lhs...>, Pipeline<Rhs...>) {
 }
 
 }  // namespace ser20
+
+#undef SER20_ALWAYS_INLINE_ATTR
+#undef SER20_FUNCTION_ALWAYS_INLINE
