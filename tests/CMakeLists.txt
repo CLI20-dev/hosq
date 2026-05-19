@@ -13,7 +13,7 @@ if(NOT GTest_FOUND)
 endif()
 include(GoogleTest)
 
-file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "*.cc")
+file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "*.cc")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}")
 
 function(add_ser20_tests suffix cxx_std)
