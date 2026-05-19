@@ -21,5 +21,5 @@ add_library(bench_alloc OBJECT
 )
 target_include_directories(bench_alloc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_subdirectory(scanner)
+add_subdirectory(reader)
 add_subdirectory(twitter)
