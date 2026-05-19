@@ -239,6 +239,34 @@ struct MutableActionFn<void, Out, Fn> {
   }
 };
 
+struct NoopDecoder {
+  template <class>
+  using storage_type = std::monostate;
+
+  constexpr auto operator()(auto&) const -> Result<void, Error> { return {}; }
+
+  constexpr auto operator()(const auto&) const -> Result<void, Error> {
+    return {};
+  }
+};
+
+struct NoopEncoder {
+  template <class T, class Context>
+  constexpr auto operator()(T&&, Context&) const -> Result<void, Error> {
+    return {};
+  }
+
+  template <class T, class Context>
+  constexpr auto operator()(T&&, const Context&) const -> Result<void, Error> {
+    return {};
+  }
+
+  template <class T>
+  constexpr auto operator()(T&&) const -> Result<void, Error> {
+    return {};
+  }
+};
+
 }  // namespace detail
 
 template <class In, class Out, auto Fn>
@@ -246,5 +274,9 @@ inline constexpr detail::ActionFn<In, Out, Fn> action{};
 
 template <class In, class Out, auto Fn>
 inline constexpr detail::MutableActionFn<In, Out, Fn> mutable_action{};
+
+inline constexpr auto noop_decoder = step<detail::NoopDecoder>;
+
+inline constexpr auto noop_encoder = step<detail::NoopEncoder>;
 
 };  // namespace ser20

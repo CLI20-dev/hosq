@@ -386,3 +386,12 @@ ser20::unknown::callback<F>             // UnknownMemberContext を user callbac
 // output: T
 // 変換せずそのまま渡す
 ```
+
+# match
+
+```
+[x] ser20::match::literal<V>
+// input: T
+// output: T と等しいことを検証する、 V は T 型の NTTP であることを要求 (compile error)
+// 等しくない場合は candidate_failed error
+```

@@ -1,18 +1,35 @@
-@include/ser20/json/reader.hh のテストを tests/json/reader.cc に include/ser20/json/compact_writer.hh のテストを tests/json/compact_writer.cc
-  に書きなさい
-この test は
+include/ser20/decoder.hh
 
-特定の固定入力に対して reader が特定の sequence を返す (特に json は toplevel value string array empty array, empty object, がparse可能か必要その後 object で nested object, nest は 5 階層くらいまででいい段階的にするのも良いがここまでくると大きい もの 小さい json の入力の2パターンで 大きい json の構造を複雑にするすだけでよい "foobar": [] のような empty array とか empty object を valueに持つこと それに [ と ] が離れている empty array とかも)
+を作成しました。
+これで reader と併せて json を parse することができるはずです。
+汎用 dom を作っていないので、完全な json を parse することはできませんが、必要な部分だけを parse することはできます。
 
-特定の固定入力に対して reader が特定の エラーを返す (基本的に構文エラーです ,, とか :: とか {{ とか連続するパターンは 空白を開ける開けないでそれぞれ 他に {   }a とか object の階層が正しくないとか array separater に : を使っている object の separater に , を使っている scalar に空白が混ざっている "value": 638 472, とか そういうものをチェクせよ、ただ string に new line が含まれているかどうかはこの Reader が **検査しない**、他にも null とか true とか false とかの scalar のエラーもチェック **しない**)
+test を作ってみなさい
+tests/json/decode_test.cc に作成せよ
 
-特定の固定入力に対して compact_writer が特定の出力を返す (reader と同様のパターンで、ただし reader と違って出力は空白を含まないことを注意する)
+イメージとしては以下のような test を複数作ります
+decode のみを検証するので、encode は noop_encoder を使います
 
-特定の固定入力に対して compact_writer が特定のエラーを返す (とはいっても エラーパターンは 間違った token 列を requestするか、 commit で間違ったサイズを渡すかです。他にも弾くべきエラーがあれば追加せよ)
+```cpp
 
-私が指定しなかったテスト以外にも、追加してかまわないです。
-むしろエッジケース漏れを良く確認して、積極的に追加しなさい
+TEST_xxxxxxx(xxxx, xxx) {
+    struct {
+      ser20::Entry<
+        ser20::Elem<ser20::scan::string | ser20::match::literal<"name"_literal>, ser20::noop_encoder>,
+        ser20::Elem<ser20::scan::string | ser20::decode::string_view | ser20::store::once, ser20::noop_encoder>
+      > name;
+      ser20::Entry<
+        ser20::Elem<ser20::scan::string | ser20::match::literal<"id"_literal>, ser20::noop_encoder>,
+        ser20::Elem<ser20::scan::literal | ser20::decode::number<int> | ser20::store::once, ser20::noop_encoder>
+      > id;
+    } json;
 
-迷ったらこのガイドラインを繰り返すこと
-バグが reader writer にあると感じる場合は修正する必要がありますが、エラーチェック等は意図的に省いているケースがあります。
-そのため 仕様かどうか分からないものは、 ./maybe_bug.md に書いて私に確認すること
+    auto json_str = R"({"name": "John", "id": 123})";
+    auto result = ser20::decode(json, json_str);
+
+    EXPECT_TRUE(result);
+    EXPECT_EQ(json.name.value, "John");
+    EXPECT_EQ(json.id.value, 123);
+}
+
+```
