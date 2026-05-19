@@ -8,9 +8,7 @@ namespace ser20 {
 
 namespace detail {
 template <class T>
-concept AggregateTupleCandidate =
-    std::is_aggregate_v<std::remove_cvref_t<T>> &&
-    std::is_trivially_copyable_v<std::remove_cvref_t<T>>;
+concept AggregateTupleCandidate = std::is_aggregate_v<std::remove_cvref_t<T>>;
 }
 
 #if defined(__cpp_structured_bindings) &&                           \

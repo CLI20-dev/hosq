@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <tuple>
 #include <type_traits>
 
@@ -37,8 +38,9 @@ class Decoder {
     requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
   [[nodiscard]]
   auto decode(T& t, typename R::input_type input) -> Result<void, Error> {
-    reader_.reset(input);
-    auto next = reader_.next_token();
+    auto& r = reader();
+    r.reset(input);
+    auto next = r.next_token();
     if (!next) {
       return unexpected(next.error());
     }
@@ -52,16 +54,41 @@ class Decoder {
     }
   }
 
+  template <class T>
+    requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
+  [[nodiscard]]
+  static auto decode_from_reader(T& t, R& reader) -> Result<void, Error> {
+    Decoder decoder{reader};
+
+    if constexpr (detail::ElemT<T>) {
+      return decoder.decode_element(t);
+    } else if constexpr (detail::AsEntryTupleT<T>) {
+      return decoder.decode_as_entry_tuple(t);
+    }
+  }
+
  private:
+  explicit Decoder(R& reader) : reader_ref_(reader) {}
+
+  [[nodiscard]]
+  SER20_FUNCTION_ALWAYS_INLINE constexpr auto reader() -> R& {
+    return reader_ref_.get();
+  }
+
+  [[nodiscard]]
+  SER20_FUNCTION_ALWAYS_INLINE constexpr auto reader() const -> const R& {
+    return reader_ref_.get();
+  }
+
   template <detail::ElemT T>
   [[nodiscard]]
   SER20_FUNCTION_ALWAYS_INLINE constexpr auto decode_element(T& t)
       -> Result<void, Error> {
     if constexpr (std::remove_cvref_t<T>::template decoder_const_invokable<R>) {
-      const auto& r = static_cast<const R&>(reader_);
+      const auto& r = static_cast<const R&>(reader());
       return t.decode(r);
     } else {
-      return t.decode(reader_);
+      return t.decode(reader());
     }
   }
 
@@ -69,25 +96,26 @@ class Decoder {
   [[nodiscard]]
   SER20_FUNCTION_ALWAYS_INLINE auto decode_as_entry_tuple(T& t)
       -> Result<void, Error> {
-    if (reader_.current_token().type != TokenType::ObjectBegin) {
+    auto& r = reader();
+    if (r.current_token().type != TokenType::ObjectBegin) {
       return unexpected(Error{
           .code = ErrorCode::type_mismatch,
-          .offset = reader_.current_token().offset,
+          .offset = r.current_token().offset,
       });
     }
 
-    auto advanced = reader_.advance(1);
+    auto advanced = r.advance(1);
     if (!advanced) {
       return unexpected(advanced.error());
     }
 
     while (true) {
-      auto next = reader_.next_token();
+      auto next = r.next_token();
       if (!next) {
         return unexpected(next.error());
       }
 
-      if (reader_.current_token().type == TokenType::ObjectEnd) {
+      if (r.current_token().type == TokenType::ObjectEnd) {
         return {};
       }
 
@@ -122,22 +150,22 @@ class Decoder {
                 return true;
               }
             } else {
-              auto snapshot = reader_;
+              auto snapshot = reader();
               auto key_result = decode_entry_key(entry);
 
               if (is_candidate_rejected(key_result)) {
-                reader_ = snapshot;
+                reader() = snapshot;
                 return false;
               }
 
               if (!key_result) {
-                reader_ = snapshot;
+                reader() = snapshot;
                 result = unexpected(key_result.error());
                 return true;
               }
             }
 
-            auto next = reader_.next_token();
+            auto next = reader().next_token();
             if (!next) {
               result = unexpected(next.error());
               return true;
@@ -154,16 +182,16 @@ class Decoder {
               result = {};
               return true;
             } else {
-              auto snapshot = reader_;
+              auto snapshot = reader();
               auto value_result = decode_entry_value(entry);
 
               if (is_candidate_rejected(value_result)) {
-                reader_ = snapshot;
+                reader() = snapshot;
                 return false;
               }
 
               if (!value_result) {
-                reader_ = snapshot;
+                reader() = snapshot;
                 result = unexpected(value_result.error());
                 return true;
               }
@@ -206,7 +234,7 @@ class Decoder {
     using E = std::remove_cvref_t<Entry>;
     if constexpr (E::category == detail::EntryCategory::ElemElem ||
                   E::category == detail::EntryCategory::ElemSchema) {
-      return entry.decode_key(reader_);
+      return entry.decode_key(reader());
     } else {
       return decode_as_entry_tuple(entry.key());
     }
@@ -219,7 +247,7 @@ class Decoder {
 
     if constexpr (E::category == detail::EntryCategory::ElemElem ||
                   E::category == detail::EntryCategory::SchemaElem) {
-      return entry.decode_value(reader_);
+      return entry.decode_value(reader());
     } else if constexpr (E::category == detail::EntryCategory::ElemSchema ||
                          E::category == detail::EntryCategory::SchemaSchema) {
       return decode_as_entry_tuple(entry.value());
@@ -235,7 +263,7 @@ class Decoder {
 
     if constexpr (E::category == detail::EntryCategory::ElemElem ||
                   E::category == detail::EntryCategory::ElemSchema) {
-      const auto& r = static_cast<const R&>(reader_);
+      const auto& r = static_cast<const R&>(reader());
       return entry.decode_key(r);
     } else {
       static_assert(detail::always_false<E>,
@@ -250,7 +278,7 @@ class Decoder {
 
     if constexpr (E::category == detail::EntryCategory::ElemElem ||
                   E::category == detail::EntryCategory::SchemaElem) {
-      const auto& r = static_cast<const R&>(reader_);
+      const auto& r = static_cast<const R&>(reader());
       return entry.decode_value(r);
     } else {
       static_assert(detail::always_false<E>,
@@ -265,7 +293,8 @@ class Decoder {
     return !result && result.error().code == ErrorCode::candidate_rejected;
   }
 
-  R reader_;
+  R reader_{};
+  std::reference_wrapper<R> reader_ref_{reader_};
 };
 
 #undef SER20_ALWAYS_INLINE_ATTR

@@ -5,7 +5,10 @@
 #include <string_view>
 #include <system_error>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
+#include "ser20/decoder.hh"
 #include "ser20/error.hh"
 #include "ser20/pipeline.hh"
 #include "ser20/pipeline_util.hh"
@@ -74,6 +77,69 @@ struct StringViewImpl {
   auto operator()(std::string_view sv) const -> std::string_view { return sv; }
 };
 
+template <class T>
+struct DecodedResult;
+
+template <::ser20::detail::ElemT T>
+struct DecodedResult<T> {
+  using type = typename std::remove_cvref_t<T>::storage_type;
+};
+
+template <::ser20::detail::AsEntryTupleT T>
+struct DecodedResult<T> {
+  using type = std::remove_cvref_t<T>;
+};
+
+template <class T>
+using decoded_result_t = typename DecodedResult<std::remove_cvref_t<T>>::type;
+
+template <class T>
+  requires(::ser20::detail::ElemT<T> || ::ser20::detail::AsEntryTupleT<T>)
+struct VectorImpl {
+  template <class Context>
+    requires(!std::is_const_v<std::remove_reference_t<Context>>)
+  auto operator()(Context& ctx) const
+      -> Result<std::vector<decoded_result_t<T>>, Error> {
+    auto& reader = ctx.reader();
+    if (reader.current_token().type != TokenType::ArrayBegin) {
+      return unexpected(Error{
+          .code = ErrorCode::type_mismatch,
+          .offset = reader.current_token().offset,
+      });
+    }
+
+    auto advanced = reader.advance(1);
+    if (!advanced) {
+      return unexpected(advanced.error());
+    }
+
+    std::vector<decoded_result_t<T>> values;
+    while (true) {
+      auto next = reader.next_token();
+      if (!next) {
+        return unexpected(next.error());
+      }
+
+      if (reader.current_token().type == TokenType::ArrayEnd) {
+        return values;
+      }
+
+      T element{};
+      using Reader = std::remove_cvref_t<decltype(reader)>;
+      auto decoded =
+          ::ser20::Decoder<Reader>::decode_from_reader(element, reader);
+      if (!decoded) {
+        return unexpected(decoded.error());
+      }
+      if constexpr (::ser20::detail::ElemT<T>) {
+        values.push_back(std::move(element.value()));
+      } else {
+        values.push_back(std::move(element));
+      }
+    }
+  }
+};
+
 }  // namespace detail
 
 /// Converts "true"/"false" to bool; returns type_mismatch for anything else.
@@ -82,6 +148,11 @@ inline constexpr auto boolean = step<detail::BooleanImpl>;
 /// Passes string_view through unchanged; escape resolution is left to the
 /// caller.
 inline constexpr auto string_view = step<detail::StringViewImpl>;
+
+/// Decodes the current JSON array as std::vector<decoded_result_t<T>>.
+template <class T>
+  requires(::ser20::detail::ElemT<T> || ::ser20::detail::AsEntryTupleT<T>)
+inline constexpr auto vector = step<detail::VectorImpl<T>>;
 
 /// Passes any value through unchanged.
 inline constexpr auto identity = step<detail::IdentityImpl>;
