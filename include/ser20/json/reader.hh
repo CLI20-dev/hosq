@@ -259,6 +259,11 @@ class Reader {
     colon_delimiter,
   };
 
+  friend auto allow_next_top_level_value_after_scan(Reader& reader) noexcept
+      -> void {
+    reader.allow_top_level_value_after_scan_ = true;
+  }
+
   [[nodiscard]]
   static constexpr auto is_ws(char c) noexcept -> bool {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
@@ -267,6 +272,16 @@ class Reader {
   [[nodiscard]]
   static constexpr auto is_delim(char c) noexcept -> bool {
     return c == ',' || c == ']' || c == '}';
+  }
+
+  [[nodiscard]]
+  auto can_read_value() const noexcept -> bool {
+    return expect_ == Expect::value || expect_ == Expect::value_or_end ||
+           (ctx_size_ == 0 && allow_top_level_value_after_scan_);
+  }
+
+  auto consume_value_start() noexcept -> void {
+    allow_top_level_value_after_scan_ = false;
   }
 
   [[nodiscard]]
@@ -281,10 +296,11 @@ class Reader {
 
       switch (c) {
         case '{': {
-          if (expect_ != Expect::value && expect_ != Expect::value_or_end) {
+          if (!can_read_value()) {
             return unexpected(
                 Error{.code = ErrorCode::unexpected_token, .offset = pos});
           }
+          consume_value_start();
           auto pushed = push_context(ObjectContext::object, pos);
           if (!pushed) {
             return unexpected(pushed.error());
@@ -299,10 +315,11 @@ class Reader {
         }
 
         case '[': {
-          if (expect_ != Expect::value && expect_ != Expect::value_or_end) {
+          if (!can_read_value()) {
             return unexpected(
                 Error{.code = ErrorCode::unexpected_token, .offset = pos});
           }
+          consume_value_start();
           auto pushed = push_context(ObjectContext::array, pos);
           if (!pushed) {
             return unexpected(pushed.error());
@@ -369,7 +386,7 @@ class Reader {
 
         case '"': {
           if (expect_ != Expect::key && expect_ != Expect::key_or_end &&
-              expect_ != Expect::value && expect_ != Expect::value_or_end) {
+              !can_read_value()) {
             return unexpected(
                 Error{.code = ErrorCode::unexpected_token, .offset = pos});
           }
@@ -378,6 +395,9 @@ class Reader {
               ctx_size_ != 0 && current_ctx() == ObjectContext::object &&
               (expect_ == Expect::key || expect_ == Expect::key_or_end);
 
+          if (!is_key) {
+            consume_value_start();
+          }
           expect_ = is_key ? Expect::colon_delimiter : Expect::comma_delimiter;
           pos_ = pos;
           return Token{
@@ -389,10 +409,11 @@ class Reader {
         }
 
         default:
-          if (expect_ != Expect::value && expect_ != Expect::value_or_end) {
+          if (!can_read_value()) {
             return unexpected(
                 Error{.code = ErrorCode::unexpected_token, .offset = pos});
           }
+          consume_value_start();
           expect_ = Expect::comma_delimiter;
           pos_ = pos;
           return Token{
@@ -449,6 +470,7 @@ class Reader {
 
   std::string_view input_{};
   Expect expect_{Expect::value};
+  bool allow_top_level_value_after_scan_{false};
 
   Token current_{
       .offset = 0,

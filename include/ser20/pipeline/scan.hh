@@ -1,6 +1,6 @@
 #pragma once
 
-#include <array>
+#include <type_traits>
 
 #include "ser20/error.hh"
 #include "ser20/pipeline_util.hh"
@@ -89,108 +89,6 @@ auto scan_string(const Reader& reader, const Token& token)
   return input.substr(token.offset + 1, token.length - 2);
 }
 
-inline constexpr std::size_t raw_scan_max_depth = 1024;
-
-[[nodiscard]]
-constexpr auto is_open_bracket(char c) noexcept -> bool {
-  return c == '{' || c == '[';
-}
-
-[[nodiscard]]
-constexpr auto is_close_bracket(char c) noexcept -> bool {
-  return c == '}' || c == ']';
-}
-
-[[nodiscard]]
-constexpr auto is_close_for(char open, char close) noexcept -> bool {
-  return (open == '{' && close == '}') || (open == '[' && close == ']');
-}
-
-template <class Reader>
-auto scan_compound(const Reader& reader, const Token& token, char expected_open)
-    -> Result<std::string_view, Error> {
-  const auto input = reader.input();
-
-  if (token.offset >= input.size() || input[token.offset] != expected_open)
-      [[unlikely]] {
-    return unexpected(Error{
-        .code = ErrorCode::invalid_token,
-        .offset = token.offset,
-    });
-  }
-
-  if (token.length == unresolved_length) {
-    std::array<char, raw_scan_max_depth> stack{};
-    std::size_t depth = 0;
-
-    stack[depth++] = expected_open;
-
-    std::size_t i = token.offset + 1;
-
-    while (i < input.size()) {
-      const char c = input[i];
-
-      if (c == '"') {
-        auto end = find_string_end(reader, i);
-        if (!end) [[unlikely]] {
-          return unexpected(end.error());
-        }
-
-        i = *end + 1;
-        continue;
-      }
-
-      if (is_open_bracket(c)) {
-        if (depth >= raw_scan_max_depth) [[unlikely]] {
-          return unexpected(Error{
-              .code = ErrorCode::depth_limit_exceeded,
-              .offset = i,
-          });
-        }
-
-        stack[depth++] = c;
-        ++i;
-        continue;
-      }
-
-      if (is_close_bracket(c)) {
-        if (depth == 0 || !is_close_for(stack[depth - 1], c)) [[unlikely]] {
-          return unexpected(Error{
-              .code = ErrorCode::unexpected_token,
-              .offset = i,
-          });
-        }
-
-        --depth;
-        ++i;
-
-        if (depth == 0) {
-          token.length = i - token.offset;
-
-          auto advanced = reader.advance(token.length);
-          if (!advanced) [[unlikely]] {
-            token.length = unresolved_length;
-            return unexpected(advanced.error());
-          }
-
-          return input.substr(token.offset, token.length);
-        }
-
-        continue;
-      }
-
-      ++i;
-    }
-
-    return unexpected(Error{
-        .code = ErrorCode::unexpected_eof,
-        .offset = token.offset,
-    });
-  }
-
-  return input.substr(token.offset, token.length);
-}
-
 [[nodiscard]]
 constexpr auto is_literal_token(const Token& token) noexcept -> bool {
   return token.type == TokenType::ScalarBegin &&
@@ -208,16 +106,6 @@ constexpr auto is_string_token(const Token& token) noexcept -> bool {
 [[nodiscard]]
 constexpr auto is_scalar_token(const Token& token) noexcept -> bool {
   return is_literal_token(token) || is_string_token(token);
-}
-
-[[nodiscard]]
-constexpr auto is_object_token(const Token& token) noexcept -> bool {
-  return token.type == TokenType::ObjectBegin;
-}
-
-[[nodiscard]]
-constexpr auto is_array_token(const Token& token) noexcept -> bool {
-  return token.type == TokenType::ArrayBegin;
 }
 
 }  // namespace json::detail
@@ -288,17 +176,86 @@ auto scan_scalar_for(const Reader& reader, const Token& token)
 }
 
 template <class Reader>
-auto scan_object_for(const Reader& reader, const Token& token)
+auto scan_compound_by_tokens(Reader& reader, const Token& token,
+                             TokenType expected_begin)
+    -> Result<std::string_view, Error> {
+  if (token.type != expected_begin) [[unlikely]] {
+    return unexpected(Error{
+        .code = ErrorCode::type_mismatch,
+        .offset = token.offset,
+    });
+  }
+
+  const auto input = reader.input();
+  const std::size_t start = token.offset;
+
+  auto advanced = reader.advance(1);
+  if (!advanced) [[unlikely]] {
+    return unexpected(advanced.error());
+  }
+
+  std::size_t depth = 1;
+  while (depth > 0) {
+    auto next = reader.next_token();
+    if (!next) [[unlikely]] {
+      return unexpected(next.error());
+    }
+
+    const auto& current_token = reader.current_token();
+    switch (current_token.type) {
+      case TokenType::ScalarBegin: {
+        auto scalar = scan_scalar_for(reader, current_token);
+        if (!scalar) [[unlikely]] {
+          return unexpected(scalar.error());
+        }
+        break;
+      }
+
+      case TokenType::ObjectBegin:
+      case TokenType::ArrayBegin: {
+        auto nested_advanced = reader.advance(1);
+        if (!nested_advanced) [[unlikely]] {
+          return unexpected(nested_advanced.error());
+        }
+        ++depth;
+        break;
+      }
+
+      case TokenType::ObjectEnd:
+      case TokenType::ArrayEnd: {
+        const std::size_t end = current_token.offset + 1;
+        --depth;
+        if (depth == 0) {
+          if constexpr (requires(Reader& r) {
+                          allow_next_top_level_value_after_scan(r);
+                        }) {
+            allow_next_top_level_value_after_scan(reader);
+          }
+          return input.substr(start, end - start);
+        }
+        break;
+      }
+
+      case TokenType::End:
+        return unexpected(Error{
+            .code = ErrorCode::unexpected_eof,
+            .offset = current_token.offset,
+        });
+    }
+  }
+
+  return unexpected(Error{
+      .code = ErrorCode::unexpected_eof,
+      .offset = start,
+  });
+}
+
+template <class Reader>
+auto scan_object_for(Reader& reader, const Token& token)
     -> Result<std::string_view, Error> {
   using R = std::remove_cvref_t<Reader>;
   if constexpr (ReaderTraits<R>::format == Format::json) {
-    if (!json::detail::is_object_token(token)) [[unlikely]] {
-      return unexpected(Error{
-          .code = ErrorCode::type_mismatch,
-          .offset = token.offset,
-      });
-    }
-    return json::detail::scan_compound(reader, token, '{');
+    return scan_compound_by_tokens(reader, token, TokenType::ObjectBegin);
   } else {
     static_assert(always_false<R>,
                   "ser20::scan::object is not implemented for this reader");
@@ -306,17 +263,11 @@ auto scan_object_for(const Reader& reader, const Token& token)
 }
 
 template <class Reader>
-auto scan_array_for(const Reader& reader, const Token& token)
+auto scan_array_for(Reader& reader, const Token& token)
     -> Result<std::string_view, Error> {
   using R = std::remove_cvref_t<Reader>;
   if constexpr (ReaderTraits<R>::format == Format::json) {
-    if (!json::detail::is_array_token(token)) [[unlikely]] {
-      return unexpected(Error{
-          .code = ErrorCode::type_mismatch,
-          .offset = token.offset,
-      });
-    }
-    return json::detail::scan_compound(reader, token, '[');
+    return scan_compound_by_tokens(reader, token, TokenType::ArrayBegin);
   } else {
     static_assert(always_false<R>,
                   "ser20::scan::array is not implemented for this reader");
@@ -353,6 +304,7 @@ struct ScanScalarImpl {
 
 struct ScanObjectImpl {
   template <class Context>
+    requires(!std::is_const_v<std::remove_reference_t<Context>>)
   auto operator()(Context& ctx) const -> Result<std::string_view, Error> {
     auto& reader = ctx.reader();
     return scan_object_for(reader, reader.current_token());
@@ -361,6 +313,7 @@ struct ScanObjectImpl {
 
 struct ScanArrayImpl {
   template <class Context>
+    requires(!std::is_const_v<std::remove_reference_t<Context>>)
   auto operator()(Context& ctx) const -> Result<std::string_view, Error> {
     auto& reader = ctx.reader();
     return scan_array_for(reader, reader.current_token());
