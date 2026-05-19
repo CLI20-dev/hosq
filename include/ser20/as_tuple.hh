@@ -2,8 +2,16 @@
 
 #include <cstddef>
 #include <tuple>
+#include <type_traits>
 
 namespace ser20 {
+
+namespace detail {
+template <class T>
+concept AggregateTupleCandidate =
+    std::is_aggregate_v<std::remove_cvref_t<T>> &&
+    std::is_trivially_copyable_v<std::remove_cvref_t<T>>;
+}
 
 #if defined(__cpp_structured_bindings) &&                           \
     __cpp_structured_bindings >= 202411L && defined(__cplusplus) && \
@@ -24,7 +32,7 @@ namespace ser20 {
  * @param t  The aggregate instance to decompose.
  * @return   A `std::tuple` of lvalue references to each field of `t`.
  */
-template <class T>
+template <detail::AggregateTupleCandidate T>
 constexpr auto as_tuple(T& t) {
   auto& [... args] = t;
   return std::forward_as_tuple(args...);
@@ -37,7 +45,7 @@ constexpr auto as_tuple(T& t) {
  * @param t  The const aggregate instance to decompose.
  * @return   A `std::tuple` of const lvalue references to each field of `t`.
  */
-template <class T>
+template <detail::AggregateTupleCandidate T>
 constexpr auto as_tuple(const T& t) {
   const auto& [... args] = t;
   return std::forward_as_tuple(args...);
@@ -120,7 +128,10 @@ consteval auto aggregate_initializable() -> std::size_t {
  * @return   A `std::tuple` of lvalue references to each field of `t`.
  */
 template <class T>
-  requires (detail::aggregate_initializable<T>() <= 64 && ("as_tuple only supports up to 64 elements", true))
+  requires (
+      detail::AggregateTupleCandidate<T> &&
+      detail::aggregate_initializable<T>() <= 64 &&
+      ("as_tuple only supports up to 64 elements", true))
 constexpr auto as_tuple (T& t) {
   using U = std::remove_cvref_t<T>;
   constexpr auto N = detail::aggregate_initializable<U>();
@@ -393,7 +404,10 @@ constexpr auto as_tuple (T& t) {
  * @return   A `std::tuple` of const lvalue references to each field of `t`.
  */
 template <class T>
-  requires (detail::aggregate_initializable<T>() <= 64 && ("as_tuple only supports up to 64 elements", true))
+  requires (
+      detail::AggregateTupleCandidate<T> &&
+      detail::aggregate_initializable<T>() <= 64 &&
+      ("as_tuple only supports up to 64 elements", true))
 constexpr auto as_tuple (const T& t) {
   using U = std::remove_cvref_t<T>;
   constexpr auto N = detail::aggregate_initializable<U>();

@@ -40,6 +40,13 @@ struct StringLiteralMatchImpl {
   }
 };
 
+struct AnyImpl {
+  template <class T>
+  constexpr auto operator()(T&& value) const -> std::remove_cvref_t<T> {
+    return std::forward<T>(value);
+  }
+};
+
 }  // namespace detail
 
 namespace detail {
@@ -59,5 +66,7 @@ struct LiteralStep<Str> {
 
 template <auto V>
 inline constexpr auto literal = detail::LiteralStep<V>::value;
+
+inline constexpr auto any = ser20::Pipeline<detail::AnyImpl{}>{};
 
 }  // namespace ser20::match

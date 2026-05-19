@@ -1,10 +1,12 @@
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <optional>
 #include <type_traits>
 #include <utility>
 
+#include "ser20/as_tuple.hh"
 #include "ser20/context.hh"
 #include "ser20/pipeline.hh"
 
@@ -33,7 +35,7 @@ struct IsPipeline<Pipeline<Fns...>> : std::true_type {};
 template <class T>
 concept PipelineObject = IsPipeline<std::remove_cvref_t<T>>::value;
 
-};  // namespace detail
+}  // namespace detail
 
 /// A single decoded/encoded field backed by a Decoder and Encoder pipeline pair.
 ///
@@ -175,7 +177,68 @@ struct IsElem<::ser20::Elem<Decoder, Encoder>> : std::true_type {};
 template <class T>
 concept ElemT = IsElem<std::remove_cvref_t<T>>::value;
 
-};  // namespace detail
+}  // namespace detail
+
+template <class K, class V>
+struct Entry {
+  static_assert(detail::always_false<K>,
+                "Entry<Key, Value>: Key and Value must be Elem or schema types");
+};
+
+namespace detail {
+
+enum class EntryCategory {
+  ElemElem,
+  ElemSchema,
+  SchemaElem,
+  SchemaSchema,
+};
+
+struct EntryTag {};
+
+template <class T>
+concept EntryT = std::derived_from<std::remove_cvref_t<T>, EntryTag>;
+
+template <class Tuple>
+struct EntryTuple : std::false_type {};
+
+template <class... Ts>
+struct EntryTuple<std::tuple<Ts...>>
+    : std::bool_constant<(sizeof...(Ts) > 0) && (EntryT<Ts> && ...)> {};
+
+template <class T>
+concept EntryTupleT = EntryTuple<std::remove_cvref_t<T>>::value;
+
+template <class T>
+concept AsEntryTupleT = requires(T t) {
+  { ser20::as_tuple(t) } -> EntryTupleT;
+};
+
+template <class Key, class Value>
+struct EntryBase : ElementTag, EntryTag {
+  using key_type = Key;
+  using value_type = Value;
+
+  EntryBase() = default;
+
+  [[nodiscard]] auto key() const -> const key_type& { return key_; }
+  [[nodiscard]] auto key() -> key_type& { return key_; }
+
+  [[nodiscard]] auto value() const -> const value_type& { return value_; }
+  [[nodiscard]] auto value() -> value_type& { return value_; }
+
+  [[nodiscard]] auto operator*() -> value_type& { return value_; }
+  [[nodiscard]] auto operator*() const -> const value_type& { return value_; }
+
+  [[nodiscard]] auto operator->() -> value_type* { return &value_; }
+  [[nodiscard]] auto operator->() const -> const value_type* { return &value_; }
+
+ public:
+  key_type key_{};      // NOLINT
+  value_type value_{};  // NOLINT
+};
+
+}  // namespace detail
 
 /// A key–value pair where both Key and Value are Elem types.
 ///
@@ -183,9 +246,13 @@ concept ElemT = IsElem<std::remove_cvref_t<T>>::value;
 /// underlying Elem's flags and gate the const/mutable overloads of decode_key /
 /// decode_value / encode_key / encode_value at compile time.
 template <detail::ElemT Key, detail::ElemT Value>
-struct Entry : public detail::ElementTag {
-  using key_type = Key;
-  using value_type = Value;
+struct Entry<Key, Value> : public detail::EntryBase<Key, Value> {
+  using base_type = detail::EntryBase<Key, Value>;
+  using value_type = typename base_type::value_type;
+  using key_type = typename base_type::key_type;
+  using base_type::key;
+  using base_type::value;
+  static constexpr auto category = detail::EntryCategory::ElemElem;
 
   template <class R>
   static constexpr bool key_decoder_const_invokable =
@@ -209,26 +276,18 @@ struct Entry : public detail::ElementTag {
 
   Entry() = default;
 
-  [[nodiscard]] auto key() const -> const key_type& { return key_; }
-  [[nodiscard]] auto value() const -> const value_type& { return value_; }
-  [[nodiscard]] auto value() -> value_type& { return value_; }
-  [[nodiscard]] auto operator*() -> value_type& { return value_; }
-  [[nodiscard]] auto operator*() const -> const value_type& { return value_; }
-  [[nodiscard]] auto operator->() -> value_type* { return &value_; }
-  [[nodiscard]] auto operator->() const -> const value_type* { return &value_; }
-
   // ── decode_key
   // ───────────────────────────────────────────────────────────────
   template <ReaderConcept R>
     requires(!key_decoder_const_invokable<R>)
   [[nodiscard]] auto decode_key(R& reader) -> Result<void, Error> {
-    return key_.decode(reader);
+    return key().decode(reader);
   }
 
   template <ReaderConcept R>
     requires(key_decoder_const_invokable<R>)
   [[nodiscard]] auto decode_key(const R& reader) -> Result<void, Error> {
-    return key_.decode(reader);
+    return key().decode(reader);
   }
 
   // ── decode_value
@@ -237,34 +296,93 @@ struct Entry : public detail::ElementTag {
   template <ReaderConcept R>
     requires(!value_decoder_const_invokable<R>)
   [[nodiscard]] auto decode_value(R& reader) -> Result<void, Error> {
-    return value_.decode(reader);
+    return value().decode(reader);
   }
 
   template <ReaderConcept R>
     requires(value_decoder_const_invokable<R>)
   [[nodiscard]] auto decode_value(const R& reader) -> Result<void, Error> {
-    return value_.decode(reader);
+    return value().decode(reader);
   }
-
- private:
-  key_type key_{};
-  value_type value_{};
 };
 
-namespace detail {
+template <detail::ElemT Key, detail::AsEntryTupleT Value>
+struct Entry<Key, Value> : public detail::EntryBase<Key, Value> {
+  using base_type = detail::EntryBase<Key, Value>;
+  using key_type = typename base_type::key_type;
+  using base_type::key;
+  static constexpr auto category = detail::EntryCategory::ElemSchema;
 
-template <class T>
-struct IsEntry : std::false_type {};
+  template <class R>
+  static constexpr bool key_decoder_const_invokable =
+      Key::template decoder_const_invokable<
+          DecodeContext<typename Key::storage_type, R>>;
 
-template <class K, class V>
-struct IsEntry<Entry<K, V>> : std::true_type {};
+  template <class W>
+  static constexpr bool key_encoder_const_invokable =
+      Key::template encoder_const_invokable<
+          EncodeContext<typename Key::storage_type, W>>;
 
-// template <class T>
-// inline constexpr bool is_entry_v = IsEntry<std::remove_cvref_t<T>>::value;
-template <class T>
-concept EntryT = IsEntry<std::remove_cvref_t<T>>::value;
+  Entry() = default;
 
-}  // namespace detail
+  // ── decode_key
+  // ───────────────────────────────────────────────────────────────
+  template <ReaderConcept R>
+    requires(!key_decoder_const_invokable<R>)
+  [[nodiscard]] auto decode_key(R& reader) -> Result<void, Error> {
+    return key().decode(reader);
+  }
+
+  template <ReaderConcept R>
+    requires(key_decoder_const_invokable<R>)
+  [[nodiscard]] auto decode_key(const R& reader) -> Result<void, Error> {
+    return key().decode(reader);
+  }
+};
+
+template <detail::AsEntryTupleT Key, detail::ElemT Value>
+struct Entry<Key, Value> : public detail::EntryBase<Key, Value> {
+  using base_type = detail::EntryBase<Key, Value>;
+  using value_type = typename base_type::value_type;
+  using base_type::value;
+  static constexpr auto category = detail::EntryCategory::SchemaElem;
+
+  template <class R>
+  static constexpr bool value_decoder_const_invokable =
+      Value::template decoder_const_invokable<
+          DecodeContext<typename Value::storage_type, R>>;
+
+  template <class W>
+  static constexpr bool value_encoder_const_invokable =
+      Value::template encoder_const_invokable<
+          EncodeContext<typename Value::storage_type, W>>;
+
+  Entry() = default;
+
+  // ── decode_value
+  // ─────────────────────────────────────────────────────────────
+  template <ReaderConcept R>
+    requires(!value_decoder_const_invokable<R>)
+  [[nodiscard]] auto decode_value(R& reader) -> Result<void, Error> {
+    return value().decode(reader);
+  }
+
+  template <ReaderConcept R>
+    requires(value_decoder_const_invokable<R>)
+  [[nodiscard]] auto decode_value(const R& reader) -> Result<void, Error> {
+    return value().decode(reader);
+  }
+};
+
+template <detail::AsEntryTupleT Key, detail::AsEntryTupleT Value>
+struct Entry<Key, Value> : public detail::EntryBase<Key, Value> {
+  using base_type = detail::EntryBase<Key, Value>;
+  static constexpr auto category = detail::EntryCategory::SchemaSchema;
+  Entry() = default;
+};
+
+template <detail::EntryT T>
+constexpr auto as_tuple(T&) {}
 
 #undef SER20_ALWAYS_INLINE
 }  // namespace ser20

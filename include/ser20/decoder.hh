@@ -21,24 +21,7 @@ namespace ser20 {
 #define SER20_FUNCTION_ALWAYS_INLINE inline
 #endif
 
-namespace detail {
-
-template <class Tuple>
-struct EntryTuple : std::false_type {};
-
-template <class... Ts>
-struct EntryTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (EntryT<Ts> && ...)> {};
-
-template <class T>
-concept EntryTupleT = EntryTuple<std::remove_cvref_t<T>>::value;
-
-template <class T>
-concept AsEntryTupleT = requires(T t) {
-  { ser20::as_tuple(t) } -> EntryTupleT;
-};
-
-}  // namespace detail
+namespace detail {}  // namespace detail
 
 template <ReaderConcept R>
 class Decoder {
@@ -55,6 +38,10 @@ class Decoder {
   [[nodiscard]]
   auto decode(T& t, typename R::input_type input) -> Result<void, Error> {
     reader_.reset(input);
+    auto next = reader_.next_token();
+    if (!next) {
+      return unexpected(next.error());
+    }
     if constexpr (detail::ElemT<T>) {
       return decode_element(t);
     } else if constexpr (detail::AsEntryTupleT<T>) {
@@ -82,43 +69,191 @@ class Decoder {
   [[nodiscard]]
   SER20_FUNCTION_ALWAYS_INLINE auto decode_as_entry_tuple(T& t)
       -> Result<void, Error> {
+    if (reader_.current_token().type != TokenType::ObjectBegin) {
+      return unexpected(Error{
+          .code = ErrorCode::type_mismatch,
+          .offset = reader_.current_token().offset,
+      });
+    }
+
+    auto advanced = reader_.advance(1);
+    if (!advanced) {
+      return unexpected(advanced.error());
+    }
+
+    while (true) {
+      auto next = reader_.next_token();
+      if (!next) {
+        return unexpected(next.error());
+      }
+
+      if (reader_.current_token().type == TokenType::ObjectEnd) {
+        return {};
+      }
+
+      auto result = decode_one_member(t);
+      if (!result) {
+        return unexpected(result.error());
+      }
+    }
+  }
+
+  template <detail::AsEntryTupleT T>
+  [[nodiscard]]
+  SER20_FUNCTION_ALWAYS_INLINE auto decode_one_member(T& t)
+      -> Result<void, Error> {
     return std::apply(
         [&](auto&... entry) SER20_ALWAYS_INLINE_ATTR -> Result<void, Error> {
           Result<void, Error> result{
               unexpected(Error{.code = ErrorCode::candidate_rejected})};
+
           ([&]() SER20_ALWAYS_INLINE_ATTR -> bool {
-            if constexpr (std::remove_cvref_t<decltype(entry)>::
-                              template key_decoder_const_invokable<R>) {
-              const auto& r = static_cast<const R&>(reader_);
-              auto key_result = entry.decode_key(r);
+            using Entry = std::remove_cvref_t<decltype(entry)>;
+
+            if constexpr (entry_key_const_invokable<Entry>()) {
+              auto key_result = decode_entry_key_const(entry);
+
               if (is_candidate_rejected(key_result)) {
                 return false;
               }
+
               if (!key_result) {
                 result = unexpected(key_result.error());
                 return true;
               }
-              result = entry.decode_value(reader_);
+            } else {
+              auto snapshot = reader_;
+              auto key_result = decode_entry_key(entry);
+
+              if (is_candidate_rejected(key_result)) {
+                reader_ = snapshot;
+                return false;
+              }
+
+              if (!key_result) {
+                reader_ = snapshot;
+                result = unexpected(key_result.error());
+                return true;
+              }
+            }
+
+            auto next = reader_.next_token();
+            if (!next) {
+              result = unexpected(next.error());
+              return true;
+            }
+
+            if constexpr (entry_value_const_invokable<Entry>()) {
+              auto value_result = decode_entry_value_const(entry);
+
+              if (!value_result) {
+                result = unexpected(value_result.error());
+                return true;
+              }
+
               return true;
             } else {
               auto snapshot = reader_;
-              auto key_result = entry.decode_key(reader_);
-              if (is_candidate_rejected(key_result)) {
+              auto value_result = decode_entry_value(entry);
+
+              if (is_candidate_rejected(value_result)) {
                 reader_ = snapshot;
                 return false;
               }
-              if (!key_result) {
+
+              if (!value_result) {
                 reader_ = snapshot;
-                result = unexpected(key_result.error());
+                result = unexpected(value_result.error());
                 return true;
               }
-              result = entry.decode_value(reader_);
+
               return true;
             }
           }() || ...);
+
           return result;
         },
         ser20::as_tuple(t));
+  }
+
+  template <class Entry>
+  static consteval auto entry_key_const_invokable() -> bool {
+    using E = std::remove_cvref_t<Entry>;
+    if constexpr (E::category == detail::EntryCategory::ElemElem ||
+                  E::category == detail::EntryCategory::ElemSchema) {
+      return E::template key_decoder_const_invokable<R>;
+    } else {
+      return false;
+    }
+  }
+
+  template <class Entry>
+  static consteval auto entry_value_const_invokable() -> bool {
+    using E = std::remove_cvref_t<Entry>;
+    if constexpr (E::category == detail::EntryCategory::ElemElem ||
+                  E::category == detail::EntryCategory::SchemaElem) {
+      return E::template value_decoder_const_invokable<R>;
+    } else {
+      return false;
+    }
+  }
+
+  template <class Entry>
+  SER20_FUNCTION_ALWAYS_INLINE auto decode_entry_key(Entry& entry)
+      -> Result<void, Error> {
+    using E = std::remove_cvref_t<Entry>;
+    if constexpr (E::category == detail::EntryCategory::ElemElem ||
+                  E::category == detail::EntryCategory::ElemSchema) {
+      return entry.decode_key(reader_);
+    } else {
+      return decode_as_entry_tuple(entry.key());
+    }
+  }
+
+  template <class Entry>
+  SER20_FUNCTION_ALWAYS_INLINE auto decode_entry_value(Entry& entry)
+      -> Result<void, Error> {
+    using E = std::remove_cvref_t<Entry>;
+
+    if constexpr (E::category == detail::EntryCategory::ElemElem ||
+                  E::category == detail::EntryCategory::SchemaElem) {
+      return entry.decode_value(reader_);
+    } else if constexpr (E::category == detail::EntryCategory::ElemSchema ||
+                         E::category == detail::EntryCategory::SchemaSchema) {
+      return decode_as_entry_tuple(entry.value());
+    } else {
+      static_assert(detail::always_false<E>, "Unsupported Entry category");
+    }
+  }
+
+  template <class Entry>
+  SER20_FUNCTION_ALWAYS_INLINE auto decode_entry_key_const(Entry& entry)
+      -> Result<void, Error> {
+    using E = std::remove_cvref_t<Entry>;
+
+    if constexpr (E::category == detail::EntryCategory::ElemElem ||
+                  E::category == detail::EntryCategory::ElemSchema) {
+      const auto& r = static_cast<const R&>(reader_);
+      return entry.decode_key(r);
+    } else {
+      static_assert(detail::always_false<E>,
+                    "Schema key is not const-invokable");
+    }
+  }
+
+  template <class Entry>
+  SER20_FUNCTION_ALWAYS_INLINE auto decode_entry_value_const(Entry& entry)
+      -> Result<void, Error> {
+    using E = std::remove_cvref_t<Entry>;
+
+    if constexpr (E::category == detail::EntryCategory::ElemElem ||
+                  E::category == detail::EntryCategory::SchemaElem) {
+      const auto& r = static_cast<const R&>(reader_);
+      return entry.decode_value(r);
+    } else {
+      static_assert(detail::always_false<E>,
+                    "Schema value is not const-invokable");
+    }
   }
 
   template <class T>
@@ -173,65 +308,13 @@ auto skip_json_scalar(R& reader) -> Result<void, Error> {
 
 /// Free-function convenience wrapper: decodes a JSON object into a struct whose
 /// members are ser20::Entry fields. Reader type R defaults to json::Reader<>.
+/// Free-function convenience wrapper.
 template <ReaderConcept R = json::Reader<>, class T>
-  requires detail::AsEntryTupleT<T>
+  requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
+[[nodiscard]]
 auto decode_into(T& t, typename R::input_type input) -> Result<void, Error> {
-  R reader;
-  reader.reset(input);
-
-  if (auto r = reader.next_token(); !r) return unexpected(r.error());
-  if (reader.current_token().type != TokenType::ObjectBegin) {
-    return unexpected(Error{.code = ErrorCode::type_mismatch});
-  }
-  if (auto r = reader.advance(1); !r) return unexpected(r.error());
-
-  while (true) {
-    if (auto r = reader.next_token(); !r) return unexpected(r.error());
-    if (reader.current_token().type == TokenType::ObjectEnd) break;
-
-    auto field_result = std::apply(
-        [&](auto&... entry) -> Result<void, Error> {
-          Result<void, Error> result{
-              unexpected(Error{.code = ErrorCode::candidate_rejected})};
-          ([&]() -> bool {
-            auto snap = reader;
-            auto key_res = entry.decode_key(reader);
-            if (!key_res) {
-              if (key_res.error().code == ErrorCode::candidate_rejected) {
-                reader = snap;
-                return false;
-              }
-              result = unexpected(key_res.error());
-              return true;
-            }
-            if (auto r = reader.next_token(); !r) {
-              result = unexpected(r.error());
-              return true;
-            }
-            result = entry.decode_value(reader);
-            return true;
-          }() || ...);
-          return result;
-        },
-        ser20::as_tuple(t));
-
-    if (!field_result) {
-      if (field_result.error().code == ErrorCode::candidate_rejected) {
-        // Skip unmatched key string
-        if (auto r = detail::skip_json_scalar(reader); !r)
-          return unexpected(r.error());
-        // Advance to value token (next_token skips ':')
-        if (auto r = reader.next_token(); !r) return unexpected(r.error());
-        // Skip value
-        if (auto r = detail::skip_json_scalar(reader); !r)
-          return unexpected(r.error());
-      } else {
-        return field_result;
-      }
-    }
-  }
-
-  return {};
+  Decoder<R> decoder;
+  return decoder.decode(t, input);
 }
 
 }  // namespace ser20
