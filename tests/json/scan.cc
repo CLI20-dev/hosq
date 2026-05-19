@@ -102,3 +102,26 @@ TEST(JsonScanConstInvocability, ScalarScannersRemainConstInvokable) {
   static_assert(
       ScalarPipeline::template callable_with_const_context<DecodeCtx, void>());
 }
+
+TEST(JsonScanScalar, ReusesResolvedLengthWithoutAdvancingAgain) {
+  Reader reader;
+  reader.reset(R"({"id": 2})"sv);
+
+  ASSERT_TRUE(reader.next_token().has_value());
+  ASSERT_TRUE(reader.advance(1).has_value());
+  ASSERT_TRUE(reader.next_token().has_value());
+
+  auto ctx = make_context(reader);
+  auto first = decltype(ser20::scan::string)::invoke(ctx);
+  ASSERT_TRUE(first.has_value());
+  EXPECT_EQ(*first, "id"sv);
+
+  auto second = decltype(ser20::scan::string)::invoke(ctx);
+  ASSERT_TRUE(second.has_value());
+  EXPECT_EQ(*second, "id"sv);
+
+  ASSERT_TRUE(reader.next_token().has_value());
+  auto value = decltype(ser20::scan::literal)::invoke(ctx);
+  ASSERT_TRUE(value.has_value());
+  EXPECT_EQ(*value, "2"sv);
+}

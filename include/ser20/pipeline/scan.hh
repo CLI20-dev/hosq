@@ -226,6 +226,7 @@ auto scan_compound_by_tokens(Reader& reader, const Token& token,
         const std::size_t end = current_token.offset + 1;
         --depth;
         if (depth == 0) {
+          token.length = end - start;
           if constexpr (requires(Reader& r) {
                           allow_next_top_level_value_after_scan(r);
                         }) {

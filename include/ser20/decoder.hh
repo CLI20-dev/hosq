@@ -151,6 +151,7 @@ class Decoder {
                 return true;
               }
 
+              result = {};
               return true;
             } else {
               auto snapshot = reader_;
@@ -167,6 +168,7 @@ class Decoder {
                 return true;
               }
 
+              result = {};
               return true;
             }
           }() || ...);

@@ -244,6 +244,9 @@ class Reader {
       });
     }
 
+    if (current_.length == unresolved_length) {
+      current_.length = n;
+    }
     pos_ += n;
     return {};
   }

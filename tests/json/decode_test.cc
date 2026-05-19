@@ -69,7 +69,7 @@ TEST(DecodeJson, FieldsInReverseOrder) {
   EXPECT_EQ(json.age.value().value(), 30);
 }
 
-TEST(DecodeJson, SkipsUnknownFields) {
+TEST(DecodeJson, RejectsUnknownFields) {
   struct {
     ser20::Entry<
         ser20::Elem<ser20::scan::string | ser20::match::literal<"id"_literal>,
@@ -83,8 +83,8 @@ TEST(DecodeJson, SkipsUnknownFields) {
   auto json_str = R"({"name": "ignored", "id": 42})"sv;
   auto result = ser20::decode_into(json, json_str);
 
-  ASSERT_TRUE(result.has_value());
-  EXPECT_EQ(json.id.value().value(), 42);
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code, ser20::ErrorCode::candidate_rejected);
 }
 
 TEST(DecodeJson, StoreOnceDuplicateKeyErrors) {
