@@ -5,6 +5,7 @@
 
 #include "ser20/as_tuple.hh"
 #include "ser20/element.hh"
+#include "ser20/json/reader.hh"
 #include "ser20/reader_base.hh"
 
 namespace ser20 {
@@ -132,5 +133,105 @@ class Decoder {
 
 #undef SER20_ALWAYS_INLINE_ATTR
 #undef SER20_FUNCTION_ALWAYS_INLINE
+
+namespace detail {
+
+template <ReaderConcept R>
+auto skip_json_scalar(R& reader) -> Result<void, Error> {
+  const auto& tok = reader.current_token();
+  if (tok.type != TokenType::ScalarBegin) {
+    return unexpected(Error{.code = ErrorCode::unknown_member});
+  }
+  const auto sv = reader.input();
+  std::size_t end = tok.offset;
+  if (static_cast<JsonTokenContext>(tok.context) == JsonTokenContext::string) {
+    ++end;
+    while (end < sv.size()) {
+      if (sv[end] == '\\') {
+        end += 2;
+        continue;
+      }
+      if (sv[end] == '"') {
+        ++end;
+        break;
+      }
+      ++end;
+    }
+  } else {
+    while (end < sv.size()) {
+      char c = sv[end];
+      if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ',' ||
+          c == ']' || c == '}')
+        break;
+      ++end;
+    }
+  }
+  return reader.advance(end - tok.offset);
+}
+
+}  // namespace detail
+
+/// Free-function convenience wrapper: decodes a JSON object into a struct whose
+/// members are ser20::Entry fields. Reader type R defaults to json::Reader<>.
+template <ReaderConcept R = json::Reader<>, class T>
+  requires detail::AsEntryTupleT<T>
+auto decode_into(T& t, typename R::input_type input) -> Result<void, Error> {
+  R reader;
+  reader.reset(input);
+
+  if (auto r = reader.next_token(); !r) return unexpected(r.error());
+  if (reader.current_token().type != TokenType::ObjectBegin) {
+    return unexpected(Error{.code = ErrorCode::type_mismatch});
+  }
+  if (auto r = reader.advance(1); !r) return unexpected(r.error());
+
+  while (true) {
+    if (auto r = reader.next_token(); !r) return unexpected(r.error());
+    if (reader.current_token().type == TokenType::ObjectEnd) break;
+
+    auto field_result = std::apply(
+        [&](auto&... entry) -> Result<void, Error> {
+          Result<void, Error> result{
+              unexpected(Error{.code = ErrorCode::candidate_rejected})};
+          ([&]() -> bool {
+            auto snap = reader;
+            auto key_res = entry.decode_key(reader);
+            if (!key_res) {
+              if (key_res.error().code == ErrorCode::candidate_rejected) {
+                reader = snap;
+                return false;
+              }
+              result = unexpected(key_res.error());
+              return true;
+            }
+            if (auto r = reader.next_token(); !r) {
+              result = unexpected(r.error());
+              return true;
+            }
+            result = entry.decode_value(reader);
+            return true;
+          }() || ...);
+          return result;
+        },
+        ser20::as_tuple(t));
+
+    if (!field_result) {
+      if (field_result.error().code == ErrorCode::candidate_rejected) {
+        // Skip unmatched key string
+        if (auto r = detail::skip_json_scalar(reader); !r)
+          return unexpected(r.error());
+        // Advance to value token (next_token skips ':')
+        if (auto r = reader.next_token(); !r) return unexpected(r.error());
+        // Skip value
+        if (auto r = detail::skip_json_scalar(reader); !r)
+          return unexpected(r.error());
+      } else {
+        return field_result;
+      }
+    }
+  }
+
+  return {};
+}
 
 }  // namespace ser20

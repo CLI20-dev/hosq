@@ -144,7 +144,8 @@ struct Elem : public detail::ElementTag {
     requires(decoder_const_invokable<DecodeContext<storage_type, R>>)
   SER20_ALWAYS_INLINE auto decode(const R& reader) -> Result<void, Error> {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-    DecodeContext<storage_type, R> ctx{value_, const_cast<R&>(reader)};
+    DecodeContext<storage_type, R> ctx{value_, const_cast<R&>(reader),
+                                       occurrences_};
     const auto& cctx = ctx;
     return decode(cctx);
   }
@@ -154,7 +155,7 @@ struct Elem : public detail::ElementTag {
   template <ReaderConcept R>
     requires(!decoder_const_invokable<DecodeContext<storage_type, R>>)
   SER20_ALWAYS_INLINE auto decode(R& reader) -> Result<void, Error> {
-    DecodeContext<storage_type, R> ctx{value_, reader};
+    DecodeContext<storage_type, R> ctx{value_, reader, occurrences_};
     return decode(ctx);
   }
 

@@ -12,6 +12,4 @@
 //       a;
 // };
 
-auto main() -> int {
-  decltype(ser20::store::ignore)::analyze_decoder();
-}
+auto main() -> int { decltype(ser20::store::ignore)::analyze_decoder(); }

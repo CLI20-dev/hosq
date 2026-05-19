@@ -2,7 +2,9 @@
 
 #include <vector>
 
+#include "ser20/error.hh"
 #include "ser20/pipeline.hh"
+#include "ser20/result.hh"
 
 namespace ser20::store {
 
@@ -49,6 +51,20 @@ struct IgnoreImpl {
   auto operator()(T) const -> void {}
 };
 
+struct OnceImpl {
+  template <class Input>
+  using storage_type = std::remove_cvref_t<Input>;
+
+  template <class Input, class Context>
+  auto operator()(Input value, Context& ctx) const -> Result<void, Error> {
+    if (ctx.occurrences > 0) {
+      return unexpected(Error{.code = ErrorCode::duplicate_member});
+    }
+    ctx.elem() = std::move(value);
+    return {};
+  }
+};
+
 }  // namespace detail
 
 /// Assigns the decoded value into ctx.elem(); storage_type<T> = T.
@@ -62,5 +78,9 @@ inline constexpr auto emplace = step<detail::EmplaceImpl>;
 
 /// Discards the decoded value; storage_type<T> = ignored.
 inline constexpr auto ignore = step<detail::IgnoreImpl>;
+
+/// Stores the decoded value once; errors with duplicate_member on subsequent
+/// stores.
+inline constexpr auto once = step<detail::OnceImpl>;
 
 }  // namespace ser20::store

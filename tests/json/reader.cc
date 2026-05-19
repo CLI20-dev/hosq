@@ -1,3 +1,5 @@
+#include "ser20/json/reader.hh"
+
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -5,18 +7,16 @@
 #include <variant>
 #include <vector>
 
-#include "ser20/json/reader.hh"
-
 using namespace std::string_view_literals;
 
 namespace {
 
-using TT  = ser20::TokenType;
+using TT = ser20::TokenType;
 using JTC = ser20::JsonTokenContext;
-using EC  = ser20::ErrorCode;
+using EC = ser20::ErrorCode;
 
 struct TokInfo {
-  ser20::TokenType     type;
+  ser20::TokenType type;
   ser20::JsonTokenContext context{JTC::none};
 
   bool operator==(const TokInfo&) const = default;
@@ -24,25 +24,29 @@ struct TokInfo {
 
 // ── Shorthand token constants ─────────────────────────────────────────────────
 
-constexpr TokInfo OB  = {TT::ObjectBegin, JTC::none};
-constexpr TokInfo OE  = {TT::ObjectEnd,   JTC::none};
-constexpr TokInfo AB  = {TT::ArrayBegin,  JTC::none};
-constexpr TokInfo AE  = {TT::ArrayEnd,    JTC::none};
+constexpr TokInfo OB = {TT::ObjectBegin, JTC::none};
+constexpr TokInfo OE = {TT::ObjectEnd, JTC::none};
+constexpr TokInfo AB = {TT::ArrayBegin, JTC::none};
+constexpr TokInfo AE = {TT::ArrayEnd, JTC::none};
 constexpr TokInfo SBs = {TT::ScalarBegin, JTC::string};
 constexpr TokInfo SBl = {TT::ScalarBegin, JTC::literal};
-constexpr TokInfo END = {TT::End,         JTC::none};
+constexpr TokInfo END = {TT::End, JTC::none};
 
 // ── Advance-size computation ──────────────────────────────────────────────────
 
 // Returns how many bytes to advance past a scalar that starts at `offset`.
 // For strings: includes both opening and closing `"`.
 // For literals: stops at whitespace or a JSON delimiter.
-static auto scalar_advance(std::string_view input, std::size_t offset, JTC ctx) -> std::size_t {
+static auto scalar_advance(std::string_view input, std::size_t offset, JTC ctx)
+    -> std::size_t {
   if (ctx == JTC::string) {
     std::size_t pos = offset + 1;  // skip opening `"`
     while (pos < input.size()) {
-      if (input[pos] == '\\') { pos += 2; continue; }
-      if (input[pos] == '"')  return pos + 1 - offset;  // include closing `"`
+      if (input[pos] == '\\') {
+        pos += 2;
+        continue;
+      }
+      if (input[pos] == '"') return pos + 1 - offset;  // include closing `"`
       ++pos;
     }
     return input.size() - offset;  // unclosed — caller will get eof or End
@@ -50,8 +54,9 @@ static auto scalar_advance(std::string_view input, std::size_t offset, JTC ctx) 
   std::size_t pos = offset;
   while (pos < input.size()) {
     char c = input[pos];
-    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
-        c == ',' || c == ']' || c == '}') break;
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' ||
+        c == ']' || c == '}')
+      break;
     ++pos;
   }
   return pos - offset;
@@ -59,7 +64,7 @@ static auto scalar_advance(std::string_view input, std::size_t offset, JTC ctx) 
 
 // ── read_all helper ───────────────────────────────────────────────────────────
 
-using TokenSeq  = std::vector<TokInfo>;
+using TokenSeq = std::vector<TokInfo>;
 using ReadResult = std::variant<TokenSeq, ser20::Error>;
 
 static auto read_all(std::string_view input) -> ReadResult {
@@ -82,7 +87,7 @@ static auto read_all(std::string_view input) -> ReadResult {
         break;
       }
       case TT::ScalarBegin: {
-        auto n   = scalar_advance(input, tok.offset, ctx);
+        auto n = scalar_advance(input, tok.offset, ctx);
         auto adv = r.advance(n);
         if (!adv) return adv.error();
         break;
@@ -103,8 +108,8 @@ static void expect_seq(std::string_view input, TokenSeq expected) {
   auto result = read_all(input);
   ASSERT_TRUE(std::holds_alternative<TokenSeq>(result))
       << "Expected success, got error code "
-      << static_cast<int>(std::get<ser20::Error>(result).code)
-      << " at offset " << std::get<ser20::Error>(result).offset;
+      << static_cast<int>(std::get<ser20::Error>(result).code) << " at offset "
+      << std::get<ser20::Error>(result).offset;
   EXPECT_EQ(std::get<TokenSeq>(result), expected);
 }
 
@@ -115,12 +120,13 @@ static void expect_error(std::string_view input, EC code) {
   EXPECT_EQ(std::get<ser20::Error>(result).code, code);
 }
 
-static void expect_error_at(std::string_view input, EC code, std::size_t offset) {
+static void expect_error_at(std::string_view input, EC code,
+                            std::size_t offset) {
   auto result = read_all(input);
   ASSERT_TRUE(std::holds_alternative<ser20::Error>(result))
       << "Expected error but parsing succeeded";
   const auto& err = std::get<ser20::Error>(result);
-  EXPECT_EQ(err.code,   code);
+  EXPECT_EQ(err.code, code);
   EXPECT_EQ(err.offset, offset);
 }
 
@@ -128,59 +134,33 @@ static void expect_error_at(std::string_view input, EC code, std::size_t offset)
 
 // ── Top-level scalars ─────────────────────────────────────────────────────────
 
-TEST(ReaderValid, TopLevelString) {
-  expect_seq(R"("hello")", {SBs});
-}
+TEST(ReaderValid, TopLevelString) { expect_seq(R"("hello")", {SBs}); }
 
-TEST(ReaderValid, TopLevelEmptyString) {
-  expect_seq(R"("")", {SBs});
-}
+TEST(ReaderValid, TopLevelEmptyString) { expect_seq(R"("")", {SBs}); }
 
-TEST(ReaderValid, TopLevelNumber) {
-  expect_seq("42", {SBl});
-}
+TEST(ReaderValid, TopLevelNumber) { expect_seq("42", {SBl}); }
 
-TEST(ReaderValid, TopLevelNegativeNumber) {
-  expect_seq("-7", {SBl});
-}
+TEST(ReaderValid, TopLevelNegativeNumber) { expect_seq("-7", {SBl}); }
 
-TEST(ReaderValid, TopLevelFloat) {
-  expect_seq("3.14", {SBl});
-}
+TEST(ReaderValid, TopLevelFloat) { expect_seq("3.14", {SBl}); }
 
-TEST(ReaderValid, TopLevelTrue) {
-  expect_seq("true", {SBl});
-}
+TEST(ReaderValid, TopLevelTrue) { expect_seq("true", {SBl}); }
 
-TEST(ReaderValid, TopLevelFalse) {
-  expect_seq("false", {SBl});
-}
+TEST(ReaderValid, TopLevelFalse) { expect_seq("false", {SBl}); }
 
-TEST(ReaderValid, TopLevelNull) {
-  expect_seq("null", {SBl});
-}
+TEST(ReaderValid, TopLevelNull) { expect_seq("null", {SBl}); }
 
 // ── Empty containers ──────────────────────────────────────────────────────────
 
-TEST(ReaderValid, EmptyArray) {
-  expect_seq("[]", {AB, AE});
-}
+TEST(ReaderValid, EmptyArray) { expect_seq("[]", {AB, AE}); }
 
-TEST(ReaderValid, EmptyArraySpaced) {
-  expect_seq("[   ]", {AB, AE});
-}
+TEST(ReaderValid, EmptyArraySpaced) { expect_seq("[   ]", {AB, AE}); }
 
-TEST(ReaderValid, EmptyArrayTabNewline) {
-  expect_seq("[\t\n]", {AB, AE});
-}
+TEST(ReaderValid, EmptyArrayTabNewline) { expect_seq("[\t\n]", {AB, AE}); }
 
-TEST(ReaderValid, EmptyObject) {
-  expect_seq("{}", {OB, OE});
-}
+TEST(ReaderValid, EmptyObject) { expect_seq("{}", {OB, OE}); }
 
-TEST(ReaderValid, EmptyObjectSpaced) {
-  expect_seq("{  }", {OB, OE});
-}
+TEST(ReaderValid, EmptyObjectSpaced) { expect_seq("{  }", {OB, OE}); }
 
 // ── Simple arrays ─────────────────────────────────────────────────────────────
 
@@ -220,7 +200,8 @@ TEST(ReaderValid, ObjectNullValue) {
 
 TEST(ReaderValid, ObjectMultipleKeys) {
   // 3 key-value pairs → 6 SBs
-  expect_seq(R"({"a":"1","b":"2","c":"3"})", {OB, SBs, SBs, SBs, SBs, SBs, SBs, OE});
+  expect_seq(R"({"a":"1","b":"2","c":"3"})",
+             {OB, SBs, SBs, SBs, SBs, SBs, SBs, OE});
 }
 
 // ── Empty containers as values ────────────────────────────────────────────────
@@ -237,13 +218,9 @@ TEST(ReaderValid, ObjectEmptyObjectValue) {
   expect_seq(R"({"foo":{}})", {OB, SBs, OB, OE, OE});
 }
 
-TEST(ReaderValid, ArrayEmptyObject) {
-  expect_seq("[{}]", {AB, OB, OE, AE});
-}
+TEST(ReaderValid, ArrayEmptyObject) { expect_seq("[{}]", {AB, OB, OE, AE}); }
 
-TEST(ReaderValid, ArrayEmptyArray) {
-  expect_seq("[[]]", {AB, AB, AE, AE});
-}
+TEST(ReaderValid, ArrayEmptyArray) { expect_seq("[[]]", {AB, AB, AE, AE}); }
 
 TEST(ReaderValid, ArraySpacedEmptyArrays) {
   expect_seq("[  [  ]  ]", {AB, AB, AE, AE});
@@ -264,15 +241,13 @@ TEST(ReaderValid, NestedObject5Levels) {
 }
 
 TEST(ReaderValid, NestedArray5Levels) {
-  expect_seq("[[[[[\"v\"]]]]]",
-             {AB, AB, AB, AB, AB, SBs, AE, AE, AE, AE, AE});
+  expect_seq("[[[[[\"v\"]]]]]", {AB, AB, AB, AB, AB, SBs, AE, AE, AE, AE, AE});
 }
 
 TEST(ReaderValid, MixedNesting) {
   // {"a":[{"b":[[],{}]}]}
-  expect_seq(
-      R"({"a":[{"b":[[],{}]}]})",
-      {OB, SBs, AB, OB, SBs, AB, AB, AE, OB, OE, AE, OE, AE, OE});
+  expect_seq(R"({"a":[{"b":[[],{}]}]})",
+             {OB, SBs, AB, OB, SBs, AB, AB, AE, OB, OE, AE, OE, AE, OE});
 }
 
 // ── Large / complex JSON ──────────────────────────────────────────────────────
@@ -282,40 +257,31 @@ TEST(ReaderValid, LargeComplexJson) {
   expect_seq(
       R"({"name":"Alice","scores":[1,2,3],"meta":{"active":true,"tags":[],"info":{"x":42,"y":null}}})",
       {
-          OB,
-          SBs, SBs,                    // "name":"Alice"
-          SBs, AB, SBl, SBl, SBl, AE, // "scores":[1,2,3]
-          SBs, OB,                     // "meta":{
-            SBs, SBl,                  //   "active":true
-            SBs, AB, AE,               //   "tags":[]
-            SBs, OB,                   //   "info":{
-              SBs, SBl,                //     "x":42
-              SBs, SBl,                //     "y":null
-            OE,                        //   }
-          OE,                          // }
+          OB,  SBs, SBs,                // "name":"Alice"
+          SBs, AB,  SBl, SBl, SBl, AE,  // "scores":[1,2,3]
+          SBs, OB,                      // "meta":{
+          SBs, SBl,                     //   "active":true
+          SBs, AB,  AE,                 //   "tags":[]
+          SBs, OB,                      //   "info":{
+          SBs, SBl,                     //     "x":42
+          SBs, SBl,                     //     "y":null
+          OE,                           //   }
+          OE,                           // }
           OE,
       });
 }
 
 // ── Whitespace handling ───────────────────────────────────────────────────────
 
-TEST(ReaderValid, LeadingWhitespace) {
-  expect_seq("   42", {SBl});
-}
+TEST(ReaderValid, LeadingWhitespace) { expect_seq("   42", {SBl}); }
 
-TEST(ReaderValid, TrailingWhitespace) {
-  expect_seq("42   ", {SBl});
-}
+TEST(ReaderValid, TrailingWhitespace) { expect_seq("42   ", {SBl}); }
 
-TEST(ReaderValid, WhitespaceAroundObject) {
-  expect_seq("  { }  ", {OB, OE});
-}
+TEST(ReaderValid, WhitespaceAroundObject) { expect_seq("  { }  ", {OB, OE}); }
 
 // ── Error: empty / whitespace-only input ─────────────────────────────────────
 
-TEST(ReaderError, EmptyInput) {
-  expect_error_at("", EC::unexpected_eof, 0);
-}
+TEST(ReaderError, EmptyInput) { expect_error_at("", EC::unexpected_eof, 0); }
 
 TEST(ReaderError, WhitespaceOnly) {
   expect_error_at("   ", EC::unexpected_eof, 3);
@@ -435,7 +401,8 @@ TEST(ReaderError, DoubleColonInObject) {
 // ── Error: key without value ──────────────────────────────────────────────────
 
 TEST(ReaderError, ObjectKeyWithoutValue) {
-  // {"v"} — after key "v", expect_=colon_delimiter; `}` at 4 is not colon → unexpected_token
+  // {"v"} — after key "v", expect_=colon_delimiter; `}` at 4 is not colon →
+  // unexpected_token
   expect_error_at(R"({"v"})", EC::unexpected_token, 4);
 }
 
@@ -457,9 +424,7 @@ TEST(ReaderError, UnclosedObject) {
   expect_error(R"({"k":"v")", EC::unexpected_eof);
 }
 
-TEST(ReaderError, UnclosedArray) {
-  expect_error("[1,2", EC::unexpected_eof);
-}
+TEST(ReaderError, UnclosedArray) { expect_error("[1,2", EC::unexpected_eof); }
 
 TEST(ReaderError, UnclosedNestedObject) {
   expect_error(R"({"a":{"b":1})", EC::unexpected_eof);

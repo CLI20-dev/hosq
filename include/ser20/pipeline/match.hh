@@ -1,10 +1,12 @@
 #pragma once
 
+#include <string_view>
 #include <type_traits>
 
 #include "ser20/error.hh"
 #include "ser20/pipeline_util.hh"
 #include "ser20/result.hh"
+#include "ser20/string_literal.hh"
 
 namespace ser20::match {
 
@@ -24,11 +26,38 @@ inline constexpr auto literal_fn =
   });
 };
 
+// For StringLiteral NTTP: accepts string_view, compares content, stores
+// monostate.
+template <StringLiteral Str>
+struct StringLiteralMatchImpl {
+  template <class Input>
+    requires std::same_as<std::remove_cvref_t<Input>, std::string_view>
+  using storage_type = std::monostate;
+
+  auto operator()(std::string_view input) const -> Result<void, Error> {
+    if (input == Str.view()) return {};
+    return unexpected(Error{.code = ErrorCode::candidate_rejected});
+  }
+};
+
+}  // namespace detail
+
+namespace detail {
+
+template <auto V>
+struct LiteralStep {
+  static constexpr auto value =
+      ser20::action<literal_value_type<V>, literal_value_type<V>, literal_fn<V>>;
+};
+
+template <StringLiteral Str>
+struct LiteralStep<Str> {
+  static constexpr auto value = ser20::step<StringLiteralMatchImpl<Str>>;
+};
+
 }  // namespace detail
 
 template <auto V>
-inline constexpr auto literal =
-    ser20::action<detail::literal_value_type<V>, detail::literal_value_type<V>,
-                  detail::literal_fn<V>>;
+inline constexpr auto literal = detail::LiteralStep<V>::value;
 
 }  // namespace ser20::match

@@ -39,34 +39,40 @@ auto pinvoke_with(Input input, Ctx& ctx) {
 // ── decode::boolean ───────────────────────────────────────────────────────────
 
 TEST(DecodeBoolean, True) {
-  auto r = ser20::decode::boolean("true"sv);
+  using P = decltype(ser20::decode::boolean);
+  auto r = pinvoke<P>("true"sv);
   ASSERT_TRUE(r.has_value());
   EXPECT_TRUE(r.value());
 }
 
 TEST(DecodeBoolean, False) {
-  auto r = ser20::decode::boolean("false"sv);
+  using P = decltype(ser20::decode::boolean);
+  auto r = pinvoke<P>("false"sv);
   ASSERT_TRUE(r.has_value());
   EXPECT_FALSE(r.value());
 }
 
 TEST(DecodeBoolean, InvalidReturnsTypeMismatch) {
-  auto r = ser20::decode::boolean("yes"sv);
+  using P = decltype(ser20::decode::boolean);
+  auto r = pinvoke<P>("yes"sv);
   ASSERT_FALSE(r.has_value());
   EXPECT_EQ(r.error().code, ser20::ErrorCode::type_mismatch);
 }
 
 // ── decode::string_view ───────────────────────────────────────────────────────
-// decode::string_view returns std::string_view directly (lambda has no error path).
 
 TEST(DecodeStringView, PassesThrough) {
-  auto r = ser20::decode::string_view("hello"sv);
-  EXPECT_EQ(r, "hello"sv);
+  using P = decltype(ser20::decode::string_view);
+  auto r = pinvoke<P>("hello"sv);
+  ASSERT_TRUE(r.has_value());
+  EXPECT_EQ(*r, "hello"sv);
 }
 
 TEST(DecodeStringView, Empty) {
-  auto r = ser20::decode::string_view(""sv);
-  EXPECT_EQ(r, ""sv);
+  using P = decltype(ser20::decode::string_view);
+  auto r = pinvoke<P>(""sv);
+  ASSERT_TRUE(r.has_value());
+  EXPECT_EQ(*r, ""sv);
 }
 
 // ── decode::number<T> ─────────────────────────────────────────────────────────
@@ -132,7 +138,9 @@ TEST(DecodeIdentity, StringView) {
 // ── decode::custom<F> ─────────────────────────────────────────────────────────
 
 TEST(DecodeCustom, PlainReturn) {
-  constexpr auto to_len = [](std::string_view sv) -> int { return (int)sv.size(); };
+  constexpr auto to_len = [](std::string_view sv) -> int {
+    return (int)sv.size();
+  };
   using P = decltype(ser20::decode::custom<to_len>);
   auto r = pinvoke<P>("hello"sv);
   ASSERT_TRUE(r.has_value());
@@ -141,7 +149,9 @@ TEST(DecodeCustom, PlainReturn) {
 
 TEST(DecodeCustom, ResultReturn) {
   constexpr auto checked = [](int v) -> ser20::Result<int, ser20::Error> {
-    if (v < 0) return ser20::unexpected(ser20::Error{.code = ser20::ErrorCode::out_of_range});
+    if (v < 0)
+      return ser20::unexpected(
+          ser20::Error{.code = ser20::ErrorCode::out_of_range});
     return v * 2;
   };
   using P = decltype(ser20::decode::custom<checked>);
@@ -305,7 +315,9 @@ TEST(ValidateCustom, BoolReturn) {
 
 TEST(ValidateCustom, ResultReturn) {
   constexpr auto check = [](int v) -> ser20::Result<int, ser20::Error> {
-    if (v == 0) return ser20::unexpected(ser20::Error{.code = ser20::ErrorCode::invalid_choice});
+    if (v == 0)
+      return ser20::unexpected(
+          ser20::Error{.code = ser20::ErrorCode::invalid_choice});
     return v;
   };
   using P = decltype(ser20::validate::custom<check>);
@@ -481,7 +493,7 @@ TEST(PipelineDispatch, MutableContextUsesContextAwareOverload) {
   DispatchTrackCtx ctx;
   auto r = P::invoke(42, ctx);
   ASSERT_TRUE(r.has_value());
-  EXPECT_EQ(*r, 42);               // mutable path: no sentinel
+  EXPECT_EQ(*r, 42);  // mutable path: no sentinel
   EXPECT_EQ(ctx.mutable_path_calls, 1);
 }
 
@@ -490,7 +502,7 @@ TEST(PipelineDispatch, ConstContextFallsToNoContextOverload) {
   const DispatchTrackCtx ctx{};
   auto r = P::invoke(42, ctx);
   ASSERT_TRUE(r.has_value());
-  EXPECT_EQ(*r, 1042);             // no-ctx path: input + 1000 sentinel
+  EXPECT_EQ(*r, 1042);  // no-ctx path: input + 1000 sentinel
   // ctx.mutable_path_calls is still 0 — never touched
 }
 

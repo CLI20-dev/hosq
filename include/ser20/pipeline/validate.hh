@@ -129,11 +129,13 @@ struct IdentityImpl {
 template <auto V>
 inline constexpr auto match = step<detail::MatchImpl<V>>;
 
-/// Checks that the decoded value equals one of Vs...; returns invalid_choice if none match.
+/// Checks that the decoded value equals one of Vs...; returns invalid_choice if
+/// none match.
 template <auto... Vs>
 inline constexpr auto one_of = step<detail::OneOfImpl<Vs...>>;
 
-/// Checks that the decoded value is within [Min, Max] (closed); returns out_of_range otherwise.
+/// Checks that the decoded value is within [Min, Max] (closed); returns
+/// out_of_range otherwise.
 template <auto Min, auto Max>
 inline constexpr auto range = step<detail::RangeImpl<Min, Max>>;
 
@@ -145,22 +147,27 @@ inline constexpr auto min = step<detail::MinImpl<Min>>;
 template <auto Max>
 inline constexpr auto max = step<detail::MaxImpl<Max>>;
 
-/// Checks that the decoded container/string is not empty; returns validation_failed otherwise.
+/// Checks that the decoded container/string is not empty; returns
+/// validation_failed otherwise.
 inline constexpr auto non_empty = step<detail::NonEmptyImpl>;
 
-/// Checks that the decoded container/string has exactly size N; returns size_mismatch otherwise.
+/// Checks that the decoded container/string has exactly size N; returns
+/// size_mismatch otherwise.
 template <std::size_t N>
 inline constexpr auto size = step<detail::SizeImpl<N>>;
 
-/// Checks that the decoded container/string has size in [Min, Max]; returns validation_failed otherwise.
+/// Checks that the decoded container/string has size in [Min, Max]; returns
+/// validation_failed otherwise.
 template <std::size_t Min, std::size_t Max>
 inline constexpr auto size_range = step<detail::SizeRangeImpl<Min, Max>>;
 
-/// Applies predicate F(value) -> bool; returns validation_failed if F returns false.
+/// Applies predicate F(value) -> bool; returns validation_failed if F returns
+/// false.
 template <auto F>
 inline constexpr auto predicate = step<detail::PredicateImpl<F>>;
 
-/// Applies F(value) which may return bool, Result<void, Error>, or Result<T, Error>.
+/// Applies F(value) which may return bool, Result<void, Error>, or Result<T,
+/// Error>.
 template <auto F>
 inline constexpr auto custom = step<detail::CustomImpl<F>>;
 

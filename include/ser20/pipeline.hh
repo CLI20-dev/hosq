@@ -16,29 +16,35 @@ namespace ser20 {
 
 namespace detail {
 
-/// Placeholder input type used during static pipeline analysis when the true input is not yet known.
+/// Placeholder input type used during static pipeline analysis when the true
+/// input is not yet known.
 struct AnyInput {};
 
-/// Incomplete type; instantiating it triggers a "missing storage_type" static_assert diagnostic.
+/// Incomplete type; instantiating it triggers a "missing storage_type"
+/// static_assert diagnostic.
 template <class Head, class Input>
 struct MissingStorageType;
 
-/// Incomplete type; instantiating it triggers a "duplicate storage_type" static_assert diagnostic.
+/// Incomplete type; instantiating it triggers a "duplicate storage_type"
+/// static_assert diagnostic.
 template <class ExistingStorage, class Head, class Input>
 struct DuplicateStorageType;
 
-/// Incomplete type; instantiating it triggers an "unexpected storage_type in encoder" static_assert diagnostic.
+/// Incomplete type; instantiating it triggers an "unexpected storage_type in
+/// encoder" static_assert diagnostic.
 template <class Head, class Input>
 struct UnexpectedStorageType;
 
 /// Sentinel: no step in the pipeline has declared a `storage_type` yet.
 struct NoStorage {};
 
-/// Sentinel returned by callability probes when a step cannot be invoked with the given arguments.
+/// Sentinel returned by callability probes when a step cannot be invoked with
+/// the given arguments.
 struct NotCallable {};
 
 /// Computes the active storage type after a pipeline step.
-/// Adopts `Head::storage_type<Input>` when `HasStorage` is true; otherwise forwards `Storage` unchanged.
+/// Adopts `Head::storage_type<Input>` when `HasStorage` is true; otherwise
+/// forwards `Storage` unchanged.
 template <class Head, class Input, class Storage, bool HasStorage>
 struct NextStorage {
   using type = Storage;
@@ -49,17 +55,20 @@ struct NextStorage<Head, Input, Storage, true> {
   using type = typename Head::template storage_type<Input>;
 };
 
-/// Distinguishes decoder pipelines (which read/deserialize data) from encoder pipelines (which write/serialize data).
+/// Distinguishes decoder pipelines (which read/deserialize data) from encoder
+/// pipelines (which write/serialize data).
 enum class PipelineMode {
   decoder,
   encoder,
 };
 
-/// Always-false helper for static_assert inside unreachable `constexpr if` branches.
+/// Always-false helper for static_assert inside unreachable `constexpr if`
+/// branches.
 template <class Head>
 static constexpr bool always_false = false;
 
-/// Unwraps the value type `T` from `Result<T, Error>`; passes `R` through unchanged for non-Result types.
+/// Unwraps the value type `T` from `Result<T, Error>`; passes `R` through
+/// unchanged for non-Result types.
 template <class R>
 struct StepOutput {
   using type = std::remove_cvref_t<R>;
@@ -70,18 +79,21 @@ struct StepOutput<Result<T, Error>> {
   using type = T;
 };
 
-/// The unwrapped output type of a pipeline step: `T` for `Result<T, Error>`, `R` for everything else.
+/// The unwrapped output type of a pipeline step: `T` for `Result<T, Error>`, `R`
+/// for everything else.
 template <class R>
 using step_output_t = typename StepOutput<std::remove_cvref_t<R>>::type;
 
-/// Wraps `value` in a successful `Result<T, Error>`, for use as a normalized pipeline step output.
+/// Wraps `value` in a successful `Result<T, Error>`, for use as a normalized
+/// pipeline step output.
 template <class T>
 [[nodiscard]]
 constexpr auto expected(T&& value) -> Result<std::remove_cvref_t<T>, Error> {
   return Result<std::remove_cvref_t<T>, Error>{std::forward<T>(value)};
 }
 
-/// Returns a successful `Result<void, Error>`, for use as a normalized pipeline step output.
+/// Returns a successful `Result<void, Error>`, for use as a normalized pipeline
+/// step output.
 [[nodiscard]]
 constexpr auto expected() -> Result<void, Error> {
   return Result<void, Error>{};
@@ -141,7 +153,8 @@ static constexpr auto continue_result(Result<Output, Error> next,
 }  // namespace detail
 
 /**
- * @brief A compile-time pipeline of constexpr action objects applied sequentially.
+ * @brief A compile-time pipeline of constexpr action objects applied
+ * sequentially.
  *
  * Each step receives the output of the previous step as its input. Steps may
  * return a plain value, `void`, `Result<Out, Error>`, or `Result<void, Error>`.
@@ -161,7 +174,8 @@ template <auto... Fns>
   requires(sizeof...(Fns) > 0)
 struct Pipeline {
   /**
-   * @brief Invokes this pipeline from an explicit input value using a mutable context.
+   * @brief Invokes this pipeline from an explicit input value using a mutable
+   * context.
    *
    * Steps are matched left-to-right by their call signature. Context-aware
    * forms are tried before no-context forms. The return value of each step
@@ -275,7 +289,8 @@ struct Pipeline {
   };
 
   /**
-   * @brief Invokes this pipeline from an explicit input value using a const context.
+   * @brief Invokes this pipeline from an explicit input value using a const
+   * context.
    *
    * Steps are matched left-to-right by their call signature. Context-aware
    * forms taking `const Context&` are tried before no-context forms. The
@@ -389,7 +404,8 @@ struct Pipeline {
   };
 
   /**
-   * @brief Invokes this pipeline without an explicit input value using a mutable context.
+   * @brief Invokes this pipeline without an explicit input value using a mutable
+   * context.
    *
    * Used when the first step takes no data input (input type is effectively
    * `void`). Steps are matched by their call signature; context-aware forms
@@ -500,7 +516,8 @@ struct Pipeline {
   };
 
   /**
-   * @brief Invokes this pipeline without an explicit input value using a const context.
+   * @brief Invokes this pipeline without an explicit input value using a const
+   * context.
    *
    * Used when the first step takes no data input (input type is effectively
    * `void`). Steps are matched by their call signature; context-aware forms
@@ -638,8 +655,8 @@ struct Pipeline {
   }
 
   /**
-   * @brief Returns `true` if this pipeline can be invoked with a `const Context&`
-   * starting from the given `Input` type.
+   * @brief Returns `true` if this pipeline can be invoked with a `const
+   * Context&` starting from the given `Input` type.
    *
    * Walks the step chain at compile time, checking that each step is callable
    * with the appropriate input and `const Context&` (or no context).
@@ -653,8 +670,8 @@ struct Pipeline {
   }
 
   /**
-   * @brief Returns `true` if this pipeline can be invoked with a mutable `Context&`
-   * starting from the given `Input` type.
+   * @brief Returns `true` if this pipeline can be invoked with a mutable
+   * `Context&` starting from the given `Input` type.
    *
    * Walks the step chain at compile time, checking that each step is callable
    * with the appropriate input and `Context&` (or no context).
@@ -860,11 +877,13 @@ struct Pipeline {
   }
 };
 
-/// Convenience variable template that wraps a default-constructed `T` as a single-step `Pipeline<T{}>`.
+/// Convenience variable template that wraps a default-constructed `T` as a
+/// single-step `Pipeline<T{}>`.
 template <class T>
 inline constexpr auto step = []() -> auto { return Pipeline<T{}>{}; }();
 
-/// Concatenates two pipelines into a single `Pipeline` containing all steps of `Lhs` followed by `Rhs`.
+/// Concatenates two pipelines into a single `Pipeline` containing all steps of
+/// `Lhs` followed by `Rhs`.
 template <auto... Lhs, auto... Rhs>
 constexpr auto operator|(Pipeline<Lhs...>, Pipeline<Rhs...>) {
   return Pipeline<Lhs..., Rhs...>{};

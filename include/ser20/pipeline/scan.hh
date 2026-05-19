@@ -325,41 +325,54 @@ auto scan_array_for(const Reader& reader, const Token& token)
 
 }  // namespace detail
 
-inline constexpr auto literal =
-    action<void, std::string_view,
-           []<class Context>(
-               const Context& ctx) -> Result<std::string_view, Error> {
-             const auto& reader = ctx.reader();
-             return detail::scan_literal_for(reader, reader.current_token());
-           }>;
+namespace detail {
 
-inline constexpr auto string =
-    action<void, std::string_view,
-           []<class Context>(Context& ctx) -> Result<std::string_view, Error> {
-             const auto& reader = ctx.reader();
-             return detail::scan_string_for(reader, reader.current_token());
-           }>;
+struct ScanLiteralImpl {
+  template <class Context>
+  auto operator()(const Context& ctx) const -> Result<std::string_view, Error> {
+    const auto& reader = ctx.reader();
+    return scan_literal_for(reader, reader.current_token());
+  }
+};
 
-inline constexpr auto scalar =
-    action<void, std::string_view,
-           []<class Context>(
-               const Context& ctx) -> Result<std::string_view, Error> {
-             const auto& reader = ctx.reader();
-             return detail::scan_scalar_for(reader, reader.current_token());
-           }>;
+struct ScanStringImpl {
+  template <class Context>
+  auto operator()(Context& ctx) const -> Result<std::string_view, Error> {
+    const auto& reader = ctx.reader();
+    return scan_string_for(reader, reader.current_token());
+  }
+};
 
-inline constexpr auto object = mutable_action<
-    void, std::string_view,
-    []<class Context>(Context& ctx) -> Result<std::string_view, Error> {
-      auto& reader = ctx.reader();
-      return detail::scan_object_for(reader, reader.current_token());
-    }>;
+struct ScanScalarImpl {
+  template <class Context>
+  auto operator()(const Context& ctx) const -> Result<std::string_view, Error> {
+    const auto& reader = ctx.reader();
+    return scan_scalar_for(reader, reader.current_token());
+  }
+};
 
-inline constexpr auto array = mutable_action<
-    void, std::string_view,
-    []<class Context>(Context& ctx) -> Result<std::string_view, Error> {
-      auto& reader = ctx.reader();
-      return detail::scan_array_for(reader, reader.current_token());
-    }>;
+struct ScanObjectImpl {
+  template <class Context>
+  auto operator()(Context& ctx) const -> Result<std::string_view, Error> {
+    auto& reader = ctx.reader();
+    return scan_object_for(reader, reader.current_token());
+  }
+};
+
+struct ScanArrayImpl {
+  template <class Context>
+  auto operator()(Context& ctx) const -> Result<std::string_view, Error> {
+    auto& reader = ctx.reader();
+    return scan_array_for(reader, reader.current_token());
+  }
+};
+
+}  // namespace detail
+
+inline constexpr auto literal = ser20::step<detail::ScanLiteralImpl>;
+inline constexpr auto string = ser20::step<detail::ScanStringImpl>;
+inline constexpr auto scalar = ser20::step<detail::ScanScalarImpl>;
+inline constexpr auto object = ser20::step<detail::ScanObjectImpl>;
+inline constexpr auto array = ser20::step<detail::ScanArrayImpl>;
 
 }  // namespace ser20::scan

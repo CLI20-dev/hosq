@@ -234,7 +234,8 @@ class JsonReader {
   std::string_view data_;
 };
 
-static_assert(ReaderContext<JsonReader>, "JsonReader must satisfy Reader concept");
+static_assert(ReaderContext<JsonReader>,
+              "JsonReader must satisfy Reader concept");
 
 template <>
 struct ReaderTraits<JsonReader> {

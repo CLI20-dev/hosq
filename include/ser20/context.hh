@@ -30,8 +30,11 @@ struct DecodeContext {
   template <class, ReaderConcept>
   friend struct DecodeContext;
 
-  explicit DecodeContext(T& value, R& reader)
-      : reader_(reader), input_(reader.input()), elem_(value) {}
+  explicit DecodeContext(T& value, R& reader, std::size_t occurrences_val = 0)
+      : occurrences(occurrences_val),
+        reader_(reader),
+        input_(reader.input()),
+        elem_(value) {}
 
   // Probe-only constructor.
   // Declared but intentionally not defined.
@@ -63,6 +66,8 @@ struct DecodeContext {
   auto input() const noexcept -> std::string_view {
     return input_;
   }
+
+  std::size_t occurrences{0};
 
  private:
   std::reference_wrapper<R> reader_;
@@ -116,7 +121,6 @@ struct EncodeContext {
   // Used only in unevaluated requires expressions.
   /* implicit */ EncodeContext(detail::AnyContext /* context */);
   /* implicit */ EncodeContext(detail::AnyEncodeContext /* context */);
-
 };
 
 template <WriterConcept W>

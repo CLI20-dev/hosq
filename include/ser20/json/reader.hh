@@ -57,7 +57,8 @@ namespace json {
  * can be used directly; see @ref advance for details.
  *
  * @tparam MaxDepth  Maximum nesting depth of JSON objects and arrays.
- *                   Exceeding this limit yields @ref ErrorCode::depth_limit_exceeded.
+ *                   Exceeding this limit yields @ref
+ * ErrorCode::depth_limit_exceeded.
  */
 template <size_t MaxDepth = 1024>
 class Reader {
@@ -181,8 +182,8 @@ class Reader {
    *
    * ### Why `const` with `mutable pos_`
    * advance() modifies only `pos_`, the raw byte cursor.  It leaves the token
-   * state (current token, container context stack, and parser expectation) **unchanged**.
-   * This separation enables two complementary patterns:
+   * state (current token, container context stack, and parser expectation)
+   * **unchanged**. This separation enables two complementary patterns:
    *
    * **1. Speculative position probing on a `const Reader&`:**
    * A decoder that receives a `const Reader&` can call advance() multiple
@@ -216,7 +217,8 @@ class Reader {
    *
    * @param n  Number of bytes to advance.
    * @return   An empty Result on success, or:
-   *   - @ref ErrorCode::unexpected_token  — current token does not support advance.
+   *   - @ref ErrorCode::unexpected_token  — current token does not support
+   * advance.
    *   - @ref ErrorCode::unexpected_eof    — @p n exceeds the remaining input.
    */
   auto advance(std::size_t n) const -> Result<void, Error> {

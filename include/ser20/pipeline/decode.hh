@@ -60,24 +60,34 @@ struct CustomImpl {
 template <detail::Number T>
 inline constexpr auto number = step<detail::NumberImpl<T>>;
 
-/// Converts "true"/"false" to bool; returns type_mismatch for anything else.
-inline constexpr auto boolean =
-    action<std::string_view, bool,
-           [](std::string_view sv) -> Result<bool, Error> {
-             if (sv == "true") return true;
-             if (sv == "false") return false;
-             return unexpected(Error{.code = ErrorCode::type_mismatch});
-           }>;
+namespace detail {
 
-/// Passes string_view through unchanged; escape resolution is left to the caller.
-inline constexpr auto string_view =
-    action<std::string_view, std::string_view,
-           [](std::string_view sv) -> std::string_view { return sv; }>;
+struct BooleanImpl {
+  auto operator()(std::string_view sv) const -> Result<bool, Error> {
+    if (sv == "true") return true;
+    if (sv == "false") return false;
+    return unexpected(Error{.code = ErrorCode::type_mismatch});
+  }
+};
+
+struct StringViewImpl {
+  auto operator()(std::string_view sv) const -> std::string_view { return sv; }
+};
+
+}  // namespace detail
+
+/// Converts "true"/"false" to bool; returns type_mismatch for anything else.
+inline constexpr auto boolean = step<detail::BooleanImpl>;
+
+/// Passes string_view through unchanged; escape resolution is left to the
+/// caller.
+inline constexpr auto string_view = step<detail::StringViewImpl>;
 
 /// Passes any value through unchanged.
 inline constexpr auto identity = step<detail::IdentityImpl>;
 
-/// Applies user-defined conversion F to the input; F may return a plain value or Result<U, Error>.
+/// Applies user-defined conversion F to the input; F may return a plain value or
+/// Result<U, Error>.
 template <auto F>
 inline constexpr auto custom = step<detail::CustomImpl<F>>;
 

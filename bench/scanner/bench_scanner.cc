@@ -406,11 +406,7 @@ static void BM_TwitterJson(benchmark::State& state) {
 
 BENCHMARK(BM_TwitterJson);
 
-#define REGISTER(BM)       \
-  BENCHMARK(BM)            \
-      ->Arg(1 << 20)       \
-      ->Arg(8 << 20)       \
-      ->Arg(64 << 20)
+#define REGISTER(BM) BENCHMARK(BM)->Arg(1 << 20)->Arg(8 << 20)->Arg(64 << 20)
 
 REGISTER(BM_WhitespaceSparse);
 REGISTER(BM_StructuralSparse);
