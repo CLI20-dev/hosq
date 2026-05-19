@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <charconv>
 #include <concepts>
 #include <string_view>
@@ -93,6 +94,21 @@ struct DecodedResult<T> {
 template <class T>
 using decoded_result_t = typename DecodedResult<std::remove_cvref_t<T>>::type;
 
+template <class T, class Reader>
+auto decode_current(T& element, Reader& reader) -> Result<void, Error> {
+  return ::ser20::Decoder<std::remove_cvref_t<Reader>>::decode_from_reader(
+      element, reader);
+}
+
+template <class T>
+auto decoded_value(T& element) -> decoded_result_t<T> {
+  if constexpr (::ser20::detail::ElemT<T>) {
+    return std::move(element.value());
+  } else {
+    return std::move(element);
+  }
+}
+
 template <class T>
   requires(::ser20::detail::ElemT<T> || ::ser20::detail::AsEntryTupleT<T>)
 struct VectorImpl {
@@ -125,18 +141,64 @@ struct VectorImpl {
       }
 
       T element{};
-      using Reader = std::remove_cvref_t<decltype(reader)>;
-      auto decoded =
-          ::ser20::Decoder<Reader>::decode_from_reader(element, reader);
+      auto decoded = decode_current(element, reader);
       if (!decoded) {
         return unexpected(decoded.error());
       }
-      if constexpr (::ser20::detail::ElemT<T>) {
-        values.push_back(std::move(element.value()));
-      } else {
-        values.push_back(std::move(element));
-      }
+      values.push_back(decoded_value(element));
     }
+  }
+};
+
+template <class T, std::size_t N>
+  requires(::ser20::detail::ElemT<T> || ::ser20::detail::AsEntryTupleT<T>)
+struct FixedArrayImpl {
+  template <class Context>
+    requires(!std::is_const_v<std::remove_reference_t<Context>>)
+  auto operator()(Context& ctx) const
+      -> Result<std::array<decoded_result_t<T>, N>, Error> {
+    auto& reader = ctx.reader();
+    if (reader.current_token().type != TokenType::ArrayBegin) {
+      return unexpected(Error{
+          .code = ErrorCode::type_mismatch,
+          .offset = reader.current_token().offset,
+      });
+    }
+
+    auto advanced = reader.advance(1);
+    if (!advanced) {
+      return unexpected(advanced.error());
+    }
+
+    std::array<decoded_result_t<T>, N> values{};
+    for (std::size_t i = 0; i < N; ++i) {
+      auto next = reader.next_token();
+      if (!next) {
+        return unexpected(next.error());
+      }
+      if (reader.current_token().type == TokenType::ArrayEnd) {
+        return unexpected(Error{.code = ErrorCode::size_mismatch,
+                                .offset = reader.current_token().offset});
+      }
+
+      T element{};
+      auto decoded = decode_current(element, reader);
+      if (!decoded) {
+        return unexpected(decoded.error());
+      }
+      values[i] = decoded_value(element);
+    }
+
+    auto next = reader.next_token();
+    if (!next) {
+      return unexpected(next.error());
+    }
+    if (reader.current_token().type != TokenType::ArrayEnd) {
+      return unexpected(Error{.code = ErrorCode::size_mismatch,
+                              .offset = reader.current_token().offset});
+    }
+
+    return values;
   }
 };
 
@@ -153,6 +215,11 @@ inline constexpr auto string_view = step<detail::StringViewImpl>;
 template <class T>
   requires(::ser20::detail::ElemT<T> || ::ser20::detail::AsEntryTupleT<T>)
 inline constexpr auto vector = step<detail::VectorImpl<T>>;
+
+/// Decodes the current JSON array as std::array<decoded_result_t<T>, N>.
+template <class T, std::size_t N>
+  requires(::ser20::detail::ElemT<T> || ::ser20::detail::AsEntryTupleT<T>)
+inline constexpr auto fixed_array = step<detail::FixedArrayImpl<T, N>>;
 
 /// Passes any value through unchanged.
 inline constexpr auto identity = step<detail::IdentityImpl>;

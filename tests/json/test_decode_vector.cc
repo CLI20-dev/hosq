@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <string_view>
 #include <vector>
 
@@ -115,4 +116,53 @@ TEST(DecodeVector, RejectsInvalidElement) {
 
   ASSERT_FALSE(result.has_value());
   EXPECT_EQ(result.error().code, ser20::ErrorCode::type_mismatch);
+}
+
+TEST(DecodeFixedArray, DecodesTopLevelArrayOfElemValues) {
+  ser20::Elem<ser20::decode::fixed_array<IntElement, 3> | ser20::store::once,
+              ser20::noop_encoder>
+      ids;
+
+  auto result = ser20::decode_into(ids, "[1,2,3]"sv);
+
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(ids.value()[0], 1);
+  EXPECT_EQ(ids.value()[1], 2);
+  EXPECT_EQ(ids.value()[2], 3);
+}
+
+TEST(DecodeFixedArray, DecodesTopLevelArrayOfSchemas) {
+  ser20::Elem<ser20::decode::fixed_array<Point, 2> | ser20::store::once,
+              ser20::noop_encoder>
+      points;
+
+  auto result = ser20::decode_into(points, R"([{"x":1,"y":2},{"x":3,"y":4}])"sv);
+
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(points.value()[0].x.value().value(), 1);
+  EXPECT_EQ(points.value()[0].y.value().value(), 2);
+  EXPECT_EQ(points.value()[1].x.value().value(), 3);
+  EXPECT_EQ(points.value()[1].y.value().value(), 4);
+}
+
+TEST(DecodeFixedArray, RejectsTooFewElements) {
+  ser20::Elem<ser20::decode::fixed_array<IntElement, 3> | ser20::store::once,
+              ser20::noop_encoder>
+      ids;
+
+  auto result = ser20::decode_into(ids, "[1,2]"sv);
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code, ser20::ErrorCode::size_mismatch);
+}
+
+TEST(DecodeFixedArray, RejectsTooManyElements) {
+  ser20::Elem<ser20::decode::fixed_array<IntElement, 2> | ser20::store::once,
+              ser20::noop_encoder>
+      ids;
+
+  auto result = ser20::decode_into(ids, "[1,2,3]"sv);
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code, ser20::ErrorCode::size_mismatch);
 }

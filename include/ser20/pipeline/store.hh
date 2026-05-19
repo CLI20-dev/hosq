@@ -65,6 +65,16 @@ struct OnceImpl {
   }
 };
 
+struct OverwriteImpl {
+  template <class Input>
+  using storage_type = std::remove_cvref_t<Input>;
+
+  template <class Input, class Context>
+  auto operator()(Input value, Context& ctx) const -> void {
+    ctx.elem() = std::move(value);
+  }
+};
+
 }  // namespace detail
 
 /// Assigns the decoded value into ctx.elem(); storage_type<T> = T.
@@ -82,5 +92,9 @@ inline constexpr auto ignore = step<detail::IgnoreImpl>;
 /// Stores the decoded value once; errors with duplicate_member on subsequent
 /// stores.
 inline constexpr auto once = step<detail::OnceImpl>;
+
+/// Stores the decoded value, allowing later occurrences to overwrite earlier
+/// ones.
+inline constexpr auto overwrite = step<detail::OverwriteImpl>;
 
 }  // namespace ser20::store

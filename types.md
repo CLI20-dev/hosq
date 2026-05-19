@@ -175,19 +175,6 @@ Fn(ctx)
 ```
 
 ```cpp
-[ ] ser20::decode::parse_to<T>
-// T: ElemT または AsEntryTupleT
-// pipeline input: void
-// context input: DecodeContext<Storage, R>&
-// context source: ctx.reader()
-// output: decoded_result_t<T>
-// 現在 token から T を再帰 parse する
-// Reader に直接触る decoder なので scan を兼任する
-// つまり decode::parse_to<T> の前に scan::* は不要
-// Reader 直消費を基本形とする
-```
-
-```cpp
 [-] ser20::decode::variant<Ts...>
 // Ts: ElemT または AsEntryTupleT
 // pipeline input: void
@@ -198,19 +185,6 @@ Fn(ctx)
 // Reader に直接触る decoder なので scan を兼任する
 // つまり decode::variant<Ts...> の前に scan::* は不要
 // 各候補 Ts に対して parse/decode を try し、成功した decoded value を Variant に保持する
-```
-
-```cpp
-[-] ser20::decode::member<T>
-// T: ElemT または AsEntryTupleT
-// pipeline input: void
-// context input: DecodeContext<Storage, R>&
-// context source: ctx.reader()
-// output: decoded_result_t<T>
-// 現在の object member value を T として parse/decode する
-// Reader に直接触る decoder なので scan を兼任する
-// つまり decode::member<T> の前に scan::* は不要
-// key matching は object decoder 側の責務
 ```
 
 ```cpp
@@ -230,7 +204,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[-] ser20::decode::fixed_array<T, N>
+[x] ser20::decode::fixed_array<T, N>
 // T: ElemT または AsEntryTupleT
 // pipeline input: void
 // context input: DecodeContext<Storage, R>&
@@ -401,7 +375,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[ ] ser20::store::overwrite
+[x] ser20::store::overwrite
 // pipeline input: T
 // context input: DecodeContext<Storage, R>&
 // output: void
@@ -504,23 +478,15 @@ ser20::unknown::callback<F>
 Writer への実書き込みは `write::*`。
 
 ```cpp
-[ ] ser20::encode::integer<T>
+[x] ser20::encode::number<T>
 // pipeline input: T
-// context input: optional EncodeContext
+// context input: none
 // output: std::string
-// 整数値 T を number 文字列に変換する
+// arithmetic T を number 文字列に変換する
 ```
 
 ```cpp
-[ ] ser20::encode::floating<T>
-// pipeline input: T
-// context input: optional EncodeContext
-// output: std::string
-// 浮動小数点値 T を number 文字列に変換する
-```
-
-```cpp
-[ ] ser20::encode::boolean
+[x] ser20::encode::boolean
 // pipeline input: bool
 // context input: none
 // output: std::string_view
@@ -528,7 +494,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[ ] ser20::encode::string_view
+[x] ser20::encode::string_view
 // pipeline input: std::string_view
 // context input: none
 // output: std::string_view
@@ -558,7 +524,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[ ] ser20::encode::identity
+[x] ser20::encode::identity
 // pipeline input: T
 // context input: none
 // output: T
@@ -678,7 +644,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[ ] ser20::match::any
+[x] ser20::match::any
 // pipeline input: T
 // context input: none
 // output: T
