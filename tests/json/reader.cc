@@ -63,7 +63,8 @@ using TokenSeq  = std::vector<TokInfo>;
 using ReadResult = std::variant<TokenSeq, ser20::Error>;
 
 static auto read_all(std::string_view input) -> ReadResult {
-  ser20::json::Reader<> r{input};
+  ser20::json::Reader<> r;
+  r.reset(input);
   TokenSeq seq;
   for (;;) {
     auto res = r.next_token();
@@ -468,7 +469,8 @@ TEST(ReaderError, UnclosedNestedObject) {
 
 TEST(ReaderError, DepthLimitExceededObject) {
   // MaxDepth=2: two levels ok, third triggers depth_limit_exceeded
-  ser20::json::Reader<2> r{R"({"a":{"b":{}}})"sv};
+  ser20::json::Reader<2> r;
+  r.reset(R"({"a":{"b":{}}})"sv);
 
   // depth 1: {
   ASSERT_TRUE(r.next_token().has_value());
@@ -497,7 +499,8 @@ TEST(ReaderError, DepthLimitExceededObject) {
 }
 
 TEST(ReaderError, DepthLimitExceededArray) {
-  ser20::json::Reader<2> r{"[[["sv};
+  ser20::json::Reader<2> r;
+  r.reset("[[["sv);
 
   ASSERT_TRUE(r.next_token().has_value());  // depth 1: [
   ASSERT_TRUE(r.advance(1).has_value());
@@ -512,7 +515,8 @@ TEST(ReaderError, DepthLimitExceededArray) {
 // ── advance() API errors ──────────────────────────────────────────────────────
 
 TEST(ReaderAdvance, AdvanceOnObjectEnd) {
-  ser20::json::Reader<> r{"{}"sv};
+  ser20::json::Reader<> r;
+  r.reset("{}"sv);
   ASSERT_TRUE(r.next_token().has_value());  // OB
   ASSERT_TRUE(r.advance(1).has_value());
   ASSERT_TRUE(r.next_token().has_value());  // OE
@@ -522,7 +526,8 @@ TEST(ReaderAdvance, AdvanceOnObjectEnd) {
 }
 
 TEST(ReaderAdvance, AdvanceOnEnd) {
-  ser20::json::Reader<> r{"42"sv};
+  ser20::json::Reader<> r;
+  r.reset("42"sv);
   ASSERT_TRUE(r.next_token().has_value());  // SBl
   ASSERT_TRUE(r.advance(2).has_value());
   ASSERT_TRUE(r.next_token().has_value());  // End
@@ -532,7 +537,8 @@ TEST(ReaderAdvance, AdvanceOnEnd) {
 }
 
 TEST(ReaderAdvance, AdvancePastEndOfInput) {
-  ser20::json::Reader<> r{"42"sv};
+  ser20::json::Reader<> r;
+  r.reset("42"sv);
   ASSERT_TRUE(r.next_token().has_value());  // SBl at offset 0
   auto res = r.advance(100);
   ASSERT_FALSE(res.has_value());

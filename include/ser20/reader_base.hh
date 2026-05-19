@@ -35,15 +35,19 @@ struct Token {
 };
 
 template <class T>
-concept ReaderConcept = requires(T t, const T ct) {
-  typename T::input_type;
-  { t.next_token() } -> std::same_as<Result<void, Error>>;
-  { t.current_token() } -> std::same_as<Token&>;
-  { ct.current_token() } -> std::same_as<const Token&>;
-  { t.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
-  { ct.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
-  { ct.input() } -> std::same_as<typename T::input_type>;
-};
+concept ReaderConcept =
+    std::default_initializable<T> && std::is_copy_constructible_v<T> &&
+    std::is_copy_assignable_v<T> &&
+    requires(T t, const T ct, typename T::input_type input) {
+      typename T::input_type;
+      { t.reset(input) } -> std::same_as<void>;
+      { t.next_token() } -> std::same_as<Result<void, Error>>;
+      { t.current_token() } -> std::same_as<Token&>;
+      { ct.current_token() } -> std::same_as<const Token&>;
+      { t.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
+      { ct.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
+      { ct.input() } -> std::same_as<typename T::input_type>;
+    };
 
 enum class Format : uint8_t {
   unknown,

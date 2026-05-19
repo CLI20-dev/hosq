@@ -39,8 +39,12 @@ concept PipelineObject = IsPipeline<std::remove_cvref_t<T>>::value;
 ///
 /// `storage_type` is derived from the decoder's `storage_type<Input>`
 /// declaration. `occurrences()` counts how many times the field has been
-/// successfully decoded. `const_invokable` is `true` when the decoder pipeline
-/// can run with a const context, i.e. no step requires a mutable Context&.
+/// successfully decoded.
+///
+/// - `decoder_const_invokable<Context>` is `true` when the decoder pipeline
+///   can run with a `const Context&`, i.e. no step requires a mutable Context&.
+/// - `encoder_const_invokable<Context>` is `true` when the encoder pipeline
+///   can run with a `const Context&`.
 template <auto Decoder, auto Encoder>
   requires detail::PipelineObject<decltype(Decoder)> &&
            detail::PipelineObject<decltype(Encoder)>
@@ -52,11 +56,16 @@ struct Elem : public detail::ElementTag {
   using encoder_info =
       decltype(encoder_type::template analyze_encoder<storage_type>());
 
-  // True when the decoder pipeline can be invoked with const Context& for a
-  // given Context type.
+  /// True when the decoder pipeline can be invoked with `const Context&`.
   template <class Context>
-  static constexpr bool const_invokable =
+  static constexpr bool decoder_const_invokable =
       decoder_type::template callable_with_const_context<Context, void>();
+
+  /// True when the encoder pipeline can be invoked with `const Context&`.
+  template <class Context>
+  static constexpr bool encoder_const_invokable =
+      encoder_type::template callable_with_const_context<Context,
+                                                         storage_type>();
 
   Elem() = default;
 
@@ -86,10 +95,10 @@ struct Elem : public detail::ElementTag {
 
   // ── decode(DecodeContext)
   // ──────────────────────────────────────────────────── Mutually exclusive via
-  // requires: only the form matching const_invokable is enabled.
+  // requires: only the form matching decoder_const_invokable is enabled.
 
   template <ReaderConcept R>
-    requires(!const_invokable<DecodeContext<storage_type, R>>)
+    requires(!decoder_const_invokable<DecodeContext<storage_type, R>>)
   SER20_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R>& ctx)
       -> Result<void, Error> {
     auto result = decoder_type::invoke(ctx);
@@ -98,7 +107,7 @@ struct Elem : public detail::ElementTag {
   }
 
   template <ReaderConcept R>
-    requires(const_invokable<DecodeContext<storage_type, R>>)
+    requires(decoder_const_invokable<DecodeContext<storage_type, R>>)
   SER20_ALWAYS_INLINE auto decode(const DecodeContext<storage_type, R>& ctx)
       -> Result<void, Error> {
     auto result = decoder_type::invoke(ctx);
@@ -110,16 +119,14 @@ struct Elem : public detail::ElementTag {
   // ────────────────────────────────────────────────────
 
   template <WriterConcept W>
-    requires(!encoder_type::template callable_with_const_context<
-             EncodeContext<storage_type, W>, storage_type>())
+    requires(!encoder_const_invokable<EncodeContext<storage_type, W>>)
   SER20_ALWAYS_INLINE auto encode(EncodeContext<storage_type, W>& ctx) const
       -> Result<void, Error> {
     return encoder_type::invoke(value_, ctx);
   }
 
   template <WriterConcept W>
-    requires(encoder_type::template callable_with_const_context<
-             EncodeContext<storage_type, W>, storage_type>())
+    requires(encoder_const_invokable<EncodeContext<storage_type, W>>)
   SER20_ALWAYS_INLINE auto encode(
       const EncodeContext<storage_type, W>& ctx) const -> Result<void, Error> {
     return encoder_type::invoke(value_, ctx);
@@ -128,13 +135,13 @@ struct Elem : public detail::ElementTag {
   // ── decode(R& reader)
   // ──────────────────────────────────────────────────────── Creates a
   // DecodeContext from the raw reader, then delegates to the appropriate
-  // decode(context) overload using const_invokable.
+  // decode(context) overload using decoder_const_invokable.
 
-  // const_invokable pipeline — only const reader methods are needed (advance /
-  // current_token / input). const_cast is safe: Reader::advance() only modifies
-  // the mutable pos_ member.
+  // decoder_const_invokable pipeline — only const reader methods are needed
+  // (advance / current_token / input). const_cast is safe: Reader::advance()
+  // only modifies the mutable pos_ member.
   template <ReaderConcept R>
-    requires(const_invokable<DecodeContext<storage_type, R>>)
+    requires(decoder_const_invokable<DecodeContext<storage_type, R>>)
   SER20_ALWAYS_INLINE auto decode(const R& reader) -> Result<void, Error> {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     DecodeContext<storage_type, R> ctx{value_, const_cast<R&>(reader)};
@@ -142,9 +149,10 @@ struct Elem : public detail::ElementTag {
     return decode(cctx);
   }
 
-  // non-const_invokable pipeline — mutable context required, so mutable reader.
+  // non-decoder_const_invokable pipeline — mutable context required, so
+  // mutable reader.
   template <ReaderConcept R>
-    requires(!const_invokable<DecodeContext<storage_type, R>>)
+    requires(!decoder_const_invokable<DecodeContext<storage_type, R>>)
   SER20_ALWAYS_INLINE auto decode(R& reader) -> Result<void, Error> {
     DecodeContext<storage_type, R> ctx{value_, reader};
     return decode(ctx);
@@ -164,28 +172,39 @@ template <auto Decoder, auto Encoder>
 struct IsElem<::ser20::Elem<Decoder, Encoder>> : std::true_type {};
 
 template <class T>
-concept ElemLike = IsElem<std::remove_cvref_t<T>>::value;
+concept ElemT = IsElem<std::remove_cvref_t<T>>::value;
 
 };  // namespace detail
 
 /// A key–value pair where both Key and Value are Elem types.
 ///
-/// `key_const_invokable` / `value_const_invokable` mirror the underlying Elem's
-/// `const_invokable` flag and gate the const/mutable overloads of decode_key /
-/// decode_value. This allows the Decoder to select the appropriate dispatch path
-/// at compile time without inspecting the pipeline directly.
-template <detail::ElemLike Key, detail::ElemLike Value>
+/// `*_decoder_const_invokable` / `*_encoder_const_invokable` mirror the
+/// underlying Elem's flags and gate the const/mutable overloads of decode_key /
+/// decode_value / encode_key / encode_value at compile time.
+template <detail::ElemT Key, detail::ElemT Value>
 struct Entry : public detail::ElementTag {
   using key_type = Key;
   using value_type = Value;
 
   template <class R>
-  static constexpr bool key_const_invokable = Key::template const_invokable<
-      DecodeContext<typename Key::storage_type, R>>;
+  static constexpr bool key_decoder_const_invokable =
+      Key::template decoder_const_invokable<
+          DecodeContext<typename Key::storage_type, R>>;
 
   template <class R>
-  static constexpr bool value_const_invokable = Value::template const_invokable<
-      DecodeContext<typename Value::storage_type, R>>;
+  static constexpr bool value_decoder_const_invokable =
+      Value::template decoder_const_invokable<
+          DecodeContext<typename Value::storage_type, R>>;
+
+  template <class W>
+  static constexpr bool key_encoder_const_invokable =
+      Key::template encoder_const_invokable<
+          EncodeContext<typename Key::storage_type, W>>;
+
+  template <class W>
+  static constexpr bool value_encoder_const_invokable =
+      Value::template encoder_const_invokable<
+          EncodeContext<typename Value::storage_type, W>>;
 
   Entry() = default;
 
@@ -200,13 +219,13 @@ struct Entry : public detail::ElementTag {
   // ── decode_key
   // ───────────────────────────────────────────────────────────────
   template <ReaderConcept R>
-    requires(!key_const_invokable<R>)
+    requires(!key_decoder_const_invokable<R>)
   [[nodiscard]] auto decode_key(R& reader) -> Result<void, Error> {
     return key_.decode(reader);
   }
 
   template <ReaderConcept R>
-    requires(key_const_invokable<R>)
+    requires(key_decoder_const_invokable<R>)
   [[nodiscard]] auto decode_key(const R& reader) -> Result<void, Error> {
     return key_.decode(reader);
   }
@@ -215,13 +234,13 @@ struct Entry : public detail::ElementTag {
   // ─────────────────────────────────────────────────────────────
 
   template <ReaderConcept R>
-    requires(!value_const_invokable<R>)
+    requires(!value_decoder_const_invokable<R>)
   [[nodiscard]] auto decode_value(R& reader) -> Result<void, Error> {
     return value_.decode(reader);
   }
 
   template <ReaderConcept R>
-    requires(value_const_invokable<R>)
+    requires(value_decoder_const_invokable<R>)
   [[nodiscard]] auto decode_value(const R& reader) -> Result<void, Error> {
     return value_.decode(reader);
   }
@@ -239,8 +258,10 @@ struct IsEntry : std::false_type {};
 template <class K, class V>
 struct IsEntry<Entry<K, V>> : std::true_type {};
 
+// template <class T>
+// inline constexpr bool is_entry_v = IsEntry<std::remove_cvref_t<T>>::value;
 template <class T>
-inline constexpr bool is_entry_v = IsEntry<std::remove_cvref_t<T>>::value;
+concept EntryT = IsEntry<std::remove_cvref_t<T>>::value;
 
 }  // namespace detail
 
