@@ -1,11 +1,11 @@
-#include "ser20/json/reader.hh"
-
 #include <gtest/gtest.h>
 
 #include <cstddef>
 #include <string_view>
 #include <variant>
 #include <vector>
+
+#include "ser20/json/simple_reader.hh"
 
 using namespace std::string_view_literals;
 
@@ -19,48 +19,18 @@ struct TokInfo {
   ser20::TokenType type;
   ser20::JsonTokenContext context{JTC::none};
 
-  bool operator==(const TokInfo&) const = default;
+  auto operator==(const TokInfo&) const -> bool = default;
 };
 
 // ── Shorthand token constants ─────────────────────────────────────────────────
 
-constexpr TokInfo OB = {TT::ObjectBegin, JTC::none};
-constexpr TokInfo OE = {TT::ObjectEnd, JTC::none};
-constexpr TokInfo AB = {TT::ArrayBegin, JTC::none};
-constexpr TokInfo AE = {TT::ArrayEnd, JTC::none};
-constexpr TokInfo SBs = {TT::ScalarBegin, JTC::string};
-constexpr TokInfo SBl = {TT::ScalarBegin, JTC::literal};
-constexpr TokInfo END = {TT::End, JTC::none};
-
-// ── Advance-size computation ──────────────────────────────────────────────────
-
-// Returns how many bytes to advance past a scalar that starts at `offset`.
-// For strings: includes both opening and closing `"`.
-// For literals: stops at whitespace or a JSON delimiter.
-static auto scalar_advance(std::string_view input, std::size_t offset, JTC ctx)
-    -> std::size_t {
-  if (ctx == JTC::string) {
-    std::size_t pos = offset + 1;  // skip opening `"`
-    while (pos < input.size()) {
-      if (input[pos] == '\\') {
-        pos += 2;
-        continue;
-      }
-      if (input[pos] == '"') return pos + 1 - offset;  // include closing `"`
-      ++pos;
-    }
-    return input.size() - offset;  // unclosed — caller will get eof or End
-  }
-  std::size_t pos = offset;
-  while (pos < input.size()) {
-    char c = input[pos];
-    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' ||
-        c == ']' || c == '}')
-      break;
-    ++pos;
-  }
-  return pos - offset;
-}
+constexpr TokInfo OB = {.type = TT::ObjectBegin, .context = JTC::none};
+constexpr TokInfo OE = {.type = TT::ObjectEnd, .context = JTC::none};
+constexpr TokInfo AB = {.type = TT::ArrayBegin, .context = JTC::none};
+constexpr TokInfo AE = {.type = TT::ArrayEnd, .context = JTC::none};
+constexpr TokInfo SBs = {.type = TT::Scalar, .context = JTC::string};
+constexpr TokInfo SBl = {.type = TT::Scalar, .context = JTC::literal};
+constexpr TokInfo END = {.type = TT::End, .context = JTC::none};
 
 // ── read_all helper ───────────────────────────────────────────────────────────
 
@@ -68,33 +38,25 @@ using TokenSeq = std::vector<TokInfo>;
 using ReadResult = std::variant<TokenSeq, ser20::Error>;
 
 static auto read_all(std::string_view input) -> ReadResult {
-  ser20::json::Reader<> r;
-  r.reset(input);
+  ser20::json::SimpleReader r;
+  ser20::json::SimpleReader::state_type s;
+
+  r.reset(s, input);
   TokenSeq seq;
   for (;;) {
-    auto res = r.next_token();
+    auto res = r.next_token(s);
     if (!res) return res.error();
 
-    const auto& tok = r.current_token();
+    const auto& tok = r.current_token(s);
     auto ctx = static_cast<JTC>(tok.context);
     seq.push_back({tok.type, ctx});
 
     switch (tok.type) {
       case TT::ObjectBegin:
-      case TT::ArrayBegin: {
-        auto adv = r.advance(1);
-        if (!adv) return adv.error();
-        break;
-      }
-      case TT::ScalarBegin: {
-        auto n = scalar_advance(input, tok.offset, ctx);
-        auto adv = r.advance(n);
-        if (!adv) return adv.error();
-        break;
-      }
+      case TT::ArrayBegin:
+      case TT::Scalar:
       case TT::ObjectEnd:
       case TT::ArrayEnd:
-        break;
       case TT::End:
         return seq;
     }
@@ -428,84 +390,4 @@ TEST(ReaderError, UnclosedArray) { expect_error("[1,2", EC::unexpected_eof); }
 
 TEST(ReaderError, UnclosedNestedObject) {
   expect_error(R"({"a":{"b":1})", EC::unexpected_eof);
-}
-
-// ── Error: depth limit ────────────────────────────────────────────────────────
-
-TEST(ReaderError, DepthLimitExceededObject) {
-  // MaxDepth=2: two levels ok, third triggers depth_limit_exceeded
-  ser20::json::Reader<2> r;
-  r.reset(R"({"a":{"b":{}}})"sv);
-
-  // depth 1: {
-  ASSERT_TRUE(r.next_token().has_value());
-  EXPECT_EQ(r.current_token().type, TT::ObjectBegin);
-  ASSERT_TRUE(r.advance(1).has_value());
-
-  // key "a"
-  ASSERT_TRUE(r.next_token().has_value());
-  EXPECT_EQ(r.current_token().type, TT::ScalarBegin);
-  ASSERT_TRUE(r.advance(3).has_value());  // `"a"`
-
-  // depth 2: {
-  ASSERT_TRUE(r.next_token().has_value());
-  EXPECT_EQ(r.current_token().type, TT::ObjectBegin);
-  ASSERT_TRUE(r.advance(1).has_value());
-
-  // key "b"
-  ASSERT_TRUE(r.next_token().has_value());
-  EXPECT_EQ(r.current_token().type, TT::ScalarBegin);
-  ASSERT_TRUE(r.advance(3).has_value());
-
-  // depth 3: { — should fail
-  auto res = r.next_token();
-  ASSERT_FALSE(res.has_value());
-  EXPECT_EQ(res.error().code, EC::depth_limit_exceeded);
-}
-
-TEST(ReaderError, DepthLimitExceededArray) {
-  ser20::json::Reader<2> r;
-  r.reset("[[["sv);
-
-  ASSERT_TRUE(r.next_token().has_value());  // depth 1: [
-  ASSERT_TRUE(r.advance(1).has_value());
-  ASSERT_TRUE(r.next_token().has_value());  // depth 2: [
-  ASSERT_TRUE(r.advance(1).has_value());
-
-  auto res = r.next_token();  // depth 3: [ — fails
-  ASSERT_FALSE(res.has_value());
-  EXPECT_EQ(res.error().code, EC::depth_limit_exceeded);
-}
-
-// ── advance() API errors ──────────────────────────────────────────────────────
-
-TEST(ReaderAdvance, AdvanceOnObjectEnd) {
-  ser20::json::Reader<> r;
-  r.reset("{}"sv);
-  ASSERT_TRUE(r.next_token().has_value());  // OB
-  ASSERT_TRUE(r.advance(1).has_value());
-  ASSERT_TRUE(r.next_token().has_value());  // OE
-  auto res = r.advance(0);
-  ASSERT_FALSE(res.has_value());
-  EXPECT_EQ(res.error().code, EC::unexpected_token);
-}
-
-TEST(ReaderAdvance, AdvanceOnEnd) {
-  ser20::json::Reader<> r;
-  r.reset("42"sv);
-  ASSERT_TRUE(r.next_token().has_value());  // SBl
-  ASSERT_TRUE(r.advance(2).has_value());
-  ASSERT_TRUE(r.next_token().has_value());  // End
-  auto res = r.advance(0);
-  ASSERT_FALSE(res.has_value());
-  EXPECT_EQ(res.error().code, EC::unexpected_token);
-}
-
-TEST(ReaderAdvance, AdvancePastEndOfInput) {
-  ser20::json::Reader<> r;
-  r.reset("42"sv);
-  ASSERT_TRUE(r.next_token().has_value());  // SBl at offset 0
-  auto res = r.advance(100);
-  ASSERT_FALSE(res.has_value());
-  EXPECT_EQ(res.error().code, EC::unexpected_eof);
 }

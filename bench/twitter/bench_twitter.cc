@@ -38,7 +38,7 @@ struct SkipAnyValueImpl {
   auto operator()(Context& ctx) const -> Result<void, Error> {
     auto& reader = ctx.reader();
     const auto& tok = reader.current_token();
-    if (tok.type == TokenType::ScalarBegin) {
+    if (tok.type == TokenType::Scalar) {
       auto r = scan::detail::scan_scalar_for(reader, tok);
       if (!r) return unexpected(r.error());
       return {};

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <string_view>
 
 #include "ser20/reader_base.hh"
@@ -25,22 +26,14 @@ struct AnyDecodeContext {
 
 };  // namespace detail
 
-template <class T, ReaderConcept R>
-struct DecodeContext {
-  template <class, ReaderConcept>
-  friend struct DecodeContext;
+template <ReaderConcept R>
+struct DecodeContextBase {
+  using reader_state_type = typename R::state_type;
+  using input_type = typename R::input_type;
 
-  explicit DecodeContext(T& value, R& reader, std::size_t occurrences_val = 0)
-      : occurrences(occurrences_val),
-        reader_(reader),
-        input_(reader.input()),
-        elem_(value) {}
-
-  // Probe-only constructor.
-  // Declared but intentionally not defined.
-  // Used only in unevaluated requires expressions.
-  /* implicit */ DecodeContext(detail::AnyContext /* context */);
-  /* implicit */ DecodeContext(detail::AnyDecodeContext /* context */);
+  explicit DecodeContextBase(R& reader, reader_state_type& state,
+                             std::size_t occurrences_val = 0) noexcept
+      : reader_(reader), reader_state_(state), occurrences_(occurrences_val) {}
 
   [[nodiscard]]
   auto reader() noexcept -> R& {
@@ -51,6 +44,61 @@ struct DecodeContext {
   auto reader() const noexcept -> const R& {
     return reader_.get();
   }
+
+  [[nodiscard]]
+  auto reader_state() noexcept -> reader_state_type& {
+    return reader_state_.get();
+  }
+
+  [[nodiscard]]
+  auto reader_state() const noexcept -> const reader_state_type& {
+    return reader_state_.get();
+  }
+
+  [[nodiscard]]
+  auto input() const noexcept -> input_type {
+    return reader().input(reader_state());
+  }
+
+  [[nodiscard]]
+  auto occurrences() const noexcept -> std::size_t {
+    return occurrences_;
+  }
+
+  auto set_occurrences(std::size_t value) noexcept -> void {
+    occurrences_ = value;
+  }
+
+  auto increment_occurrences() noexcept -> void { ++occurrences_; }
+
+ protected:
+  std::reference_wrapper<R> reader_;                        // NOLINT
+  std::reference_wrapper<reader_state_type> reader_state_;  // NOLINT
+  std::size_t occurrences_{0};                              // NOLINT
+};
+
+template <class T, ReaderConcept R, bool First = false>
+struct DecodeContext;
+
+template <class T, ReaderConcept R>
+struct DecodeContext<T, R, true> : public DecodeContextBase<R> {
+  template <class, ReaderConcept, bool>
+  friend struct DecodeContext;
+
+  using base_type = DecodeContextBase<R>;
+  using reader_state_type = typename base_type::reader_state_type;
+
+  static constexpr bool first_scan = true;
+
+  explicit DecodeContext(T& value, R& reader, reader_state_type& state,
+                         std::size_t occurrences_val = 0) noexcept
+      : base_type(reader, state, occurrences_val), elem_(value) {}
+
+  // Probe-only constructor.
+  // Declared but intentionally not defined.
+  // Used only in unevaluated requires expressions.
+  /* implicit */ DecodeContext(detail::AnyContext);
+  /* implicit */ DecodeContext(detail::AnyDecodeContext);
 
   [[nodiscard]]
   auto elem() noexcept -> T& {
@@ -62,52 +110,94 @@ struct DecodeContext {
     return elem_.get();
   }
 
-  [[nodiscard]]
-  auto input() const noexcept -> std::string_view {
-    return input_;
-  }
-
-  std::size_t occurrences{0};
-
  private:
-  std::reference_wrapper<R> reader_;
-  std::string_view input_{};
   std::reference_wrapper<T> elem_;
 };
 
-template <ReaderConcept R>
-struct DecodeContext<void, R> {
-  template <class, ReaderConcept>
+template <class T, ReaderConcept R>
+struct DecodeContext<T, R, false> : public DecodeContextBase<R> {
+  template <class, ReaderConcept, bool>
   friend struct DecodeContext;
 
-  template <class T>
-  /* implicit */ DecodeContext(const DecodeContext<T, R>& other)
-      : reader_(other.reader_), input_(other.input_) {}
+  using base_type = DecodeContextBase<R>;
+  using reader_state_type = typename base_type::reader_state_type;
+
+  static constexpr bool first_scan = false;
+
+  explicit DecodeContext(T& value, R& reader, reader_state_type& state,
+                         std::size_t occurrences_val = 0) noexcept
+      : base_type(reader, state, occurrences_val), elem_(value) {}
+
+  template <bool OtherFirst>
+  /* implicit */ DecodeContext(
+      const DecodeContext<T, R, OtherFirst>& other) noexcept
+      : base_type(other.reader(), other.reader_state(), other.occurrences()),
+        elem_(other.elem()) {}
 
   // Probe-only constructor.
   // Declared but intentionally not defined.
   // Used only in unevaluated requires expressions.
-  /* implicit */ DecodeContext(detail::AnyContext /* context */);
-  /* implicit */ DecodeContext(detail::AnyDecodeContext /* context */);
+  /* implicit */ DecodeContext(detail::AnyContext);
+  /* implicit */ DecodeContext(detail::AnyDecodeContext);
 
   [[nodiscard]]
-  auto reader() noexcept -> R& {
-    return reader_.get();
+  auto elem() noexcept -> T& {
+    return elem_.get();
   }
 
   [[nodiscard]]
-  auto reader() const noexcept -> const R& {
-    return reader_.get();
-  }
-
-  [[nodiscard]]
-  auto input() const noexcept -> std::string_view {
-    return input_;
+  auto elem() const noexcept -> T& {
+    return elem_.get();
   }
 
  private:
-  std::reference_wrapper<R> reader_;
-  std::string_view input_{};
+  std::reference_wrapper<T> elem_;
+};
+
+template <ReaderConcept R>
+struct DecodeContext<void, R, true> : public DecodeContextBase<R> {
+  template <class, ReaderConcept, bool>
+  friend struct DecodeContext;
+
+  using base_type = DecodeContextBase<R>;
+
+  static constexpr bool first_scan = true;
+
+  template <class T>
+  /* implicit */ DecodeContext(const DecodeContext<T, R, true>& other) noexcept
+      : base_type(other.reader(), other.reader_state(), other.occurrences()) {}
+
+  // Probe-only constructor.
+  // Declared but intentionally not defined.
+  // Used only in unevaluated requires expressions.
+  /* implicit */ DecodeContext(detail::AnyContext);
+  /* implicit */ DecodeContext(detail::AnyDecodeContext);
+};
+
+template <ReaderConcept R>
+struct DecodeContext<void, R, false> : public DecodeContextBase<R> {
+  template <class, ReaderConcept, bool>
+  friend struct DecodeContext;
+
+  using base_type = DecodeContextBase<R>;
+
+  static constexpr bool first_scan = false;
+
+  template <class T, bool OtherFirst>
+  /* implicit */ DecodeContext(
+      const DecodeContext<T, R, OtherFirst>& other) noexcept
+      : base_type(other.reader(), other.reader_state(), other.occurrences()) {}
+
+  template <bool OtherFirst>
+  /* implicit */ DecodeContext(
+      const DecodeContext<void, R, OtherFirst>& other) noexcept
+      : base_type(other.reader(), other.reader_state(), other.occurrences()) {}
+
+  // Probe-only constructor.
+  // Declared but intentionally not defined.
+  // Used only in unevaluated requires expressions.
+  /* implicit */ DecodeContext(detail::AnyContext);
+  /* implicit */ DecodeContext(detail::AnyDecodeContext);
 };
 
 template <class T, WriterConcept W>

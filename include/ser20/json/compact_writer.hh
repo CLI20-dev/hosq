@@ -54,7 +54,7 @@ class CompactWriter {
       case TokenType::ArrayEnd:
         return end_container(request, FrameKind::array, ']');
 
-      case TokenType::ScalarBegin:
+      case TokenType::Scalar:
         return begin_scalar(request);
 
       case TokenType::End:

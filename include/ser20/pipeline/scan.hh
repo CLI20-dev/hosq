@@ -28,6 +28,40 @@ constexpr auto is_literal_end(char c) noexcept -> bool {
          c == ']' || c == '}';
 }
 
+[[nodiscard]]
+SER20_FUNCTION_ALWAYS_INLINE auto load_u64(const char* p) noexcept
+    -> std::uint64_t {
+  std::uint64_t v = 0;
+  std::memcpy(&v, p, sizeof(v));
+  return v;
+}
+
+[[nodiscard]]
+SER20_FUNCTION_ALWAYS_INLINE constexpr auto repeat_byte(unsigned char c) noexcept
+    -> std::uint64_t {
+  return std::uint64_t{0x0101010101010101ull} * c;
+}
+
+[[nodiscard]]
+SER20_FUNCTION_ALWAYS_INLINE constexpr auto has_zero_byte(
+    std::uint64_t x) noexcept -> bool {
+  return ((x - 0x0101010101010101ull) & ~x & 0x8080808080808080ull) != 0;
+}
+
+[[nodiscard]]
+SER20_FUNCTION_ALWAYS_INLINE constexpr auto has_byte(std::uint64_t x,
+                                                     unsigned char c) noexcept
+    -> bool {
+  return has_zero_byte(x ^ repeat_byte(c));
+}
+
+[[nodiscard]]
+SER20_FUNCTION_ALWAYS_INLINE constexpr auto has_quote_or_backslash(
+    std::uint64_t x) noexcept -> bool {
+  return has_byte(x, static_cast<unsigned char>('"')) ||
+         has_byte(x, static_cast<unsigned char>('\\'));
+}
+
 template <class Reader>
 SER20_FUNCTION_ALWAYS_INLINE auto find_string_end(const Reader& reader,
                                                   std::size_t quote_offset)
@@ -45,6 +79,32 @@ SER20_FUNCTION_ALWAYS_INLINE auto find_string_end(const Reader& reader,
 
   const char* p = base + quote_offset + 1;
 
+  while (static_cast<std::size_t>(end - p) >= 8) {
+    const std::uint64_t x = detail::load_u64(p);
+
+    if (!detail::has_quote_or_backslash(x)) [[likely]] {
+      p += 8;
+      continue;
+    }
+
+    while (p < end) {
+      const char c = *p++;
+
+      if (c == '"') {
+        return static_cast<std::size_t>((p - 1) - base);
+      }
+
+      if (c == '\\') {
+        if (p >= end) [[unlikely]] {
+          goto unexpected_eof;
+        }
+        ++p;
+      }
+    }
+
+    goto unexpected_eof;
+  }
+
   while (p < end) {
     const char c = *p++;
 
@@ -54,12 +114,13 @@ SER20_FUNCTION_ALWAYS_INLINE auto find_string_end(const Reader& reader,
 
     if (c == '\\') {
       if (p >= end) [[unlikely]] {
-        break;
+        goto unexpected_eof;
       }
       ++p;
     }
   }
 
+unexpected_eof:
   return unexpected(Error{
       .code = ErrorCode::unexpected_eof,
       .offset = quote_offset,
@@ -71,18 +132,43 @@ SER20_FUNCTION_ALWAYS_INLINE auto scan_literal(const Reader& reader,
                                                const Token& token)
     -> Result<std::string_view, Error> {
   const auto input = reader.input();
+
   if (token.length == unresolved_length) {
-    std::size_t end = token.offset;
-    while (end < input.size() && !is_literal_end(input[end])) {
-      ++end;
+    const std::size_t off = token.offset;
+
+    if (off >= input.size()) [[unlikely]] {
+      return unexpected(Error{
+          .code = ErrorCode::unexpected_eof,
+          .offset = off,
+      });
     }
-    token.length = end - token.offset;
-    auto advanced = reader.advance(token.length);
+
+    const char c = input[off];
+
+    std::size_t len = 0;
+
+    if (c == 't' || c == 'n') {
+      // true / null
+      len = 4;
+    } else if (c == 'f') {
+      // false
+      len = 5;
+    } else {
+      std::size_t end = off;
+      while (end < input.size() && !is_literal_end(input[end])) {
+        ++end;
+      }
+      len = end - off;
+    }
+
+    token.length = len;
+    auto advanced = reader.advance(len);
     if (!advanced) [[unlikely]] {
       token.length = unresolved_length;
       return unexpected(advanced.error());
     }
   }
+
   return input.substr(token.offset, token.length);
 }
 
@@ -115,7 +201,7 @@ SER20_FUNCTION_ALWAYS_INLINE auto scan_string(const Reader& reader,
 [[nodiscard]]
 SER20_FUNCTION_ALWAYS_INLINE constexpr auto is_literal_token(
     const Token& token) noexcept -> bool {
-  return token.type == TokenType::ScalarBegin &&
+  return token.type == TokenType::Scalar &&
          static_cast<JsonTokenContext>(token.context) ==
              JsonTokenContext::literal;
 }
@@ -123,7 +209,7 @@ SER20_FUNCTION_ALWAYS_INLINE constexpr auto is_literal_token(
 [[nodiscard]]
 SER20_FUNCTION_ALWAYS_INLINE constexpr auto is_string_token(
     const Token& token) noexcept -> bool {
-  return token.type == TokenType::ScalarBegin &&
+  return token.type == TokenType::Scalar &&
          static_cast<JsonTokenContext>(token.context) ==
              JsonTokenContext::string;
 }
@@ -232,7 +318,7 @@ SER20_FUNCTION_ALWAYS_INLINE auto scan_compound_by_tokens(
 
     const auto& current_token = reader.current_token();
     switch (current_token.type) {
-      case TokenType::ScalarBegin: {
+      case TokenType::Scalar: {
         auto scalar = scan_scalar_for(reader, current_token);
         if (!scalar) [[unlikely]] {
           return unexpected(scalar.error());

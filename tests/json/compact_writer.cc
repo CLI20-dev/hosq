@@ -22,7 +22,7 @@ using CW = ser20::json::CompactWriter<>;
 static auto wr_scalar(CW& w, std::string_view content, JTC ctx)
     -> ser20::Result<void, ser20::Error> {
   auto buf = w.write({.length = content.size(),
-                      .type = TT::ScalarBegin,
+                      .type = TT::Scalar,
                       .context = static_cast<uint8_t>(ctx)});
   if (!buf) return ser20::unexpected(buf.error());
   std::copy(content.begin(), content.end(), buf->data());
@@ -261,7 +261,7 @@ TEST(CompactWriterValid, CommitLessThanCapacity) {
   std::string out;
   CW w{out};
   auto buf = w.write({.length = 5,
-                      .type = TT::ScalarBegin,
+                      .type = TT::Scalar,
                       .context = static_cast<uint8_t>(JTC::string)});
   ASSERT_TRUE(buf.has_value());
   const std::string_view src = "hello";
@@ -359,7 +359,7 @@ TEST(CompactWriterError, CommitOverCapacity) {
   std::string out;
   CW w{out};
   ASSERT_TRUE(w.write({.length = 3,
-                       .type = TT::ScalarBegin,
+                       .type = TT::Scalar,
                        .context = static_cast<uint8_t>(JTC::literal)})
                   .has_value());
   auto res = w.commit(4);  // 4 > 3
@@ -373,7 +373,7 @@ TEST(CompactWriterError, WriteWhilePending) {
   std::string out;
   CW w{out};
   ASSERT_TRUE(w.write({.length = 3,
-                       .type = TT::ScalarBegin,
+                       .type = TT::Scalar,
                        .context = static_cast<uint8_t>(JTC::literal)})
                   .has_value());
   // second write without commit
@@ -388,7 +388,7 @@ TEST(CompactWriterError, ArrayEndWhilePending) {
   ASSERT_TRUE(wr_ab(w).has_value());
   // ScalarBegin but not yet committed
   ASSERT_TRUE(w.write({.length = 3,
-                       .type = TT::ScalarBegin,
+                       .type = TT::Scalar,
                        .context = static_cast<uint8_t>(JTC::literal)})
                   .has_value());
   auto res = wr_ae(w);
@@ -401,7 +401,7 @@ TEST(CompactWriterError, ObjectEndWhilePending) {
   CW w{out};
   ASSERT_TRUE(wr_ob(w).has_value());
   ASSERT_TRUE(w.write({.length = 1,
-                       .type = TT::ScalarBegin,
+                       .type = TT::Scalar,
                        .context = static_cast<uint8_t>(JTC::string)})
                   .has_value());
   auto res = wr_oe(w);  // pending active → error
@@ -496,7 +496,7 @@ TEST(CompactWriterError, ScalarBeginUnresolvedLength) {
   std::string out;
   CW w{out};
   auto res = w.write({.length = ser20::unresolved_length,
-                      .type = TT::ScalarBegin,
+                      .type = TT::Scalar,
                       .context = static_cast<uint8_t>(JTC::string)});
   ASSERT_FALSE(res.has_value());
   EXPECT_EQ(res.error().code, EC::unexpected_token);
@@ -506,7 +506,7 @@ TEST(CompactWriterError, ScalarBeginContextNone) {
   std::string out;
   CW w{out};
   auto res = w.write({.length = 3,
-                      .type = TT::ScalarBegin,
+                      .type = TT::Scalar,
                       .context = static_cast<uint8_t>(JTC::none)});
   ASSERT_FALSE(res.has_value());
   EXPECT_EQ(res.error().code, EC::unexpected_token);

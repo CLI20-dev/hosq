@@ -29,7 +29,7 @@ auto write_scalar(W& writer, std::string_view content, JTC context)
     -> ser20::Result<void, ser20::Error> {
   auto buffer = writer.write(ser20::WriteRequest{
       .length = content.size(),
-      .type = TT::ScalarBegin,
+      .type = TT::Scalar,
       .context = static_cast<std::uint8_t>(context),
   });
   if (!buffer) {

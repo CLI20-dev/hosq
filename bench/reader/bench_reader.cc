@@ -5,7 +5,7 @@
 #include <string>
 
 #include "allocation_counter.hh"
-#include "ser20/json/reader.hh"
+#include "ser20/json/simple_reader.hh"
 
 namespace {
 
@@ -186,61 +186,140 @@ static std::string make_twitter_like_escaped_random(size_t bytes) {
 // consistent state. Without advance() after ScalarBegin the reader position
 // is undefined and token iteration breaks.
 
-static size_t drain(json::Reader<>& reader, std::string_view input) {
+static inline uint64_t load_u64(const char* p) noexcept {
+  uint64_t v;
+  std::memcpy(&v, p, sizeof(v));
+  return v;
+}
+
+static inline uint64_t repeat_byte(unsigned char c) noexcept {
+  return 0x0101010101010101ull * static_cast<uint64_t>(c);
+}
+
+static inline bool has_zero_byte(uint64_t x) noexcept {
+  return ((x - 0x0101010101010101ull) & ~x & 0x8080808080808080ull) != 0;
+}
+
+static inline bool has_byte(uint64_t x, unsigned char c) noexcept {
+  return has_zero_byte(x ^ repeat_byte(c));
+}
+
+static inline bool has_string_stop(uint64_t x) noexcept {
+  return has_byte(x, '"') || has_byte(x, '\\');
+}
+
+static inline bool is_literal_stop(char c) noexcept {
+  return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ',' ||
+         c == ']' || c == '}';
+}
+
+static inline bool has_literal_stop(uint64_t x) noexcept {
+  return has_byte(x, ' ') || has_byte(x, '\t') || has_byte(x, '\r') ||
+         has_byte(x, '\n') || has_byte(x, ',') || has_byte(x, ']') ||
+         has_byte(x, '}');
+}
+
+static inline size_t scan_string_len_u64(std::string_view input,
+                                         size_t quote_offset) noexcept {
+  const char* const base = input.data();
+  const char* p = base + quote_offset + 1;
+  const char* const end = base + input.size();
+
+  // Full 8-byte blocks. Safe: only load while at least 8 bytes remain.
+  while (static_cast<size_t>(end - p) >= 8) {
+    const uint64_t x = load_u64(p);
+
+    if (!has_string_stop(x)) {
+      p += 8;
+      continue;
+    }
+
+    // Preserve exact escape behavior from the original loop.
+    for (;;) {
+      const char c = *p++;
+
+      if (c == '\\') {
+        if (p < end) {
+          ++p;
+          continue;
+        }
+        return static_cast<size_t>(p - (base + quote_offset));
+      }
+
+      if (c == '"') {
+        return static_cast<size_t>(p - (base + quote_offset));
+      }
+    }
+  }
+
+  // Tail.
+  while (p < end) {
+    const char c = *p++;
+
+    if (c == '\\') {
+      if (p < end) {
+        ++p;
+      }
+      continue;
+    }
+
+    if (c == '"') {
+      return static_cast<size_t>(p - (base + quote_offset));
+    }
+  }
+
+  return static_cast<size_t>(end - (base + quote_offset));
+}
+
+static inline size_t scan_literal_len_u64(std::string_view input,
+                                          size_t offset) noexcept {
+  const char* const base = input.data();
+  const char* p = base + offset;
+  const char* const end = base + input.size();
+
+  while (static_cast<size_t>(end - p) >= 8) {
+    const uint64_t x = load_u64(p);
+
+    if (!has_literal_stop(x)) {
+      p += 8;
+      continue;
+    }
+
+    while (p < end && !is_literal_stop(*p)) {
+      ++p;
+    }
+
+    return static_cast<size_t>(p - (base + offset));
+  }
+
+  while (p < end && !is_literal_stop(*p)) {
+    ++p;
+  }
+
+  return static_cast<size_t>(p - (base + offset));
+}
+
+static size_t drain(json::SimpleReader::state_type& s,
+                    json::SimpleReader& reader, std::string_view input) {
   size_t acc = 0;
+
   while (true) {
-    if (!reader.next_token()) break;
-    const auto& tok = reader.current_token();
+    if (!reader.next_token(s)) break;
+
+    const auto& tok = reader.current_token(s);
 
     switch (tok.type) {
       case TokenType::End:
-        return acc;
-
-      case TokenType::ScalarBegin: {
-        acc += tok.offset;
-        size_t len = 0;
-        if (static_cast<JsonTokenContext>(tok.context) ==
-            JsonTokenContext::string) {
-          size_t i = tok.offset + 1;  // skip opening "
-          while (i < input.size()) {
-            if (input[i] == '\\') {
-              i += 2;
-              continue;
-            }
-            if (input[i] == '"') {
-              ++i;
-              break;
-            }
-            ++i;
-          }
-          len = i - tok.offset;
-        } else {
-          size_t i = tok.offset;
-          while (i < input.size()) {
-            const char c = input[i];
-            if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ',' ||
-                c == ']' || c == '}')
-              break;
-            ++i;
-          }
-          len = i - tok.offset;
-        }
-        reader.advance(len);
-        break;
-      }
-
+      case TokenType::Scalar:
       case TokenType::ObjectBegin:
       case TokenType::ArrayBegin:
-        acc += tok.offset;
-        reader.advance(1);
-        break;
-
       case TokenType::ObjectEnd:
       case TokenType::ArrayEnd:
         acc += tok.offset;
         break;
     }
   }
+
   return acc;
 }
 
@@ -258,11 +337,12 @@ static void report_allocs(benchmark::State& state) {
   static void BM_##Name(benchmark::State& state) {                        \
     const std::string input = maker(static_cast<size_t>(state.range(0))); \
     bench::AllocationCounter::reset();                                    \
+    json::SimpleReader::state_type s;                                     \
     for (auto _ : state) {                                                \
-      json::Reader<> reader;                                              \
-      reader.reset(input);                                                \
+      json::SimpleReader reader;                                          \
+      reader.reset(s, input);                                             \
       benchmark::DoNotOptimize(input.data());                             \
-      size_t acc = drain(reader, input);                                  \
+      size_t acc = drain(s, reader, input);                               \
       benchmark::DoNotOptimize(acc);                                      \
       benchmark::ClobberMemory();                                         \
     }                                                                     \
@@ -271,7 +351,6 @@ static void report_allocs(benchmark::State& state) {
     report_allocs(state);                                                 \
   }
 
-DEFINE_BM(WhitespaceSparse, make_whitespace_sparse)
 DEFINE_BM(StructuralSparse, make_structural_sparse)
 DEFINE_BM(FlatCompactObject, make_flat_object)
 DEFINE_BM(PrettyObject, make_pretty_object)
@@ -297,11 +376,12 @@ static const std::string kTwitterJson = []() {
 
 static void BM_TwitterJson(benchmark::State& state) {
   bench::AllocationCounter::reset();
+  json::SimpleReader::state_type s;
   for (auto _ : state) {
-    json::Reader<> reader;
-    reader.reset(kTwitterJson);
+    json::SimpleReader reader;
+    reader.reset(s, kTwitterJson);
     benchmark::DoNotOptimize(kTwitterJson.data());
-    size_t acc = drain(reader, kTwitterJson);
+    size_t acc = drain(s, reader, kTwitterJson);
     benchmark::DoNotOptimize(acc);
     benchmark::ClobberMemory();
   }
@@ -316,9 +396,6 @@ BENCHMARK(BM_TwitterJson);
 
 #define REGISTER(BM) BENCHMARK(BM)->Arg(1 << 20)->Arg(8 << 20)->Arg(64 << 20)
 
-REGISTER(BM_WhitespaceSparse);
-REGISTER(BM_StructuralSparse);
-REGISTER(BM_FlatCompactObject);
 REGISTER(BM_PrettyObject);
 REGISTER(BM_LongStringNoEscape);
 REGISTER(BM_EscapedStringHeavy);

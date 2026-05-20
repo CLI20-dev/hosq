@@ -95,21 +95,6 @@ struct StepOutput<Result<T, Error>> {
 template <class R>
 using step_output_t = typename StepOutput<std::remove_cvref_t<R>>::type;
 
-/// Wraps `value` in a successful `Result<T, Error>`, for use as a normalized
-/// pipeline step output.
-template <class T>
-[[nodiscard]]
-constexpr auto expected(T&& value) -> Result<std::remove_cvref_t<T>, Error> {
-  return Result<std::remove_cvref_t<T>, Error>{std::forward<T>(value)};
-}
-
-/// Returns a successful `Result<void, Error>`, for use as a normalized pipeline
-/// step output.
-[[nodiscard]]
-constexpr auto expected() -> Result<void, Error> {
-  return Result<void, Error>{};
-}
-
 }  // namespace detail
 
 template <auto... Fns>
@@ -132,32 +117,93 @@ struct TailResultType<void, Context, Fn...> {
 template <class Value, class Context, auto... Fn>
 using tail_result_t = typename TailResultType<Value, Context, Fn...>::type;
 
+template <class R>
+struct LiftResult {
+  using type = Result<std::remove_cvref_t<R>, Error>;
+};
+
+template <>
+struct LiftResult<void> {
+  using type = Result<void, Error>;
+};
+
+template <class T>
+struct LiftResult<Result<T, Error>> {
+  using type = Result<T, Error>;
+};
+
+template <class R>
+using lift_result_t = typename LiftResult<std::remove_cvref_t<R>>::type;
+
+template <class R>
+constexpr auto lift_plain_success(R&& value) {
+  using Clean = std::remove_cvref_t<R>;
+
+  if constexpr (Ser20ResultType<Clean>) {
+    return std::forward<R>(value);
+  } else {
+    return Result<Clean, Error>{std::forward<R>(value)};
+  }
+}
+
+template <class R>
+constexpr auto lift_error(Error error) {
+  using Out = lift_result_t<R>;
+  return Out{unexpected(std::move(error))};
+}
+
 template <auto... FnTail, class Output, class Context>
 static constexpr auto continue_result(Result<Output, Error> next, Context& ctx) {
+  using TailRaw = detail::tail_result_t<Output, Context, FnTail...>;
+  using TailOut = detail::lift_result_t<TailRaw>;
+
   if (!next) [[unlikely]] {
-    using TailResult = detail::tail_result_t<Output, Context, FnTail...>;
-    return TailResult{unexpected(std::move(next).error())};
+    return detail::lift_error<TailRaw>(std::move(next).error());
   }
 
   if constexpr (std::same_as<Output, void>) {
-    return Pipeline<FnTail...>::invoke(ctx);
+    if constexpr (std::same_as<TailRaw, void>) {
+      Pipeline<FnTail...>::invoke(ctx);
+      return TailOut{};
+    } else {
+      return detail::lift_plain_success(Pipeline<FnTail...>::invoke(ctx));
+    }
   } else {
-    return Pipeline<FnTail...>::invoke(std::move(*next), ctx);
+    if constexpr (std::same_as<TailRaw, void>) {
+      Pipeline<FnTail...>::invoke(std::move(*next), ctx);
+      return TailOut{};
+    } else {
+      return detail::lift_plain_success(
+          Pipeline<FnTail...>::invoke(std::move(*next), ctx));
+    }
   }
 }
 
 template <auto... FnTail, class Output, class Context>
 static constexpr auto continue_result(Result<Output, Error> next,
                                       const Context& ctx) {
+  using TailRaw = detail::tail_result_t<Output, const Context, FnTail...>;
+  using TailOut = detail::lift_result_t<TailRaw>;
+
   if (!next) [[unlikely]] {
-    using TailResult = detail::tail_result_t<Output, const Context, FnTail...>;
-    return TailResult{unexpected(std::move(next).error())};
+    return detail::lift_error<TailRaw>(std::move(next).error());
   }
 
   if constexpr (std::same_as<Output, void>) {
-    return Pipeline<FnTail...>::invoke(ctx);
+    if constexpr (std::same_as<TailRaw, void>) {
+      Pipeline<FnTail...>::invoke(ctx);
+      return TailOut{};
+    } else {
+      return detail::lift_plain_success(Pipeline<FnTail...>::invoke(ctx));
+    }
   } else {
-    return Pipeline<FnTail...>::invoke(std::move(*next), ctx);
+    if constexpr (std::same_as<TailRaw, void>) {
+      Pipeline<FnTail...>::invoke(std::move(*next), ctx);
+      return TailOut{};
+    } else {
+      return detail::lift_plain_success(
+          Pipeline<FnTail...>::invoke(std::move(*next), ctx));
+    }
   }
 }
 
@@ -169,15 +215,32 @@ static constexpr auto continue_result(Result<Output, Error> next,
  *
  * Each step receives the output of the previous step as its input. Steps may
  * return a plain value, `void`, `Result<Out, Error>`, or `Result<void, Error>`.
- * When a step returns a `Result` error it is propagated immediately and
- * the remaining steps are not invoked.
+ *
+ * Plain values are forwarded directly. Terminal plain values are preserved as
+ * the pipeline result; they are not normalized to `Result<T, Error>`.
+ *
+ * When a step returns `Result<T, Error>`, errors are propagated immediately.
+ * If the result is successful, the unwrapped value `T` is passed to the tail
+ * pipeline. The tail result is then lifted into `Result<U, Error>`, unless it
+ * is already a `Result<U, Error>`.
+ *
+ * This means:
+ * - a pure match pipeline may return `bool`;
+ * - a scan-then-match pipeline may return `Result<bool, Error>`;
+ * - a pure action pipeline may return `void`;
+ * - an error-capable action pipeline may return `Result<void, Error>`.
+ *
+ * A terminal `bool` is commonly used by decoder pipelines as a match/retry
+ * result: `true` means matched, `false` means not matched.
  *
  * **Decoder role** (validated by `analyze_decoder()`): exactly one step across
  * the pipeline must declare `storage_type<Input>`. That type becomes the
- * decoder's storage type; it need not be the terminal step.
+ * decoder's storage type; it need not be the terminal step. The terminal output
+ * must be `void`, `bool`, `Result<void, Error>`, or `Result<bool, Error>`.
  *
  * **Encoder role** (validated by `analyze_encoder()`): no step may declare
- * `storage_type<Input>`.
+ * `storage_type<Input>`. The terminal output must be `void` or
+ * `Result<void, Error>`.
  *
  * @tparam Fns Pack of constexpr action objects forming the pipeline.
  */
@@ -201,15 +264,15 @@ struct Pipeline {
    * - `Fn(input) -> Out`
    *
    * `Result` errors are propagated immediately; remaining steps are not
-   * invoked. Plain return values are forwarded without error-checking. A
-   * terminal plain value is normalized to `Result<Out, Error>`; a terminal
-   * `void` return is normalized to `Result<void, Error>`.
+   * invoked. Plain return values are forwarded without error-checking.
    *
    * @tparam Input  Input value type for the first step.
    * @tparam Context Mutable context type used by context-aware steps.
    * @param input Input value consumed by the first step.
    * @param ctx Mutable pipeline context.
-   * @return The final pipeline result as `Result<Final, Error>`.
+   * @return The final pipeline result. Plain terminal values are returned as-is.
+   * If any earlier step returns `Result<T, Error>`, errors are propagated and
+   * the tail result is lifted to `Result<U, Error>`.
    */
   template <class Input, class Context>
   [[nodiscard]]
@@ -227,7 +290,7 @@ struct Pipeline {
             { Fn(std::move(i), c) } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return Fn(std::move(input), ctx), Result<void, Error>{};
+          return Fn(std::move(input), ctx);
         } else {
           return Fn(std::move(input), ctx), Pipeline<FnTail...>::invoke(ctx);
         }
@@ -250,7 +313,7 @@ struct Pipeline {
             { Fn(std::move(i), c) };
           }) {
         if constexpr (last_function) {
-          return detail::expected(Fn(std::move(input), ctx));
+          return Fn(std::move(input), ctx);
         } else {
           return Pipeline<FnTail...>::invoke(Fn(std::move(input), ctx), ctx);
         }
@@ -261,7 +324,7 @@ struct Pipeline {
             { Fn(std::move(i)) } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return Fn(std::move(input)), Result<void, Error>{};
+          return Fn(std::move(input));
         } else {
           return Fn(std::move(input)), Pipeline<FnTail...>::invoke(ctx);
         }
@@ -283,7 +346,7 @@ struct Pipeline {
             { Fn(std::move(i)) };
           }) {
         if constexpr (last_function) {
-          return detail::expected(Fn(std::move(input)));
+          return Fn(std::move(input));
         } else {
           return Pipeline<FnTail...>::invoke(Fn(std::move(input)), ctx);
         }
@@ -317,15 +380,16 @@ struct Pipeline {
    * - `Fn(input) -> Out`
    *
    * `Result` errors are propagated immediately; remaining steps are not
-   * invoked. Plain return values are forwarded without error-checking. A
-   * terminal plain value is normalized to `Result<Out, Error>`; a terminal
-   * `void` return is normalized to `Result<void, Error>`.
+   * invoked. Plain return values are forwarded without error-checking.
    *
    * @tparam Input  Input value type for the first step.
    * @tparam Context Const context type used by context-aware steps.
    * @param input Input value consumed by the first step.
    * @param ctx Const pipeline context.
-   * @return The final pipeline result as `Result<Final, Error>`.
+   * @return The final pipeline result. Plain terminal values are returned as-is.
+   * If any earlier step returns `Result<T, Error>`, errors are propagated and
+   * the tail result is lifted to `Result<U, Error>`.
+   *
    */
   template <class Input, class Context>
   [[nodiscard]]
@@ -343,7 +407,7 @@ struct Pipeline {
             { Fn(std::move(i), c) } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return Fn(std::move(input), ctx), Result<void, Error>{};
+          return Fn(std::move(input), ctx);
         } else {
           return Fn(std::move(input), ctx), Pipeline<FnTail...>::invoke(ctx);
         }
@@ -366,7 +430,7 @@ struct Pipeline {
             { Fn(std::move(i), c) };
           }) {
         if constexpr (last_function) {
-          return detail::expected(Fn(std::move(input), ctx));
+          return Fn(std::move(input), ctx);
         } else {
           return Pipeline<FnTail...>::invoke(Fn(std::move(input), ctx), ctx);
         }
@@ -377,7 +441,7 @@ struct Pipeline {
             { Fn(std::move(i)) } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return Fn(std::move(input)), Result<void, Error>{};
+          return Fn(std::move(input));
         } else {
           return Fn(std::move(input)), Pipeline<FnTail...>::invoke(ctx);
         }
@@ -399,7 +463,7 @@ struct Pipeline {
             { Fn(std::move(i)) };
           }) {
         if constexpr (last_function) {
-          return detail::expected(Fn(std::move(input)));
+          return Fn(std::move(input));
         } else {
           return Pipeline<FnTail...>::invoke(Fn(std::move(input)), ctx);
         }
@@ -434,13 +498,13 @@ struct Pipeline {
    * - `Fn() -> Out`
    *
    * `Result` errors are propagated immediately; remaining steps are not
-   * invoked. Plain return values are forwarded without error-checking. A
-   * terminal plain value is normalized to `Result<Out, Error>`; a terminal
-   * `void` return is normalized to `Result<void, Error>`.
+   * invoked. Plain return values are forwarded without error-checking.
    *
    * @tparam Context Mutable context type used by context-aware steps.
    * @param ctx Mutable pipeline context.
-   * @return The final pipeline result as `Result<Final, Error>`.
+   * @return The final pipeline result. Plain terminal values are returned as-is.
+   * If any earlier step returns `Result<T, Error>`, errors are propagated and
+   * the tail result is lifted to `Result<U, Error>`.
    */
   template <class Context>
   [[nodiscard]]
@@ -456,7 +520,7 @@ struct Pipeline {
             { Fn(c) } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return Fn(ctx), Result<void, Error>{};
+          return Fn(ctx);
         } else {
           return Fn(ctx), Pipeline<FnTail...>::invoke(ctx);
         }
@@ -478,7 +542,7 @@ struct Pipeline {
             { Fn(c) };
           }) {
         if constexpr (last_function) {
-          return detail::expected(Fn(ctx));
+          return Fn(ctx);
         } else {
           return Pipeline<FnTail...>::invoke(Fn(ctx), ctx);
         }
@@ -489,7 +553,7 @@ struct Pipeline {
             { Fn() } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return Fn(), Result<void, Error>{};
+          return Fn();
         } else {
           return Fn(), Pipeline<FnTail...>::invoke(ctx);
         }
@@ -511,7 +575,7 @@ struct Pipeline {
             { Fn() };
           }) {
         if constexpr (last_function) {
-          return detail::expected(Fn());
+          return Fn();
         } else {
           return Pipeline<FnTail...>::invoke(Fn(), ctx);
         }
@@ -546,13 +610,13 @@ struct Pipeline {
    * - `Fn() -> Out`
    *
    * `Result` errors are propagated immediately; remaining steps are not
-   * invoked. Plain return values are forwarded without error-checking. A
-   * terminal plain value is normalized to `Result<Out, Error>`; a terminal
-   * `void` return is normalized to `Result<void, Error>`.
+   * invoked. Plain return values are forwarded without error-checking.
    *
    * @tparam Context Const context type used by context-aware steps.
    * @param ctx Const pipeline context.
-   * @return The final pipeline result as `Result<Final, Error>`.
+   * @return The final pipeline result. Plain terminal values are returned as-is.
+   * If any earlier step returns `Result<T, Error>`, errors are propagated and
+   * the tail result is lifted to `Result<U, Error>`.
    */
   template <class Context>
   [[nodiscard]]
@@ -569,7 +633,7 @@ struct Pipeline {
             { Fn(c) } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return Fn(ctx), Result<void, Error>{};
+          return Fn(ctx);
         } else {
           return Fn(ctx), Pipeline<FnTail...>::invoke(ctx);
         }
@@ -591,7 +655,7 @@ struct Pipeline {
             { Fn(c) };
           }) {
         if constexpr (last_function) {
-          return detail::expected(Fn(ctx));
+          return Fn(ctx);
         } else {
           return Pipeline<FnTail...>::invoke(Fn(ctx), ctx);
         }
@@ -602,7 +666,7 @@ struct Pipeline {
             { Fn() } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return Fn(), Result<void, Error>{};
+          return Fn();
         } else {
           return Fn(), Pipeline<FnTail...>::invoke(ctx);
         }
@@ -624,7 +688,7 @@ struct Pipeline {
             { Fn() };
           }) {
         if constexpr (last_function) {
-          return detail::expected(Fn());
+          return Fn();
         } else {
           return Pipeline<FnTail...>::invoke(Fn(), ctx);
         }
@@ -746,8 +810,9 @@ struct Pipeline {
 
     if constexpr (sizeof...(FnTail) == 0) {
       static_assert(
-          std::same_as<after_type, void>,
-          "Decoder terminal action must return void or Result<void, Error>");
+          std::same_as<after_type, void> || std::same_as<after_type, bool>,
+          "Decoder terminal action must return void, bool, Result<void, Error>, "
+          "or Result<bool, Error>");
       static_assert(
           !std::same_as<NextStorage, detail::NoStorage>,
           "At least one decoder pipeline step must define storage_type<Input>");
@@ -799,8 +864,7 @@ struct Pipeline {
     if constexpr (sizeof...(FnTail) == 0) {
       static_assert(
           std::same_as<after_type, void>,
-          "Encoder terminal action must return void or Result<void, Error>");
-
+          "Encoder terminal action must return void, Result<void, Error>");
       return std::make_tuple(true, std::type_identity<void>{});
     } else {
       return analyze_encoder_impl<after_type, FnTail...>();

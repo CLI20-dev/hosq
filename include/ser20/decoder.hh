@@ -6,7 +6,6 @@
 
 #include "ser20/as_tuple.hh"
 #include "ser20/element.hh"
-#include "ser20/json/reader.hh"
 #include "ser20/reader_base.hh"
 
 namespace ser20 {
@@ -302,7 +301,7 @@ namespace detail {
 template <ReaderConcept R>
 auto skip_json_scalar(R& reader) -> Result<void, Error> {
   const auto& tok = reader.current_token();
-  if (tok.type != TokenType::ScalarBegin) {
+  if (tok.type != TokenType::Scalar) {
     return unexpected(Error{.code = ErrorCode::unknown_member});
   }
   const auto sv = reader.input();
@@ -337,7 +336,7 @@ auto skip_json_scalar(R& reader) -> Result<void, Error> {
 /// Free-function convenience wrapper: decodes a JSON object into a struct whose
 /// members are ser20::Entry fields. Reader type R defaults to json::Reader<>.
 /// Free-function convenience wrapper.
-template <ReaderConcept R = json::Reader<>, class T>
+template <ReaderConcept R, class T>
   requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
 [[nodiscard]]
 auto decode_into(T& t, typename R::input_type input) -> Result<void, Error> {

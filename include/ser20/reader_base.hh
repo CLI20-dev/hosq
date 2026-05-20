@@ -14,7 +14,7 @@ enum class TokenType : uint8_t {
   ObjectEnd,
   ArrayBegin,
   ArrayEnd,
-  ScalarBegin,
+  Scalar,
   End,
 };
 
@@ -36,17 +36,35 @@ struct Token {
 
 template <class T>
 concept ReaderConcept =
-    std::default_initializable<T> && std::is_copy_constructible_v<T> &&
-    std::is_copy_assignable_v<T> &&
-    requires(T t, const T ct, typename T::input_type input) {
+    std::default_initializable<T> && std::copy_constructible<T> &&
+    std::assignable_from<T&, const T&> &&
+    requires(const T reader, typename T::state_type state,
+             const typename T::state_type const_state,
+             typename T::input_type input) {
       typename T::input_type;
-      { t.reset(input) } -> std::same_as<void>;
-      { t.next_token() } -> std::same_as<Result<void, Error>>;
-      { t.current_token() } -> std::same_as<Token&>;
-      { ct.current_token() } -> std::same_as<const Token&>;
-      { t.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
-      { ct.advance(std::size_t{}) } -> std::same_as<Result<void, Error>>;
-      { ct.input() } -> std::same_as<typename T::input_type>;
+      typename T::state_type;
+      { reader.reset(state, input) } -> std::same_as<void>;
+      { reader.next_token(state) } -> std::same_as<Result<void, Error>>;
+      { reader.current_token(state) } -> std::same_as<Token&>;
+      { reader.current_token(const_state) } -> std::same_as<const Token&>;
+      { reader.input(const_state) } -> std::same_as<typename T::input_type>;
+    };
+
+template <class T>
+concept TokenReaderConcept =
+    ReaderConcept<T> && requires(const T reader, typename T::state_type state) {
+      { reader.read_one(state) } -> std::same_as<Result<Token, Error>>;
+      { reader.read_value(state) } -> std::same_as<Result<Token, Error>>;
+      {
+        reader.read_array_value_or_end(state)
+      } -> std::same_as<Result<Token, Error>>;
+      {
+        reader.read_object_key(state, true)
+      } -> std::same_as<Result<Token, Error>>;
+      {
+        reader.read_object_colon_then_value(state)
+      } -> std::same_as<Result<Token, Error>>;
+      { reader.read_value_end(state) } -> std::same_as<Result<Token, Error>>;
     };
 
 enum class Format : uint8_t {
