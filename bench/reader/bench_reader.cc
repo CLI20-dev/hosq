@@ -5,11 +5,11 @@
 #include <string>
 
 #include "allocation_counter.hh"
-#include "ser20/json/simple_reader.hh"
+#include "hosq/json/simple_reader.hh"
 
 namespace {
 
-using namespace ser20;
+using namespace hosq;
 
 // ─── Input generators ────────────────────────────────────────────────────────
 

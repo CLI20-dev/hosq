@@ -1,6 +1,6 @@
-# ser20 Pipeline I/O Model
+# hosq Pipeline I/O Model
 
-このメモは、ser20 の各 primitive について、**pipeline input** と **Context 由来の Reader / Writer / value** を明確に分離した整理です。
+このメモは、hosq の各 primitive について、**pipeline input** と **Context 由来の Reader / Writer / value** を明確に分離した整理です。
 
 基本ルール:
 
@@ -24,7 +24,7 @@ Fn(ctx)
 原則として pipeline input は `void`。
 
 ```cpp
-[x] ser20::scan::scalar
+[x] hosq::scan::scalar
 // pipeline input: void
 // context input: DecodeContext<T, R>& または const DecodeContext<T, R>&
 // context source: ctx.reader()
@@ -35,7 +35,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[x] ser20::scan::string
+[x] hosq::scan::string
 // pipeline input: void
 // context input: DecodeContext<T, R>& または const DecodeContext<T, R>&
 // context source: ctx.reader()
@@ -46,7 +46,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[x] ser20::scan::literal
+[x] hosq::scan::literal
 // pipeline input: void
 // context input: DecodeContext<T, R>& または const DecodeContext<T, R>&
 // context source: ctx.reader()
@@ -59,7 +59,7 @@ Fn(ctx)
 ここまでは `Reader::advance()` だけで済むので、const context path も成立し得る。
 
 ```cpp
-[x] ser20::scan::object
+[x] hosq::scan::object
 // pipeline input: void
 // context input: DecodeContext<T, R>&
 // context source: ctx.reader()
@@ -70,7 +70,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[x] ser20::scan::array
+[x] hosq::scan::array
 // pipeline input: void
 // context input: DecodeContext<T, R>&
 // context source: ctx.reader()
@@ -81,41 +81,41 @@ Fn(ctx)
 ```
 
 ```cpp
-[-] ser20::scan::object_tokens<N>
+[-] hosq::scan::object_tokens<N>
 // pipeline input: void
 // context input: DecodeContext<T, R>&
 // context source: ctx.reader()
-// output: ser20::TokenView<N>
+// output: hosq::TokenView<N>
 // reader.next_token() を使って object 全体を消費し、object 内 token を固定長 buffer に積む
 // mutable context 必須
 ```
 
 ```cpp
-[-] ser20::scan::object_tokens
+[-] hosq::scan::object_tokens
 // pipeline input: void
 // context input: DecodeContext<T, R>&
 // context source: ctx.reader()
-// output: ser20::TokenVector
+// output: hosq::TokenVector
 // allocation を許可する tokenized object scan
 // mutable context 必須
 ```
 
 ```cpp
-[-] ser20::scan::array_tokens<N>
+[-] hosq::scan::array_tokens<N>
 // pipeline input: void
 // context input: DecodeContext<T, R>&
 // context source: ctx.reader()
-// output: ser20::TokenView<N>
+// output: hosq::TokenView<N>
 // reader.next_token() を使って array 全体を消費し、array 内 token を固定長 buffer に積む
 // mutable context 必須
 ```
 
 ```cpp
-[-] ser20::scan::array_tokens
+[-] hosq::scan::array_tokens
 // pipeline input: void
 // context input: DecodeContext<T, R>&
 // context source: ctx.reader()
-// output: ser20::TokenVector
+// output: hosq::TokenVector
 // allocation を許可する tokenized array scan
 // mutable context 必須
 ```
@@ -125,7 +125,7 @@ Fn(ctx)
 # decode_into
 
 ```cpp
-[ ] ser20::decode_into<T>
+[ ] hosq::decode_into<T>
 // pipeline input: none
 // API input: T& output_object, typename R::input_type input
 // context source: internal Decoder<R>::reader_
@@ -142,7 +142,7 @@ Fn(ctx)
 ただし `parse_to<T>` / `vector<T>` のような再帰 parse 系は context reader/token view を使う。
 
 ```cpp
-[x] ser20::decode::number<T>
+[x] hosq::decode::number<T>
 // pipeline input: std::string_view
 // context input: optional
 // output: T
@@ -150,7 +150,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[x] ser20::decode::boolean
+[x] hosq::decode::boolean
 // pipeline input: std::string_view
 // context input: optional
 // output: bool
@@ -158,7 +158,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[x] ser20::decode::string_view
+[x] hosq::decode::string_view
 // pipeline input: std::string_view
 // context input: none
 // output: std::string_view
@@ -167,7 +167,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[ ] ser20::decode::string
+[ ] hosq::decode::string
 // pipeline input: std::string_view
 // context input: optional allocator / context
 // output: std::string
@@ -175,12 +175,12 @@ Fn(ctx)
 ```
 
 ```cpp
-[-] ser20::decode::variant<Ts...>
+[-] hosq::decode::variant<Ts...>
 // Ts: ElemT または AsEntryTupleT
 // pipeline input: void
 // context input: DecodeContext<Storage, R>&
 // context source: ctx.reader()
-// output: ser20::Variant<decoded_result_t<Ts>...>
+// output: hosq::Variant<decoded_result_t<Ts>...>
 // 現在 token から候補型 Ts... のいずれかとして parse する
 // Reader に直接触る decoder なので scan を兼任する
 // つまり decode::variant<Ts...> の前に scan::* は不要
@@ -188,7 +188,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[x] ser20::decode::vector<T>
+[x] hosq::decode::vector<T>
 // T: ElemT または AsEntryTupleT
 // pipeline input: void
 // context input: DecodeContext<Storage, R>&
@@ -204,7 +204,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[x] ser20::decode::fixed_array<T, N>
+[x] hosq::decode::fixed_array<T, N>
 // T: ElemT または AsEntryTupleT
 // pipeline input: void
 // context input: DecodeContext<Storage, R>&
@@ -216,7 +216,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[-] ser20::decode::tuple<Ts...>
+[-] hosq::decode::tuple<Ts...>
 // Ts: ElemT または AsEntryTupleT
 // pipeline input: void
 // context input: DecodeContext<Storage, R>&
@@ -228,7 +228,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[ ] ser20::decode::optional<T>
+[ ] hosq::decode::optional<T>
 // pipeline input: scan output | void
 // context input: DecodeContext<Storage, R>& when input is void
 // output: std::optional<decoded_result_t<T>>
@@ -236,7 +236,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[x] ser20::decode::custom<F>
+[x] hosq::decode::custom<F>
 // pipeline input: previous output
 // context input: optional
 // output: invoke_result_t<F, input> または Result<..., Error>
@@ -244,7 +244,7 @@ Fn(ctx)
 ```
 
 ```cpp
-[x] ser20::decode::identity
+[x] hosq::decode::identity
 // pipeline input: T
 // context input: none
 // output: T
@@ -259,7 +259,7 @@ Fn(ctx)
 Reader/Writer は基本使わない。必要なら custom/predicate だけ context-aware を許す。
 
 ```cpp
-[x] ser20::validate::match<V>
+[x] hosq::validate::match<V>
 // pipeline input: T
 // context input: none
 // output: T
@@ -268,7 +268,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::validate::one_of<Vs...>
+[x] hosq::validate::one_of<Vs...>
 // pipeline input: T
 // context input: none
 // output: T
@@ -276,7 +276,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::validate::range<Min, Max>
+[x] hosq::validate::range<Min, Max>
 // pipeline input: arithmetic T
 // context input: none
 // output: T
@@ -284,21 +284,21 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::validate::min<Min>
+[x] hosq::validate::min<Min>
 // pipeline input: arithmetic T
 // context input: none
 // output: T
 ```
 
 ```cpp
-[x] ser20::validate::max<Max>
+[x] hosq::validate::max<Max>
 // pipeline input: arithmetic T
 // context input: none
 // output: T
 ```
 
 ```cpp
-[-] ser20::validate::not_null
+[-] hosq::validate::not_null
 // pipeline input: nullable/null-aware value
 // context input: none
 // output: input
@@ -306,28 +306,28 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::validate::non_empty
+[x] hosq::validate::non_empty
 // pipeline input: string-like | container-like T
 // context input: none
 // output: T
 ```
 
 ```cpp
-[x] ser20::validate::size<N>
+[x] hosq::validate::size<N>
 // pipeline input: string-like | container-like T
 // context input: none
 // output: T
 ```
 
 ```cpp
-[x] ser20::validate::size_range<Min, Max>
+[x] hosq::validate::size_range<Min, Max>
 // pipeline input: string-like | container-like T
 // context input: none
 // output: T
 ```
 
 ```cpp
-[x] ser20::validate::predicate<F>
+[x] hosq::validate::predicate<F>
 // pipeline input: T
 // context input: optional
 // output: T
@@ -335,7 +335,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::validate::custom<F>
+[x] hosq::validate::custom<F>
 // pipeline input: T
 // context input: optional
 // output: T または Result<T, Error> または Result<void, Error>
@@ -343,7 +343,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::validate::identity
+[x] hosq::validate::identity
 // pipeline input: T
 // context input: none
 // output: T
@@ -357,7 +357,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 `DecodeContext<Storage, R>` の `value()` / `occurrences()` を使うので context-aware。
 
 ```cpp
-[x] ser20::store::assign
+[x] hosq::store::assign
 // pipeline input: T
 // context input: DecodeContext<Storage, R>&
 // context target: ctx.value()
@@ -366,7 +366,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::store::once
+[x] hosq::store::once
 // pipeline input: T
 // context input: DecodeContext<Storage, R>&
 // context target: ctx.value(), ctx.occurrences()
@@ -375,7 +375,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::store::overwrite
+[x] hosq::store::overwrite
 // pipeline input: T
 // context input: DecodeContext<Storage, R>&
 // output: void
@@ -383,7 +383,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[ ] ser20::store::first_wins
+[ ] hosq::store::first_wins
 // pipeline input: T
 // context input: DecodeContext<Storage, R>&
 // output: void
@@ -391,7 +391,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::store::push
+[x] hosq::store::push
 // pipeline input: T
 // context input: DecodeContext<std::vector<T>, R>&
 // output: void
@@ -399,7 +399,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::store::emplace
+[x] hosq::store::emplace
 // pipeline input: T
 // context input: DecodeContext<std::vector<T>, R>&
 // output: void
@@ -407,7 +407,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[-] ser20::store::insert
+[-] hosq::store::insert
 // pipeline input: T
 // context input: DecodeContext<AssociativeContainer, R>&
 // output: void
@@ -415,7 +415,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[-] ser20::store::append
+[-] hosq::store::append
 // pipeline input: T
 // context input: DecodeContext<Appendable, R>&
 // output: void
@@ -423,7 +423,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[x] ser20::store::ignore
+[x] hosq::store::ignore
 // pipeline input: T
 // context input: optional
 // output: void
@@ -431,7 +431,7 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 ```
 
 ```cpp
-[-] ser20::store::callback<F>
+[-] hosq::store::callback<F>
 // pipeline input: T
 // context input: DecodeContext<Storage, R>&
 // output: void
@@ -445,26 +445,26 @@ Reader/Writer は基本使わない。必要なら custom/predicate だけ conte
 `unknown` は pipeline primitive ではなく、**object decoder policy**。
 
 ```cpp
-ser20::unknown::reject
+hosq::unknown::reject
 // object decoder policy
 // unknown key を error にする
 ```
 
 ```cpp
-ser20::unknown::reject_with_suggestion
+hosq::unknown::reject_with_suggestion
 // object decoder policy
 // unknown key を typo suggestion 付きで error にする
 ```
 
 ```cpp
-ser20::unknown::ignore
+hosq::unknown::ignore
 // object decoder policy
 // unknown member の value 全体を reader/token stream から skip する
 // scalar/object/array すべて skip 対象
 ```
 
 ```cpp
-ser20::unknown::callback<F>
+hosq::unknown::callback<F>
 // object decoder policy
 // UnknownMemberContext を user callback に渡す
 // callback が skip / reject / custom handling を選ぶ
@@ -478,7 +478,7 @@ ser20::unknown::callback<F>
 Writer への実書き込みは `write::*`。
 
 ```cpp
-[x] ser20::encode::number<T>
+[x] hosq::encode::number<T>
 // pipeline input: T
 // context input: none
 // output: std::string
@@ -486,7 +486,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[x] ser20::encode::boolean
+[x] hosq::encode::boolean
 // pipeline input: bool
 // context input: none
 // output: std::string_view
@@ -494,7 +494,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[x] ser20::encode::string_view
+[x] hosq::encode::string_view
 // pipeline input: std::string_view
 // context input: none
 // output: std::string_view
@@ -502,7 +502,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[ ] ser20::encode::string
+[ ] hosq::encode::string
 // pipeline input: string-like
 // context input: optional allocator/context
 // output: std::string
@@ -510,21 +510,21 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[-] ser20::encode::null
+[-] hosq::encode::null
 // pipeline input: null-like value
 // context input: none
 // output: std::string_view
 ```
 
 ```cpp
-[-] ser20::encode::custom<F>
+[-] hosq::encode::custom<F>
 // pipeline input: T
 // context input: optional
 // output: invoke_result_t<F, T>
 ```
 
 ```cpp
-[x] ser20::encode::identity
+[x] hosq::encode::identity
 // pipeline input: T
 // context input: none
 // output: T
@@ -538,7 +538,7 @@ Writer への実書き込みは `write::*`。
 原則 output は `void`。
 
 ```cpp
-[-] ser20::write::scalar
+[-] hosq::write::scalar
 // pipeline input: std::string_view
 // context input: EncodeContext<T, W>&
 // context target: ctx.writer()
@@ -547,7 +547,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[-] ser20::write::string
+[-] hosq::write::string
 // pipeline input: std::string_view
 // context input: EncodeContext<T, W>&
 // context target: ctx.writer()
@@ -557,7 +557,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[-] ser20::write::object_begin
+[-] hosq::write::object_begin
 // pipeline input: void
 // context input: EncodeContext<T, W>&
 // context target: ctx.writer()
@@ -565,7 +565,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[-] ser20::write::object_end
+[-] hosq::write::object_end
 // pipeline input: void
 // context input: EncodeContext<T, W>&
 // context target: ctx.writer()
@@ -573,7 +573,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[-] ser20::write::array_begin
+[-] hosq::write::array_begin
 // pipeline input: void
 // context input: EncodeContext<T, W>&
 // context target: ctx.writer()
@@ -581,7 +581,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[-] ser20::write::array_end
+[-] hosq::write::array_end
 // pipeline input: void
 // context input: EncodeContext<T, W>&
 // context target: ctx.writer()
@@ -595,7 +595,7 @@ Writer への実書き込みは `write::*`。
 `load` は **EncodeContext または object value から encode pipeline input を取り出す段階**。
 
 ```cpp
-[-] ser20::load::value
+[-] hosq::load::value
 // pipeline input: void
 // context input: EncodeContext<T, W>& または const EncodeContext<T, W>&
 // context source: ctx.value()
@@ -604,7 +604,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[-] ser20::load::member<Ptr>
+[-] hosq::load::member<Ptr>
 // pipeline input: object-like T
 // context input: none
 // output: member reference
@@ -612,7 +612,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[-] ser20::load::custom<F>
+[-] hosq::load::custom<F>
 // pipeline input: T
 // context input: optional
 // output: invoke_result_t<F, T>
@@ -620,7 +620,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[-] ser20::load::identity
+[-] hosq::load::identity
 // pipeline input: T
 // context input: none
 // output: T
@@ -634,7 +634,7 @@ Writer への実書き込みは `write::*`。
 失敗時は `candidate_rejected` を返す点が `validate::*` と違う。
 
 ```cpp
-[x] ser20::match::literal<V>
+[x] hosq::match::literal<V>
 // pipeline input: T
 // context input: none
 // output: T
@@ -644,7 +644,7 @@ Writer への実書き込みは `write::*`。
 ```
 
 ```cpp
-[x] ser20::match::any
+[x] hosq::match::any
 // pipeline input: T
 // context input: none
 // output: T

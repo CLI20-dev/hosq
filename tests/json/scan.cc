@@ -1,18 +1,18 @@
-#include "ser20/pipeline/scan.hh"
+#include "hosq/pipeline/scan.hh"
 
 #include <gtest/gtest.h>
 
 // #include <string_view>
 //
-// #include "ser20/context.hh"
-// #include "ser20/json/reader.hh"
+// #include "hosq/context.hh"
+// #include "hosq/json/reader.hh"
 
 using namespace std::string_view_literals;
 
 // namespace {
 //
-// using Reader = ser20::json::Reader<>;
-// using DecodeCtx = ser20::DecodeContext<int, Reader>;
+// using Reader = hosq::json::Reader<>;
+// using DecodeCtx = hosq::DecodeContext<int, Reader>;
 //
 // auto make_context(Reader& reader) -> DecodeCtx {
 //   static int value = 0;
@@ -21,12 +21,12 @@ using namespace std::string_view_literals;
 //
 // void expect_current_literal(Reader& reader, std::string_view expected) {
 //   const auto& token = reader.current_token();
-//   ASSERT_EQ(token.type, ser20::TokenType::Scalar);
-//   ASSERT_EQ(static_cast<ser20::JsonTokenContext>(token.context),
-//             ser20::JsonTokenContext::literal);
+//   ASSERT_EQ(token.type, hosq::TokenType::Scalar);
+//   ASSERT_EQ(static_cast<hosq::JsonTokenContext>(token.context),
+//             hosq::JsonTokenContext::literal);
 //
 //   auto ctx = make_context(reader);
-//   auto scalar = decltype(ser20::scan::literal)::invoke(ctx);
+//   auto scalar = decltype(hosq::scan::literal)::invoke(ctx);
 //   ASSERT_TRUE(scalar.has_value());
 //   EXPECT_EQ(*scalar, expected);
 // }
@@ -39,7 +39,7 @@ using namespace std::string_view_literals;
 //
 //   ASSERT_TRUE(reader.next_token().has_value());
 //   auto ctx = make_context(reader);
-//   auto object = decltype(ser20::scan::object)::invoke(ctx);
+//   auto object = decltype(hosq::scan::object)::invoke(ctx);
 //
 //   ASSERT_TRUE(object.has_value());
 //   EXPECT_EQ(*object, R"({"a":{"b":1},"c":[true,false]})"sv);
@@ -54,7 +54,7 @@ using namespace std::string_view_literals;
 //
 //   ASSERT_TRUE(reader.next_token().has_value());
 //   auto ctx = make_context(reader);
-//   auto array = decltype(ser20::scan::array)::invoke(ctx);
+//   auto array = decltype(hosq::scan::array)::invoke(ctx);
 //
 //   ASSERT_TRUE(array.has_value());
 //   EXPECT_EQ(*array, R"([{"a":1},[2,3],"x"])"sv);
@@ -69,7 +69,7 @@ using namespace std::string_view_literals;
 //
 //   ASSERT_TRUE(reader.next_token().has_value());
 //   auto ctx = make_context(reader);
-//   auto object = decltype(ser20::scan::object)::invoke(ctx);
+//   auto object = decltype(hosq::scan::object)::invoke(ctx);
 //
 //   ASSERT_TRUE(object.has_value());
 //   EXPECT_EQ(*object, R"({"s":"[not bracket]","o":{"x":"}"}})"sv);
@@ -79,8 +79,8 @@ using namespace std::string_view_literals;
 // }
 //
 // TEST(JsonScanConstInvocability, CompoundScannersRequireMutableContext) {
-//   using ObjectPipeline = decltype(ser20::scan::object);
-//   using ArrayPipeline = decltype(ser20::scan::array);
+//   using ObjectPipeline = decltype(hosq::scan::object);
+//   using ArrayPipeline = decltype(hosq::scan::array);
 //
 //   static_assert(
 //       !ObjectPipeline::template callable_with_const_context<DecodeCtx, void>());
@@ -94,8 +94,8 @@ using namespace std::string_view_literals;
 // }
 //
 // TEST(JsonScanConstInvocability, ScalarScannersRemainConstInvokable) {
-//   using LiteralPipeline = decltype(ser20::scan::literal);
-//   using ScalarPipeline = decltype(ser20::scan::scalar);
+//   using LiteralPipeline = decltype(hosq::scan::literal);
+//   using ScalarPipeline = decltype(hosq::scan::scalar);
 //
 //   static_assert(
 //       LiteralPipeline::template callable_with_const_context<DecodeCtx, void>());
@@ -112,16 +112,16 @@ using namespace std::string_view_literals;
 //   ASSERT_TRUE(reader.next_token().has_value());
 //
 //   auto ctx = make_context(reader);
-//   auto first = decltype(ser20::scan::string)::invoke(ctx);
+//   auto first = decltype(hosq::scan::string)::invoke(ctx);
 //   ASSERT_TRUE(first.has_value());
 //   EXPECT_EQ(*first, "id"sv);
 //
-//   auto second = decltype(ser20::scan::string)::invoke(ctx);
+//   auto second = decltype(hosq::scan::string)::invoke(ctx);
 //   ASSERT_TRUE(second.has_value());
 //   EXPECT_EQ(*second, "id"sv);
 //
 //   ASSERT_TRUE(reader.next_token().has_value());
-//   auto value = decltype(ser20::scan::literal)::invoke(ctx);
+//   auto value = decltype(hosq::scan::literal)::invoke(ctx);
 //   ASSERT_TRUE(value.has_value());
 //   EXPECT_EQ(*value, "2"sv);
 // }

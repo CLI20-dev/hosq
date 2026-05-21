@@ -5,19 +5,19 @@
 #include <variant>
 #include <vector>
 
-#include "ser20/json/simple_reader.hh"
+#include "hosq/json/simple_reader.hh"
 
 using namespace std::string_view_literals;
 
 namespace {
 
-using TT = ser20::TokenType;
-using JTC = ser20::JsonTokenContext;
-using EC = ser20::ErrorCode;
+using TT = hosq::TokenType;
+using JTC = hosq::JsonTokenContext;
+using EC = hosq::ErrorCode;
 
 struct TokInfo {
-  ser20::TokenType type;
-  ser20::JsonTokenContext context{JTC::none};
+  hosq::TokenType type;
+  hosq::JsonTokenContext context{JTC::none};
 
   auto operator==(const TokInfo&) const -> bool = default;
 };
@@ -35,11 +35,11 @@ constexpr TokInfo END = {.type = TT::End, .context = JTC::none};
 // ── read_all helper ───────────────────────────────────────────────────────────
 
 using TokenSeq = std::vector<TokInfo>;
-using ReadResult = std::variant<TokenSeq, ser20::Error>;
+using ReadResult = std::variant<TokenSeq, hosq::Error>;
 
 static auto read_all(std::string_view input) -> ReadResult {
-  ser20::json::SimpleReader r;
-  ser20::json::SimpleReader::state_type s;
+  hosq::json::SimpleReader r;
+  hosq::json::SimpleReader::state_type s;
 
   r.reset(s, input);
   TokenSeq seq;
@@ -70,24 +70,24 @@ static void expect_seq(std::string_view input, TokenSeq expected) {
   auto result = read_all(input);
   ASSERT_TRUE(std::holds_alternative<TokenSeq>(result))
       << "Expected success, got error code "
-      << static_cast<int>(std::get<ser20::Error>(result).code) << " at offset "
-      << std::get<ser20::Error>(result).offset;
+      << static_cast<int>(std::get<hosq::Error>(result).code) << " at offset "
+      << std::get<hosq::Error>(result).offset;
   EXPECT_EQ(std::get<TokenSeq>(result), expected);
 }
 
 static void expect_error(std::string_view input, EC code) {
   auto result = read_all(input);
-  ASSERT_TRUE(std::holds_alternative<ser20::Error>(result))
+  ASSERT_TRUE(std::holds_alternative<hosq::Error>(result))
       << "Expected error but parsing succeeded";
-  EXPECT_EQ(std::get<ser20::Error>(result).code, code);
+  EXPECT_EQ(std::get<hosq::Error>(result).code, code);
 }
 
 static void expect_error_at(std::string_view input, EC code,
                             std::size_t offset) {
   auto result = read_all(input);
-  ASSERT_TRUE(std::holds_alternative<ser20::Error>(result))
+  ASSERT_TRUE(std::holds_alternative<hosq::Error>(result))
       << "Expected error but parsing succeeded";
-  const auto& err = std::get<ser20::Error>(result);
+  const auto& err = std::get<hosq::Error>(result);
   EXPECT_EQ(err.code, code);
   EXPECT_EQ(err.offset, offset);
 }

@@ -1,5 +1,5 @@
 {
-  description = "ser20: a C++20-native command line parser";
+  description = "hosq: a C++20-native command line parser";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -98,7 +98,7 @@
           };
 
           packages.default = pkgs.stdenvNoCC.mkDerivation {
-            pname = "ser20";
+            pname = "hosq";
             inherit version;
             src = ./.;
             nativeBuildInputs = [
@@ -115,9 +115,9 @@
             cmakeFlags = [
               "-G Ninja"
               "-DCMAKE_BUILD_TYPE=Release"
-              "-DCXX_SER20_ENABLE_TEST=ON"
-              "-DCXX_SER20_ENABLE_CLANG_TIDY=ON"
-              "-DCXX_SER20_ENABLE_SANITIZERS=OFF"
+              "-DCXX_HOSQ_ENABLE_TEST=ON"
+              "-DCXX_HOSQ_ENABLE_CLANG_TIDY=ON"
+              "-DCXX_HOSQ_ENABLE_SANITIZERS=OFF"
             ];
             doCheck = true;
             checkPhase = ''
@@ -130,7 +130,7 @@
           legacyPackages.buildDoc =
             { baseUrl }:
             pkgs.buildNpmPackage {
-              pname = "ser20-docs";
+              pname = "hosq-docs";
               inherit version;
               # Full repo source: prebuild compiles examples/*.cc to WebAssembly
               # (emcc) and runs doxygen over include/, so the whole repository
@@ -141,7 +141,7 @@
               # npmDeps must reference docs/ explicitly so fetchNpmDeps finds
               # package-lock.json there, not at the repo root.
               npmDeps = pkgs.fetchNpmDeps {
-                name = "ser20-docs-0.0.0-npm-deps";
+                name = "hosq-docs-0.0.0-npm-deps";
                 src = ./docs;
                 hash = "sha256-ntnQTTWdih6fLx6QLqarpJQ6pIOdDWRxmysDQQVWswQ=";
               };
@@ -164,18 +164,18 @@
             };
 
           packages.doc = legacyPackages.buildDoc {
-            baseUrl = "/ser20/";
+            baseUrl = "/hosq/";
           };
 
           apps.build = {
             type = "app";
             program =
-              (pkgs.writeShellScript "build-ser20" ''
+              (pkgs.writeShellScript "build-hosq" ''
                 set -euo pipefail
                 if [ ! -d build ]; then
                   nix develop --command cmake -S . -B build -G Ninja \
                     -DCMAKE_BUILD_TYPE=Debug \
-                    -DCXX_SER20_ENABLE_TEST=ON \
+                    -DCXX_HOSQ_ENABLE_TEST=ON \
                     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
                 fi
                 nix develop --command cmake --build build
@@ -184,7 +184,7 @@
 
           apps.doc = {
             type = "app";
-            program = "${pkgs.writeShellScriptBin "build-ser20-doc" ''
+            program = "${pkgs.writeShellScriptBin "build-hosq-doc" ''
               set -eu
 
               if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
@@ -198,7 +198,7 @@
               nix build --impure -L --out-link "$out_link" \
                 --argstr baseUrl "$base_url" \
                 --expr '{ baseUrl }: (builtins.getFlake (toString ./.)).legacyPackages.${pkgs.system}.buildDoc { inherit baseUrl; }'
-            ''}/bin/build-ser20-doc";
+            ''}/bin/build-hosq-doc";
           };
         };
     };

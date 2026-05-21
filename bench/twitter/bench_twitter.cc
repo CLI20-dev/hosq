@@ -6,16 +6,16 @@
 #include <string>
 #include <string_view>
 
-#include "ser20/decoder.hh"
-#include "ser20/element.hh"
-#include "ser20/pipeline/decode.hh"
-#include "ser20/pipeline/match.hh"
-#include "ser20/pipeline/scan.hh"
-#include "ser20/pipeline/store.hh"
-#include "ser20/pipeline_util.hh"
-#include "ser20/string_literal.hh"
+#include "hosq/decoder.hh"
+#include "hosq/element.hh"
+#include "hosq/pipeline/decode.hh"
+#include "hosq/pipeline/match.hh"
+#include "hosq/pipeline/scan.hh"
+#include "hosq/pipeline/store.hh"
+#include "hosq/pipeline_util.hh"
+#include "hosq/string_literal.hh"
 
-using namespace ser20;
+using namespace hosq;
 using namespace std::string_view_literals;
 
 namespace {
@@ -119,11 +119,11 @@ struct Sums {
   int favorite{0};
 };
 
-Sums collect_ser20() {
+Sums collect_hosq() {
   TwitterSchema schema;
   auto result = decode_into(schema, std::string_view{g_json});
   if (!result) {
-    std::cerr << "ser20 parse error: code="
+    std::cerr << "hosq parse error: code="
               << static_cast<int>(result.error().code)
               << " offset=" << result.error().offset << "\n";
     return {};
@@ -166,13 +166,13 @@ Sums collect_yyjson() {
 
 // ─── Benchmarks ──────────────────────────────────────────────────────────────
 
-static void BM_ser20_twitter(benchmark::State& state) {
+static void BM_hosq_twitter(benchmark::State& state) {
   for (auto _ : state) {
     TwitterSchema schema;
     auto result = decode_into(schema, std::string_view{g_json});
     benchmark::DoNotOptimize(schema);
     if (!result) {
-      state.SkipWithError("ser20 parse failed");
+      state.SkipWithError("hosq parse failed");
       break;
     }
   }
@@ -195,22 +195,22 @@ static void BM_yyjson_twitter(benchmark::State& state) {
 }
 
 BENCHMARK(BM_yyjson_twitter);
-BENCHMARK(BM_ser20_twitter);
+BENCHMARK(BM_hosq_twitter);
 
 int main(int argc, char** argv) {
   load_json();
 
-  // Verify ser20 correctness by comparing extracted sums
-  auto s1 = collect_ser20();
-  std::cout << "[ser20]  status_id_sum=" << s1.status_id
+  // Verify hosq correctness by comparing extracted sums
+  auto s1 = collect_hosq();
+  std::cout << "[hosq]  status_id_sum=" << s1.status_id
             << "  user_id_sum=" << s1.user_id << "  retweet_sum=" << s1.retweet
             << "  favorite_sum=" << s1.favorite << "\n";
   if (s1.status_id != kStatusIdSum || s1.user_id != kUserIdSum ||
       s1.retweet != kRetweetSum || s1.favorite != kFavoriteSum) {
-    std::cerr << "[ser20]  verification FAILED\n";
+    std::cerr << "[hosq]  verification FAILED\n";
     return 1;
   }
-  std::cout << "[ser20]  verification PASSED\n";
+  std::cout << "[hosq]  verification PASSED\n";
 
   // Verify yyjson correctness with the same sums
   auto s2 = collect_yyjson();

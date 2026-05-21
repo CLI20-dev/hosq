@@ -2,59 +2,59 @@
 //
 // #include <string_view>
 //
-// #include "ser20/decoder.hh"
-// #include "ser20/element.hh"
-// #include "ser20/json/simple_reader.hh"
-// #include "ser20/pipeline/decode.hh"
-// #include "ser20/pipeline/match.hh"
-// #include "ser20/pipeline/scan.hh"
-// #include "ser20/pipeline/store.hh"
-// #include "ser20/string_literal.hh"
+// #include "hosq/decoder.hh"
+// #include "hosq/element.hh"
+// #include "hosq/json/simple_reader.hh"
+// #include "hosq/pipeline/decode.hh"
+// #include "hosq/pipeline/match.hh"
+// #include "hosq/pipeline/scan.hh"
+// #include "hosq/pipeline/store.hh"
+// #include "hosq/string_literal.hh"
 //
 // using namespace std::string_view_literals;
-// using namespace ser20;
+// using namespace hosq;
 //
-// using Reader = ser20::json::SimpleReader;
+// using Reader = hosq::json::SimpleReader;
 //
 // namespace {
 //
-// template <ser20::StringLiteral Name>
-// using Key = ser20::Elem<ser20::scan::string | ser20::match::literal<Name>,
-//                         ser20::noop_encoder>;
+// template <hosq::StringLiteral Name>
+// using Key = hosq::Elem<hosq::scan::string | hosq::match::literal<Name>,
+//                         hosq::noop_encoder>;
 //
 // using StringValue =
-//     ser20::Elem<ser20::scan::string | ser20::decode::string_view |
-//                     ser20::store::once,
-//                 ser20::noop_encoder>;
+//     hosq::Elem<hosq::scan::string | hosq::decode::string_view |
+//                     hosq::store::once,
+//                 hosq::noop_encoder>;
 //
 // template <class T>
-// using NumberValue = ser20::Elem<ser20::scan::literal | ser20::decode::number<T> |
-//                                     ser20::store::once,
-//                                 ser20::noop_encoder>;
+// using NumberValue = hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
+//                                     hosq::store::once,
+//                                 hosq::noop_encoder>;
 //
 // struct Address {
-//   ser20::Entry<Key<"city"_literal>, StringValue> city;
-//   ser20::Entry<Key<"zip"_literal>, NumberValue<int>> zip;
+//   hosq::Entry<Key<"city"_literal>, StringValue> city;
+//   hosq::Entry<Key<"zip"_literal>, NumberValue<int>> zip;
 // };
 //
 // struct Profile {
-//   ser20::Entry<Key<"display_name"_literal>, StringValue> display_name;
+//   hosq::Entry<Key<"display_name"_literal>, StringValue> display_name;
 // };
 //
 // struct User {
-//   ser20::Entry<Key<"id"_literal>, NumberValue<int>> id;
-//   ser20::Entry<Key<"name"_literal>, StringValue> name;
-//   ser20::Entry<Key<"address"_literal>, Address> address;
-//   ser20::Entry<Key<"profile"_literal>, Profile> profile;
+//   hosq::Entry<Key<"id"_literal>, NumberValue<int>> id;
+//   hosq::Entry<Key<"name"_literal>, StringValue> name;
+//   hosq::Entry<Key<"address"_literal>, Address> address;
+//   hosq::Entry<Key<"profile"_literal>, Profile> profile;
 // };
 //
 // struct Company {
-//   ser20::Entry<Key<"name"_literal>, StringValue> name;
-//   ser20::Entry<Key<"owner"_literal>, User> owner;
+//   hosq::Entry<Key<"name"_literal>, StringValue> name;
+//   hosq::Entry<Key<"owner"_literal>, User> owner;
 // };
 //
 // struct AddressEnvelope {
-//   ser20::Entry<Key<"address"_literal>, Address> address;
+//   hosq::Entry<Key<"address"_literal>, Address> address;
 // };
 //
 // }  // namespace
@@ -62,7 +62,7 @@
 // TEST(DecodeNestedJson, DecodesNestedObjectValue) {
 //   User user;
 //
-//   auto result = ser20::decode_into<Reader>(
+//   auto result = hosq::decode_into<Reader>(
 //       user,
 //       R"({"id":7,"name":"Alice","address":{"city":"Tokyo","zip":100},"profile":{"display_name":"alice"}})"sv);
 //
@@ -77,7 +77,7 @@
 // TEST(DecodeNestedJson, DecodesNestedFieldsInReverseOrder) {
 //   User user;
 //
-//   auto result = ser20::decode_into<Reader>(
+//   auto result = hosq::decode_into<Reader>(
 //       user,
 //       R"({"profile":{"display_name":"bob"},"address":{"zip":150,"city":"Osaka"},"name":"Bob","id":8})"sv);
 //
@@ -92,7 +92,7 @@
 // TEST(DecodeNestedJson, DecodesMultipleNestedObjectLevels) {
 //   Company company;
 //
-//   auto result = ser20::decode_into<Reader>(
+//   auto result = hosq::decode_into<Reader>(
 //       company,
 //       R"({"name":"Acme","owner":{"id":1,"name":"Carol","address":{"city":"Kyoto","zip":600},"profile":{"display_name":"ceo"}}})"sv);
 //
@@ -110,20 +110,20 @@
 // TEST(DecodeNestedJson, RejectsUnknownNestedField) {
 //   AddressEnvelope envelope;
 //
-//   auto result = ser20::decode_into<Reader>(
+//   auto result = hosq::decode_into<Reader>(
 //       envelope, R"({"address":{"city":"Tokyo","extra":1,"zip":100}})"sv);
 //
 //   ASSERT_FALSE(result.has_value());
-//   EXPECT_EQ(result.error().code, ser20::ErrorCode::candidate_rejected);
+//   EXPECT_EQ(result.error().code, hosq::ErrorCode::candidate_rejected);
 // }
 //
 // TEST(DecodeNestedJson, NestedObjectTypeMismatch) {
 //   User user;
 //
-//   auto result = ser20::decode_into<Reader>(
+//   auto result = hosq::decode_into<Reader>(
 //       user,
 //       R"({"id":7,"name":"Alice","address":true,"profile":{"display_name":"alice"}})"sv);
 //
 //   ASSERT_FALSE(result.has_value());
-//   EXPECT_EQ(result.error().code, ser20::ErrorCode::type_mismatch);
+//   EXPECT_EQ(result.error().code, hosq::ErrorCode::type_mismatch);
 // }

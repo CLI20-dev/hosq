@@ -1,4 +1,4 @@
-include/ser20/decoder.hh
+include/hosq/decoder.hh
 
 を作成しました。
 これで reader と併せて json を parse することができるはずです。
@@ -14,18 +14,18 @@ decode のみを検証するので、encode は noop_encoder を使います
 
 TEST_xxxxxxx(xxxx, xxx) {
     struct {
-      ser20::Entry<
-        ser20::Elem<ser20::scan::string | ser20::match::literal<"name"_literal>, ser20::noop_encoder>,
-        ser20::Elem<ser20::scan::string | ser20::decode::string_view | ser20::store::once, ser20::noop_encoder>
+      hosq::Entry<
+        hosq::Elem<hosq::scan::string | hosq::match::literal<"name"_literal>, hosq::noop_encoder>,
+        hosq::Elem<hosq::scan::string | hosq::decode::string_view | hosq::store::once, hosq::noop_encoder>
       > name;
-      ser20::Entry<
-        ser20::Elem<ser20::scan::string | ser20::match::literal<"id"_literal>, ser20::noop_encoder>,
-        ser20::Elem<ser20::scan::literal | ser20::decode::number<int> | ser20::store::once, ser20::noop_encoder>
+      hosq::Entry<
+        hosq::Elem<hosq::scan::string | hosq::match::literal<"id"_literal>, hosq::noop_encoder>,
+        hosq::Elem<hosq::scan::literal | hosq::decode::number<int> | hosq::store::once, hosq::noop_encoder>
       > id;
     } json;
 
     auto json_str = R"({"name": "John", "id": 123})";
-    auto result = ser20::decode(json, json_str);
+    auto result = hosq::decode(json, json_str);
 
     EXPECT_TRUE(result);
     EXPECT_EQ(json.name.value, "John");

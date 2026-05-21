@@ -4,66 +4,66 @@
 // #include <string_view>
 // #include <vector>
 //
-// #include "ser20/decoder.hh"
-// #include "ser20/element.hh"
-// #include "ser20/json/simple_reader.hh"
-// #include "ser20/pipeline/decode.hh"
-// #include "ser20/pipeline/match.hh"
-// #include "ser20/pipeline/scan.hh"
-// #include "ser20/pipeline/store.hh"
-// #include "ser20/string_literal.hh"
+// #include "hosq/decoder.hh"
+// #include "hosq/element.hh"
+// #include "hosq/json/simple_reader.hh"
+// #include "hosq/pipeline/decode.hh"
+// #include "hosq/pipeline/match.hh"
+// #include "hosq/pipeline/scan.hh"
+// #include "hosq/pipeline/store.hh"
+// #include "hosq/string_literal.hh"
 //
 // using namespace std::string_view_literals;
-// using namespace ser20;
+// using namespace hosq;
 //
-// using Reader = ser20::json::SimpleReader;
+// using Reader = hosq::json::SimpleReader;
 //
 // namespace {
 //
-// template <ser20::StringLiteral Name>
-// using Key = ser20::Elem<ser20::scan::string | ser20::match::literal<Name>,
-//                         ser20::noop_encoder>;
+// template <hosq::StringLiteral Name>
+// using Key = hosq::Elem<hosq::scan::string | hosq::match::literal<Name>,
+//                         hosq::noop_encoder>;
 //
 // template <class T>
-// using NumberValue = ser20::Elem<ser20::scan::literal | ser20::decode::number<T> |
-//                                     ser20::store::once,
-//                                 ser20::noop_encoder>;
+// using NumberValue = hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
+//                                     hosq::store::once,
+//                                 hosq::noop_encoder>;
 //
 // using StringValue =
-//     ser20::Elem<ser20::scan::string | ser20::decode::string_view |
-//                     ser20::store::once,
-//                 ser20::noop_encoder>;
+//     hosq::Elem<hosq::scan::string | hosq::decode::string_view |
+//                     hosq::store::once,
+//                 hosq::noop_encoder>;
 //
 // using IntElement =
-//     ser20::Elem<ser20::scan::literal | ser20::decode::number<int> |
-//                     ser20::store::once,
-//                 ser20::noop_encoder>;
+//     hosq::Elem<hosq::scan::literal | hosq::decode::number<int> |
+//                     hosq::store::once,
+//                 hosq::noop_encoder>;
 //
 // struct Point {
-//   ser20::Entry<Key<"x"_literal>, NumberValue<int>> x;
-//   ser20::Entry<Key<"y"_literal>, NumberValue<int>> y;
+//   hosq::Entry<Key<"x"_literal>, NumberValue<int>> x;
+//   hosq::Entry<Key<"y"_literal>, NumberValue<int>> y;
 // };
 //
 // struct Document {
-//   ser20::Entry<
+//   hosq::Entry<
 //       Key<"ids"_literal>,
-//       ser20::Elem<ser20::decode::vector<IntElement> | ser20::store::once,
-//                   ser20::noop_encoder>>
+//       hosq::Elem<hosq::decode::vector<IntElement> | hosq::store::once,
+//                   hosq::noop_encoder>>
 //       ids;
-//   ser20::Entry<Key<"points"_literal>,
-//                ser20::Elem<ser20::decode::vector<Point> | ser20::store::once,
-//                            ser20::noop_encoder>>
+//   hosq::Entry<Key<"points"_literal>,
+//                hosq::Elem<hosq::decode::vector<Point> | hosq::store::once,
+//                            hosq::noop_encoder>>
 //       points;
 // };
 //
 // }  // namespace
 //
 // TEST(DecodeVector, DecodesTopLevelArrayOfElemValues) {
-//   ser20::Elem<ser20::decode::vector<IntElement> | ser20::store::once,
-//               ser20::noop_encoder>
+//   hosq::Elem<hosq::decode::vector<IntElement> | hosq::store::once,
+//               hosq::noop_encoder>
 //       ids;
 //
-//   auto result = ser20::decode_into<Reader>(ids, "[1,2,3]"sv);
+//   auto result = hosq::decode_into<Reader>(ids, "[1,2,3]"sv);
 //
 //   ASSERT_TRUE(result.has_value());
 //   ASSERT_EQ(ids.value().size(), 3U);
@@ -76,7 +76,7 @@
 //   Document document;
 //
 //   auto result =
-//       ser20::decode_into<Reader>(document, R"({"ids":[4,5],"points":[]})"sv);
+//       hosq::decode_into<Reader>(document, R"({"ids":[4,5],"points":[]})"sv);
 //
 //   ASSERT_TRUE(result.has_value());
 //   ASSERT_EQ(document.ids.value().value().size(), 2U);
@@ -88,7 +88,7 @@
 // TEST(DecodeVector, DecodesObjectMemberArrayOfSchemas) {
 //   Document document;
 //
-//   auto result = ser20::decode_into<Reader>(
+//   auto result = hosq::decode_into<Reader>(
 //       document, R"({"ids":[],"points":[{"x":1,"y":2},{"y":4,"x":3}]})"sv);
 //
 //   ASSERT_TRUE(result.has_value());
@@ -101,33 +101,33 @@
 // }
 //
 // TEST(DecodeVector, RequiresArrayBegin) {
-//   ser20::Elem<ser20::decode::vector<IntElement> | ser20::store::once,
-//               ser20::noop_encoder>
+//   hosq::Elem<hosq::decode::vector<IntElement> | hosq::store::once,
+//               hosq::noop_encoder>
 //       ids;
 //
-//   auto result = ser20::decode_into<Reader>(ids, "1"sv);
+//   auto result = hosq::decode_into<Reader>(ids, "1"sv);
 //
 //   ASSERT_FALSE(result.has_value());
-//   EXPECT_EQ(result.error().code, ser20::ErrorCode::type_mismatch);
+//   EXPECT_EQ(result.error().code, hosq::ErrorCode::type_mismatch);
 // }
 //
 // TEST(DecodeVector, RejectsInvalidElement) {
-//   ser20::Elem<ser20::decode::vector<IntElement> | ser20::store::once,
-//               ser20::noop_encoder>
+//   hosq::Elem<hosq::decode::vector<IntElement> | hosq::store::once,
+//               hosq::noop_encoder>
 //       ids;
 //
-//   auto result = ser20::decode_into<Reader>(ids, "[1,\"x\"]"sv);
+//   auto result = hosq::decode_into<Reader>(ids, "[1,\"x\"]"sv);
 //
 //   ASSERT_FALSE(result.has_value());
-//   EXPECT_EQ(result.error().code, ser20::ErrorCode::type_mismatch);
+//   EXPECT_EQ(result.error().code, hosq::ErrorCode::type_mismatch);
 // }
 //
 // TEST(DecodeFixedArray, DecodesTopLevelArrayOfElemValues) {
-//   ser20::Elem<ser20::decode::fixed_array<IntElement, 3> | ser20::store::once,
-//               ser20::noop_encoder>
+//   hosq::Elem<hosq::decode::fixed_array<IntElement, 3> | hosq::store::once,
+//               hosq::noop_encoder>
 //       ids;
 //
-//   auto result = ser20::decode_into<Reader>(ids, "[1,2,3]"sv);
+//   auto result = hosq::decode_into<Reader>(ids, "[1,2,3]"sv);
 //
 //   ASSERT_TRUE(result.has_value());
 //   EXPECT_EQ(ids.value()[0], 1);
@@ -136,12 +136,12 @@
 // }
 //
 // TEST(DecodeFixedArray, DecodesTopLevelArrayOfSchemas) {
-//   ser20::Elem<ser20::decode::fixed_array<Point, 2> | ser20::store::once,
-//               ser20::noop_encoder>
+//   hosq::Elem<hosq::decode::fixed_array<Point, 2> | hosq::store::once,
+//               hosq::noop_encoder>
 //       points;
 //
 //   auto result =
-//       ser20::decode_into<Reader>(points, R"([{"x":1,"y":2},{"x":3,"y":4}])"sv);
+//       hosq::decode_into<Reader>(points, R"([{"x":1,"y":2},{"x":3,"y":4}])"sv);
 //
 //   ASSERT_TRUE(result.has_value());
 //   EXPECT_EQ(points.value()[0].x.value().value(), 1);
@@ -151,23 +151,23 @@
 // }
 //
 // TEST(DecodeFixedArray, RejectsTooFewElements) {
-//   ser20::Elem<ser20::decode::fixed_array<IntElement, 3> | ser20::store::once,
-//               ser20::noop_encoder>
+//   hosq::Elem<hosq::decode::fixed_array<IntElement, 3> | hosq::store::once,
+//               hosq::noop_encoder>
 //       ids;
 //
-//   auto result = ser20::decode_into<Reader>(ids, "[1,2]"sv);
+//   auto result = hosq::decode_into<Reader>(ids, "[1,2]"sv);
 //
 //   ASSERT_FALSE(result.has_value());
-//   EXPECT_EQ(result.error().code, ser20::ErrorCode::size_mismatch);
+//   EXPECT_EQ(result.error().code, hosq::ErrorCode::size_mismatch);
 // }
 //
 // TEST(DecodeFixedArray, RejectsTooManyElements) {
-//   ser20::Elem<ser20::decode::fixed_array<IntElement, 2> | ser20::store::once,
-//               ser20::noop_encoder>
+//   hosq::Elem<hosq::decode::fixed_array<IntElement, 2> | hosq::store::once,
+//               hosq::noop_encoder>
 //       ids;
 //
-//   auto result = ser20::decode_into<Reader>(ids, "[1,2,3]"sv);
+//   auto result = hosq::decode_into<Reader>(ids, "[1,2,3]"sv);
 //
 //   ASSERT_FALSE(result.has_value());
-//   EXPECT_EQ(result.error().code, ser20::ErrorCode::size_mismatch);
+//   EXPECT_EQ(result.error().code, hosq::ErrorCode::size_mismatch);
 // }

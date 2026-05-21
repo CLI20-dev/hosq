@@ -1,10 +1,10 @@
 struct JsonVec2 {
-  ser20::Entry<key<"x">, Elem<ser20::scan::scalar | ser20::decode::integer<int> |
-                              ser20::pack::once>>
+  hosq::Entry<key<"x">, Elem<hosq::scan::scalar | hosq::decode::integer<int> |
+                              hosq::pack::once>>
       x;
 
-  ser20::Entry<key<"y">, Elem<ser20::scan::scalar | ser20::decode::integer<int> |
-                              ser20::pack::once>>
+  hosq::Entry<key<"y">, Elem<hosq::scan::scalar | hosq::decode::integer<int> |
+                              hosq::pack::once>>
       y;
 };
 
@@ -16,132 +16,132 @@ constexpr auto to_vec2 = [](const JsonVec2& p) {
 };
 
 struct Circle {
-  ser20::Entry<key<"type">, Elem<ser20::scan::string |
-                                 ser20::validate::match<"circle"_json_string> |
-                                 ser20::pack::once>>
+  hosq::Entry<key<"type">, Elem<hosq::scan::string |
+                                 hosq::validate::match<"circle"_json_string> |
+                                 hosq::pack::once>>
       type;
 
-  ser20::Entry<key<"color">,
-               Elem<ser20::decode::parse_to<JsonRGB> |
-                    ser20::decode::custom<to_rgb> | ser20::pack::once>>
+  hosq::Entry<key<"color">,
+               Elem<hosq::decode::parse_to<JsonRGB> |
+                    hosq::decode::custom<to_rgb> | hosq::pack::once>>
       color;
 
-  ser20::Entry<key<"center">,
-               Elem<ser20::decode::parse_to<JsonVec2> |
-                    ser20::decode::custom<to_vec2> | ser20::pack::once>>
+  hosq::Entry<key<"center">,
+               Elem<hosq::decode::parse_to<JsonVec2> |
+                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
       center;
 
-  ser20::Entry<key<"radius">,
-               Elem<ser20::scan::scalar | ser20::decode::integer<int> |
-                    ser20::pack::once>>
+  hosq::Entry<key<"radius">,
+               Elem<hosq::scan::scalar | hosq::decode::integer<int> |
+                    hosq::pack::once>>
       radius;
 
-  ser20::Entry<
-      Elem<ser20::scan::string>,
-      Elem<ser20::decode::member<ser20::pack::reject_unknown_with_suggestion> |
-           ser20::pack::ignore>>
+  hosq::Entry<
+      Elem<hosq::scan::string>,
+      Elem<hosq::decode::member<hosq::pack::reject_unknown_with_suggestion> |
+           hosq::pack::ignore>>
       unknown;
 };
 
 struct Rectangle {
-  ser20::Entry<
+  hosq::Entry<
       key<"type">,
-      Elem<ser20::scan::string |
-           ser20::validate::match<"rectangle"_json_string> | ser20::pack::once>>
+      Elem<hosq::scan::string |
+           hosq::validate::match<"rectangle"_json_string> | hosq::pack::once>>
       type;
 
-  ser20::Entry<key<"color">,
-               Elem<ser20::decode::parse_to<JsonRGB> |
-                    ser20::decode::custom<to_rgb> | ser20::pack::once>>
+  hosq::Entry<key<"color">,
+               Elem<hosq::decode::parse_to<JsonRGB> |
+                    hosq::decode::custom<to_rgb> | hosq::pack::once>>
       color;
 
-  ser20::Entry<key<"top_left">,
-               Elem<ser20::decode::parse_to<JsonVec2> |
-                    ser20::decode::custom<to_vec2> | ser20::pack::once>>
+  hosq::Entry<key<"top_left">,
+               Elem<hosq::decode::parse_to<JsonVec2> |
+                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
       top_left;
 
-  ser20::Entry<key<"width">,
-               Elem<ser20::scan::scalar | ser20::decode::integer<int> |
-                    ser20::pack::once>>
+  hosq::Entry<key<"width">,
+               Elem<hosq::scan::scalar | hosq::decode::integer<int> |
+                    hosq::pack::once>>
       width;
 
-  ser20::Entry<key<"height">,
-               Elem<ser20::scan::scalar | ser20::decode::integer<int> |
-                    ser20::pack::once>>
+  hosq::Entry<key<"height">,
+               Elem<hosq::scan::scalar | hosq::decode::integer<int> |
+                    hosq::pack::once>>
       height;
 
-  ser20::Entry<
-      Elem<ser20::scan::string>,
-      Elem<ser20::decode::member<ser20::pack::reject_unknown_with_suggestion> |
-           ser20::pack::ignore>>
+  hosq::Entry<
+      Elem<hosq::scan::string>,
+      Elem<hosq::decode::member<hosq::pack::reject_unknown_with_suggestion> |
+           hosq::pack::ignore>>
       unknown;
 };
 
 struct Triangle {
-  ser20::Entry<key<"type">, Elem<ser20::scan::string |
-                                 ser20::validate::match<"triangle"_json_string> |
-                                 ser20::pack::once>>
+  hosq::Entry<key<"type">, Elem<hosq::scan::string |
+                                 hosq::validate::match<"triangle"_json_string> |
+                                 hosq::pack::once>>
       type;
 
-  ser20::Entry<key<"color">,
-               Elem<ser20::decode::parse_to<JsonRGB> |
-                    ser20::decode::custom<to_rgb> | ser20::pack::once>>
+  hosq::Entry<key<"color">,
+               Elem<hosq::decode::parse_to<JsonRGB> |
+                    hosq::decode::custom<to_rgb> | hosq::pack::once>>
       color;
 
-  ser20::Entry<key<"vertex1">,
-               Elem<ser20::decode::parse_to<JsonVec2> |
-                    ser20::decode::custom<to_vec2> | ser20::pack::once>>
+  hosq::Entry<key<"vertex1">,
+               Elem<hosq::decode::parse_to<JsonVec2> |
+                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
       vertex1;
 
-  ser20::Entry<key<"vertex2">,
-               Elem<ser20::decode::parse_to<JsonVec2> |
-                    ser20::decode::custom<to_vec2> | ser20::pack::once>>
+  hosq::Entry<key<"vertex2">,
+               Elem<hosq::decode::parse_to<JsonVec2> |
+                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
       vertex2;
 
-  ser20::Entry<key<"vertex3">,
-               Elem<ser20::decode::parse_to<JsonVec2> |
-                    ser20::decode::custom<to_vec2> | ser20::pack::once>>
+  hosq::Entry<key<"vertex3">,
+               Elem<hosq::decode::parse_to<JsonVec2> |
+                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
       vertex3;
 
-  ser20::Entry<
-      Elem<ser20::scan::string>,
-      Elem<ser20::decode::member<ser20::pack::reject_unknown_with_suggestion> |
-           ser20::pack::ignore>>
+  hosq::Entry<
+      Elem<hosq::scan::string>,
+      Elem<hosq::decode::member<hosq::pack::reject_unknown_with_suggestion> |
+           hosq::pack::ignore>>
       unknown;
 };
 
 struct Metadata {
-  ser20::Entry<
+  hosq::Entry<
       key<"source">,
-      Elem<ser20::scan::string | ser20::decode::string_view | ser20::pack::once>>
+      Elem<hosq::scan::string | hosq::decode::string_view | hosq::pack::once>>
       source;
 
-  ser20::Entry<key<"version">,
-               Elem<ser20::scan::scalar | ser20::decode::integer<int> |
-                    ser20::pack::once>>
+  hosq::Entry<key<"version">,
+               Elem<hosq::scan::scalar | hosq::decode::integer<int> |
+                    hosq::pack::once>>
       version;
 
-  ser20::Entry<
-      Elem<ser20::scan::string>,
-      Elem<ser20::decode::member<ser20::pack::ignore> | ser20::pack::ignore>>
+  hosq::Entry<
+      Elem<hosq::scan::string>,
+      Elem<hosq::decode::member<hosq::pack::ignore> | hosq::pack::ignore>>
       unknown;
 };
 
 using Shape = std::OneOf<Circle, Rectangle, Triangle>;
 
 struct Document {
-  ser20::Entry<key<"data">,
-               Elem<ser20::decode::vector<ser20::decode::parse_to<Shape>,
-                                          ser20::pack::push> |
-                    ser20::pack::once>>
+  hosq::Entry<key<"data">,
+               Elem<hosq::decode::vector<hosq::decode::parse_to<Shape>,
+                                          hosq::pack::push> |
+                    hosq::pack::once>>
       data;
 
-  ser20::Entry<key<"metadata">,
-               Elem<ser20::decode::parse_to<Metadata> | ser20::pack::once>>
+  hosq::Entry<key<"metadata">,
+               Elem<hosq::decode::parse_to<Metadata> | hosq::pack::once>>
       metadata;
 
-  ser20::Entry<Elem<ser20::scan::string>,
-               Elem<ser20::unknown::reject_with_suggestion>>
+  hosq::Entry<Elem<hosq::scan::string>,
+               Elem<hosq::unknown::reject_with_suggestion>>
       unknown;
 };
 

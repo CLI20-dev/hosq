@@ -3,7 +3,7 @@ target_link_libraries(bench_reader
     PRIVATE
         benchmark::benchmark
         benchmark::benchmark_main
-        ser20::ser20
+        hosq::hosq
         bench_alloc
 )
 target_compile_options(bench_reader PRIVATE

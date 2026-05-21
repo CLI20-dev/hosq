@@ -1,4 +1,4 @@
-#include "ser20/json/compact_writer.hh"
+#include "hosq/json/compact_writer.hh"
 
 #include <gtest/gtest.h>
 
@@ -12,19 +12,19 @@ using namespace std::string_view_literals;
 
 namespace {
 
-using TT = ser20::TokenType;
-using JTC = ser20::JsonTokenContext;
-using EC = ser20::ErrorCode;
-using CW = ser20::json::CompactWriter<>;
+using TT = hosq::TokenType;
+using JTC = hosq::JsonTokenContext;
+using EC = hosq::ErrorCode;
+using CW = hosq::json::CompactWriter<>;
 
 // ── Write helpers ─────────────────────────────────────────────────────────────
 
 static auto wr_scalar(CW& w, std::string_view content, JTC ctx)
-    -> ser20::Result<void, ser20::Error> {
+    -> hosq::Result<void, hosq::Error> {
   auto buf = w.write({.length = content.size(),
                       .type = TT::Scalar,
                       .context = static_cast<uint8_t>(ctx)});
-  if (!buf) return ser20::unexpected(buf.error());
+  if (!buf) return hosq::unexpected(buf.error());
   std::copy(content.begin(), content.end(), buf->data());
   return w.commit(content.size());
 }
@@ -495,7 +495,7 @@ TEST(CompactWriterError, ObjectEndAfterKeyNoValue) {
 TEST(CompactWriterError, ScalarBeginUnresolvedLength) {
   std::string out;
   CW w{out};
-  auto res = w.write({.length = ser20::unresolved_length,
+  auto res = w.write({.length = hosq::unresolved_length,
                       .type = TT::Scalar,
                       .context = static_cast<uint8_t>(JTC::string)});
   ASSERT_FALSE(res.has_value());
@@ -560,7 +560,7 @@ TEST(CompactWriterError, EndNonZeroContext) {
 
 TEST(CompactWriterError, DepthLimitExceeded) {
   std::string out;
-  ser20::json::CompactWriter<2> w{out};
+  hosq::json::CompactWriter<2> w{out};
 
   ASSERT_TRUE(
       w.write({.length = 0, .type = TT::ArrayBegin, .context = 0}).has_value());

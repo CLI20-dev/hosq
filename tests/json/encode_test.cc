@@ -1,4 +1,4 @@
-#include "ser20/pipeline/encode.hh"
+#include "hosq/pipeline/encode.hh"
 
 #include <gtest/gtest.h>
 
@@ -8,32 +8,32 @@
 #include <string_view>
 #include <variant>
 
-#include "ser20/encoder.hh"
-#include "ser20/json/compact_writer.hh"
-#include "ser20/pipeline/decode.hh"
-#include "ser20/pipeline/match.hh"
-#include "ser20/pipeline/scan.hh"
-#include "ser20/pipeline/store.hh"
-#include "ser20/string_literal.hh"
+#include "hosq/encoder.hh"
+#include "hosq/json/compact_writer.hh"
+#include "hosq/pipeline/decode.hh"
+#include "hosq/pipeline/match.hh"
+#include "hosq/pipeline/scan.hh"
+#include "hosq/pipeline/store.hh"
+#include "hosq/string_literal.hh"
 
 using namespace std::string_view_literals;
-using namespace ser20;
+using namespace hosq;
 
 namespace {
 
-using TT = ser20::TokenType;
-using JTC = ser20::JsonTokenContext;
+using TT = hosq::TokenType;
+using JTC = hosq::JsonTokenContext;
 
 template <class W>
 auto write_scalar(W& writer, std::string_view content, JTC context)
-    -> ser20::Result<void, ser20::Error> {
-  auto buffer = writer.write(ser20::WriteRequest{
+    -> hosq::Result<void, hosq::Error> {
+  auto buffer = writer.write(hosq::WriteRequest{
       .length = content.size(),
       .type = TT::Scalar,
       .context = static_cast<std::uint8_t>(context),
   });
   if (!buffer) {
-    return ser20::unexpected(buffer.error());
+    return hosq::unexpected(buffer.error());
   }
   std::copy(content.begin(), content.end(), buffer->data());
   return writer.commit(content.size());
@@ -42,7 +42,7 @@ auto write_scalar(W& writer, std::string_view content, JTC context)
 struct WriteJsonString {
   template <class Context>
   auto operator()(std::string_view value, Context& ctx) const
-      -> ser20::Result<void, ser20::Error> {
+      -> hosq::Result<void, hosq::Error> {
     return write_scalar(ctx.writer.get(), value, JTC::string);
   }
 };
@@ -50,49 +50,49 @@ struct WriteJsonString {
 struct WriteJsonLiteral {
   template <class Context>
   auto operator()(std::string_view value, Context& ctx) const
-      -> ser20::Result<void, ser20::Error> {
+      -> hosq::Result<void, hosq::Error> {
     return write_scalar(ctx.writer.get(), value, JTC::literal);
   }
 
   template <class Context>
   auto operator()(const std::string& value, Context& ctx) const
-      -> ser20::Result<void, ser20::Error> {
+      -> hosq::Result<void, hosq::Error> {
     return write_scalar(ctx.writer.get(), value, JTC::literal);
   }
 };
 
-template <ser20::StringLiteral Name>
+template <hosq::StringLiteral Name>
 struct WriteJsonKey {
   template <class Context>
   auto operator()(std::monostate, Context& ctx) const
-      -> ser20::Result<void, ser20::Error> {
+      -> hosq::Result<void, hosq::Error> {
     return write_scalar(ctx.writer.get(), Name.view(), JTC::string);
   }
 };
 
-template <ser20::StringLiteral Name>
-using Key = ser20::Elem<ser20::noop_decoder, ser20::step<WriteJsonKey<Name>>>;
+template <hosq::StringLiteral Name>
+using Key = hosq::Elem<hosq::noop_decoder, hosq::step<WriteJsonKey<Name>>>;
 
 using StringValue =
-    ser20::Elem<ser20::scan::string | ser20::decode::string_view |
-                    ser20::store::once,
-                ser20::encode::string_view | ser20::step<WriteJsonString>>;
+    hosq::Elem<hosq::scan::string | hosq::decode::string_view |
+                    hosq::store::once,
+                hosq::encode::string_view | hosq::step<WriteJsonString>>;
 
 template <class T>
 using NumberValue =
-    ser20::Elem<ser20::scan::literal | ser20::decode::number<T> |
-                    ser20::store::once,
-                ser20::encode::number<T> | ser20::step<WriteJsonLiteral>>;
+    hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
+                    hosq::store::once,
+                hosq::encode::number<T> | hosq::step<WriteJsonLiteral>>;
 
 struct Address {
-  ser20::Entry<Key<"city">, StringValue> city;
-  ser20::Entry<Key<"zip">, NumberValue<int>> zip;
+  hosq::Entry<Key<"city">, StringValue> city;
+  hosq::Entry<Key<"zip">, NumberValue<int>> zip;
 };
 
 struct User {
-  ser20::Entry<Key<"id">, NumberValue<int>> id;
-  ser20::Entry<Key<"name">, StringValue> name;
-  ser20::Entry<Key<"address">, Address> address;
+  hosq::Entry<Key<"id">, NumberValue<int>> id;
+  hosq::Entry<Key<"name">, StringValue> name;
+  hosq::Entry<Key<"address">, Address> address;
 };
 
 }  // namespace
@@ -102,9 +102,9 @@ TEST(EncodeJson, EncodesTopLevelElement) {
   value.value() = 42;
 
   std::string output;
-  ser20::json::CompactWriter writer{output};
+  hosq::json::CompactWriter writer{output};
 
-  auto result = ser20::encode_into(value, writer);
+  auto result = hosq::encode_into(value, writer);
 
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(output, "42");
@@ -118,9 +118,9 @@ TEST(EncodeJson, EncodesObjectSchema) {
   user.address.value().zip.value().value() = 100;
 
   std::string output;
-  ser20::json::CompactWriter writer{output};
+  hosq::json::CompactWriter writer{output};
 
-  auto result = ser20::encode_into(user, writer);
+  auto result = hosq::encode_into(user, writer);
 
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(output,
@@ -135,11 +135,11 @@ TEST(EncodeJson, CanEncodeIntoExistingWriterStream) {
   user.address.value().zip.value().value() = 150;
 
   std::string output;
-  ser20::json::CompactWriter writer{output};
+  hosq::json::CompactWriter writer{output};
 
   ASSERT_TRUE(writer.write({.length = 0, .type = TT::ArrayBegin, .context = 0})
                   .has_value());
-  ASSERT_TRUE(ser20::Encoder<ser20::json::CompactWriter<>>::encode_to_writer(
+  ASSERT_TRUE(hosq::Encoder<hosq::json::CompactWriter<>>::encode_to_writer(
                   user, writer)
                   .has_value());
   ASSERT_TRUE(writer.write({.length = 0, .type = TT::ArrayEnd, .context = 0})

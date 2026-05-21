@@ -5,7 +5,7 @@ add_executable(bench_twitter bench_twitter.cc)
 target_link_libraries(bench_twitter
     PRIVATE
         benchmark::benchmark
-        ser20::ser20
+        hosq::hosq
         ${YYJSON_LIBRARIES}
 )
 target_include_directories(bench_twitter PRIVATE ${YYJSON_INCLUDE_DIRS})

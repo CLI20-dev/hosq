@@ -1,11 +1,11 @@
-function(add_ser20_example source_file suffix cxx_std)
+function(add_hosq_example source_file suffix cxx_std)
   get_filename_component(example_name "${source_file}" NAME_WE)
   set(target_name "${example_name}${suffix}")
 
   add_executable("${target_name}" "${source_file}")
   set_target_properties("${target_name}" PROPERTIES CXX_CLANG_TIDY "")
 
-  target_link_libraries("${target_name}" PRIVATE ser20)
+  target_link_libraries("${target_name}" PRIVATE hosq)
 
   string(REGEX REPLACE "cxx_std_" "" cxx_std_num "${cxx_std}")
   set_target_properties("${target_name}" PROPERTIES
@@ -26,5 +26,5 @@ endif()
 
 foreach(example_source ${EXAMPLE_SOURCES})
   get_filename_component(example_name "${example_source}" NAME_WE)
-  add_ser20_example("${example_source}" "" cxx_std_20)
+  add_hosq_example("${example_source}" "" cxx_std_20)
 endforeach()
