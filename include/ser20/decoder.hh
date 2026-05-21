@@ -4,8 +4,9 @@
 #include <tuple>
 #include <type_traits>
 
-#include "ser20/as_tuple.hh"
+#include "ser20/detail/as_tuple.hh"
 #include "ser20/element.hh"
+#include "ser20/entry.hh"
 #include "ser20/reader_base.hh"
 
 namespace ser20 {
@@ -202,87 +203,45 @@ class Decoder {
 
           return result;
         },
-        ser20::as_tuple(t));
+        ser20::detail::as_tuple(t));
   }
 
   template <class Entry>
   static consteval auto entry_key_const_invokable() -> bool {
     using E = std::remove_cvref_t<Entry>;
-    if constexpr (E::category == detail::EntryCategory::ElemElem ||
-                  E::category == detail::EntryCategory::ElemSchema) {
-      return E::template key_decoder_const_invokable<R>;
-    } else {
-      return false;
-    }
+    return E::template key_decoder_const_invokable<R>;
   }
 
   template <class Entry>
   static consteval auto entry_value_const_invokable() -> bool {
     using E = std::remove_cvref_t<Entry>;
-    if constexpr (E::category == detail::EntryCategory::ElemElem ||
-                  E::category == detail::EntryCategory::SchemaElem) {
-      return E::template value_decoder_const_invokable<R>;
-    } else {
-      return false;
-    }
+    return E::template value_decoder_const_invokable<R>;
   }
 
   template <class Entry>
   SER20_FUNCTION_ALWAYS_INLINE auto decode_entry_key(Entry& entry)
       -> Result<void, Error> {
-    using E = std::remove_cvref_t<Entry>;
-    if constexpr (E::category == detail::EntryCategory::ElemElem ||
-                  E::category == detail::EntryCategory::ElemSchema) {
-      return entry.decode_key(reader());
-    } else {
-      return decode_as_entry_tuple(entry.key());
-    }
+    return entry.decode_key(reader());
   }
 
   template <class Entry>
   SER20_FUNCTION_ALWAYS_INLINE auto decode_entry_value(Entry& entry)
       -> Result<void, Error> {
-    using E = std::remove_cvref_t<Entry>;
-
-    if constexpr (E::category == detail::EntryCategory::ElemElem ||
-                  E::category == detail::EntryCategory::SchemaElem) {
-      return entry.decode_value(reader());
-    } else if constexpr (E::category == detail::EntryCategory::ElemSchema ||
-                         E::category == detail::EntryCategory::SchemaSchema) {
-      return decode_as_entry_tuple(entry.value());
-    } else {
-      static_assert(detail::always_false<E>, "Unsupported Entry category");
-    }
+    return entry.decode_value(reader());
   }
 
   template <class Entry>
   SER20_FUNCTION_ALWAYS_INLINE auto decode_entry_key_const(Entry& entry)
       -> Result<void, Error> {
-    using E = std::remove_cvref_t<Entry>;
-
-    if constexpr (E::category == detail::EntryCategory::ElemElem ||
-                  E::category == detail::EntryCategory::ElemSchema) {
-      const auto& r = static_cast<const R&>(reader());
-      return entry.decode_key(r);
-    } else {
-      static_assert(detail::always_false<E>,
-                    "Schema key is not const-invokable");
-    }
+    const auto& r = static_cast<const R&>(reader());
+    return entry.decode_key(r);
   }
 
   template <class Entry>
   SER20_FUNCTION_ALWAYS_INLINE auto decode_entry_value_const(Entry& entry)
       -> Result<void, Error> {
-    using E = std::remove_cvref_t<Entry>;
-
-    if constexpr (E::category == detail::EntryCategory::ElemElem ||
-                  E::category == detail::EntryCategory::SchemaElem) {
-      const auto& r = static_cast<const R&>(reader());
-      return entry.decode_value(r);
-    } else {
-      static_assert(detail::always_false<E>,
-                    "Schema value is not const-invokable");
-    }
+    const auto& r = static_cast<const R&>(reader());
+    return entry.decode_value(r);
   }
 
   template <class T>

@@ -1,13 +1,11 @@
 #pragma once
 
-#include <concepts>
 #include <cstddef>
 #include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
-#include "ser20/as_tuple.hh"
 #include "ser20/context.hh"
 #include "ser20/pipeline.hh"
 
@@ -23,21 +21,6 @@ namespace ser20 {
 #endif
 #endif
 
-namespace detail {
-
-struct ElementTag {};
-
-template <class T>
-struct IsPipeline : std::false_type {};
-
-template <auto... Fns>
-struct IsPipeline<Pipeline<Fns...>> : std::true_type {};
-
-template <class T>
-concept PipelineObject = IsPipeline<std::remove_cvref_t<T>>::value;
-
-}  // namespace detail
-
 /// A single decoded/encoded field backed by a Decoder and Encoder pipeline pair.
 ///
 /// `storage_type` is derived from the decoder's `storage_type<Input>`
@@ -51,7 +34,7 @@ concept PipelineObject = IsPipeline<std::remove_cvref_t<T>>::value;
 template <auto Decoder, auto Encoder>
   requires detail::PipelineObject<decltype(Decoder)> &&
            detail::PipelineObject<decltype(Encoder)>
-struct Elem : public detail::ElementTag {
+struct Elem {
   using decoder_type = std::remove_cvref_t<decltype(Decoder)>;
   using decoder_info = decltype(decoder_type::analyze_decoder());
   using storage_type = typename std::tuple_element_t<1, decoder_info>::type;
@@ -177,152 +160,6 @@ concept ElemT = IsElem<std::remove_cvref_t<T>>::value;
 
 }  // namespace detail
 
-namespace detail {
-
-struct EntryTag {};
-
-template <class T>
-concept EntryT = std::derived_from<std::remove_cvref_t<T>, EntryTag>;
-
-template <class Tuple>
-struct EntryTuple : std::false_type {};
-
-template <class... Ts>
-struct EntryTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (EntryT<Ts> && ...)> {};
-
-template <class T>
-concept EntryTupleT = EntryTuple<std::remove_cvref_t<T>>::value;
-
-template <class T>
-concept AsEntryTupleT = requires(T t) {
-  { ser20::as_tuple(t) } -> EntryTupleT;
-};
-
-}  // namespace detail
-
-/// A key–value pair where both Key and Value are Elem types.
-///
-/// `*_decoder_const_invokable` / `*_encoder_const_invokable` mirror the
-/// underlying Elem's flags and gate the const/mutable overloads of decode_key /
-/// decode_value / encode_key / encode_value at compile time.
-template <detail::ElemT Key, detail::ElemT Value>
-struct Entry : public detail::EntryTag {
-  using value_type = Value;
-  using key_type = Key;
-
-  template <class R>
-  static constexpr bool key_decoder_const_invokable =
-      Key::template decoder_const_invokable<
-          DecodeContext<typename Key::storage_type, R>>;
-
-  template <class R>
-  static constexpr bool value_decoder_const_invokable =
-      Value::template decoder_const_invokable<
-          DecodeContext<typename Value::storage_type, R>>;
-
-  template <class W>
-  static constexpr bool key_encoder_const_invokable =
-      Key::template encoder_const_invokable<
-          EncodeContext<typename Key::storage_type, W>>;
-
-  template <class W>
-  static constexpr bool value_encoder_const_invokable =
-      Value::template encoder_const_invokable<
-          EncodeContext<typename Value::storage_type, W>>;
-
-  Entry() = default;
-
-  [[nodiscard]] auto key() const -> const key_type& { return key_; }
-  [[nodiscard]] auto key() -> key_type& { return key_; }
-
-  [[nodiscard]] auto value() const -> const value_type& { return value_; }
-  [[nodiscard]] auto value() -> value_type& { return value_; }
-
-  [[nodiscard]] auto operator*() -> value_type& { return value_; }
-  [[nodiscard]] auto operator*() const -> const value_type& { return value_; }
-
-  [[nodiscard]] auto operator->() -> value_type* { return &value_; }
-  [[nodiscard]] auto operator->() const -> const value_type* { return &value_; }
-
- public:
-  key_type key_{};      // NOLINT
-  value_type value_{};  // NOLINT
-
-  // ── decode_key
-  // ───────────────────────────────────────────────────────────────
-  template <ReaderConcept R>
-    requires(!key_decoder_const_invokable<R>)
-  [[nodiscard]] auto decode_key(R& reader) {
-    return key().decode(reader);
-  }
-
-  template <ReaderConcept R>
-    requires(key_decoder_const_invokable<R>)
-  [[nodiscard]] auto decode_key(const R& reader) {
-    return key().decode(reader);
-  }
-
-  // ── decode_value
-  // ─────────────────────────────────────────────────────────────
-
-  template <ReaderConcept R>
-    requires(!value_decoder_const_invokable<R>)
-  [[nodiscard]] auto decode_value(R& reader) {
-    return value().decode(reader);
-  }
-
-  template <ReaderConcept R>
-    requires(value_decoder_const_invokable<R>)
-  [[nodiscard]] auto decode_value(const R& reader) {
-    return value().decode(reader);
-  }
-};
-
-template <class T>
-struct Try {
-  static_assert(detail::always_false<T>,
-                "Try<T>: T must be either an Elem or an Entry.");
-};
-
-template <detail::ElemT T>
-struct Try<T> : public T {
-  using base_type = T;
-  using T::T;
-  using terminal_type = typename std::tuple_element_t<
-      2, typename std::remove_cvref_t<T>::decoder_info>::type;
-  static_assert(std::same_as<terminal_type, bool>,
-                "Try<T>: Elem decoder terminal type must be "
-                "bool/Result<bool, Error>.");
-  Try() = default;
-};
-
-template <detail::EntryT T>
-struct Try<T> : public T {
-  using base_type = T;
-  using T::T;
-  using key_type = typename std::remove_cvref_t<T>::key_type;
-  using terminal_type = typename std::tuple_element_t<
-      2, typename std::remove_cvref_t<key_type>::decoder_info>::type;
-  static_assert(std::same_as<terminal_type, bool>,
-                "Try<T>: Entry key Elem decoder terminal type must be "
-                "bool/Result<bool, Error>.");
-  Try() = default;
-};
-
-namespace detail {
-
-template <class T>
-struct IsTry : std::false_type {};
-
-template <class T>
-struct IsTry<::ser20::Try<T>> : std::true_type {};
-
-template <class T>
-concept TryT = IsTry<std::remove_cvref_t<T>>::value;
-
-}  // namespace detail
-
 /**
  * @brief Prevents Elem from being decomposed as an aggregate schema.
  *
@@ -339,21 +176,6 @@ constexpr auto as_tuple(T&) = delete;
 template <detail::ElemT T>
 constexpr auto as_tuple(const T&) = delete;
 
-/**
- * @brief Prevents Entry from being decomposed as an aggregate schema.
- *
- * Entry is itself an aggregate, but semantically it is already one element of an
- * entry tuple. This overload is intentionally more constrained than the generic
- * aggregate `as_tuple` overload, so `ser20::as_tuple(entry)` selects this
- * overload instead of recursively decomposing Entry's implementation details.
- *
- * The overload is deleted because calling `as_tuple` on an Entry is a misuse of
- * the schema decomposition API.
- */
-template <detail::EntryT T>
-constexpr auto as_tuple(T&) = delete;
-template <detail::EntryT T>
-constexpr auto as_tuple(const T&) = delete;
-
 #undef SER20_ALWAYS_INLINE
+
 }  // namespace ser20

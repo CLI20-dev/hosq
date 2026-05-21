@@ -4,11 +4,10 @@
 #include <cctype>
 #include <concepts>
 #include <cstddef>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 
-#include "ser20/context.hh"
+#include "ser20/detail/always_false.hh"
 #include "ser20/error.hh"
 #include "ser20/result.hh"
 
@@ -25,81 +24,10 @@
 
 namespace ser20 {
 
-namespace detail {
-
-/// Placeholder input type used during static pipeline analysis when the true
-/// input is not yet known.
-struct AnyInput {};
-
-/// Incomplete type; instantiating it triggers a "missing storage_type"
-/// static_assert diagnostic.
-template <class Head, class Input>
-struct MissingStorageType;
-
-/// Incomplete type; instantiating it triggers a "duplicate storage_type"
-/// static_assert diagnostic.
-template <class ExistingStorage, class Head, class Input>
-struct DuplicateStorageType;
-
-/// Incomplete type; instantiating it triggers an "unexpected storage_type in
-/// encoder" static_assert diagnostic.
-template <class Head, class Input>
-struct UnexpectedStorageType;
-
-/// Sentinel: no step in the pipeline has declared a `storage_type` yet.
-struct NoStorage {};
-
-/// Sentinel returned by callability probes when a step cannot be invoked with
-/// the given arguments.
-struct NotCallable {};
-
-/// Computes the active storage type after a pipeline step.
-/// Adopts `Head::storage_type<Input>` when `HasStorage` is true; otherwise
-/// forwards `Storage` unchanged.
-template <class Head, class Input, class Storage, bool HasStorage>
-struct NextStorage {
-  using type = Storage;
-};
-
-template <class Head, class Input, class Storage>
-struct NextStorage<Head, Input, Storage, true> {
-  using type = typename Head::template storage_type<Input>;
-};
-
-/// Distinguishes decoder pipelines (which read/deserialize data) from encoder
-/// pipelines (which write/serialize data).
-enum class PipelineMode {
-  decoder,
-  encoder,
-};
-
-/// Always-false helper for static_assert inside unreachable `constexpr if`
-/// branches.
-template <class Head>
-static constexpr bool always_false = false;
-
-/// Unwraps the value type `T` from `Result<T, Error>`; passes `R` through
-/// unchanged for non-Result types.
-template <class R>
-struct StepOutput {
-  using type = std::remove_cvref_t<R>;
-};
-
-template <class T>
-struct StepOutput<Result<T, Error>> {
-  using type = T;
-};
-
-/// The unwrapped output type of a pipeline step: `T` for `Result<T, Error>`, `R`
-/// for everything else.
-template <class R>
-using step_output_t = typename StepOutput<std::remove_cvref_t<R>>::type;
-
-}  // namespace detail
-
 template <auto... Fns>
   requires(sizeof...(Fns) > 0)
 struct Pipeline;
+
 
 namespace detail {
 
@@ -704,256 +632,6 @@ struct Pipeline {
       }
     }.template operator()<Fns...>(ctx);
   };
-
-  /**
-   * @brief Statically validates this pipeline for use as a decoder.
-   *
-   * Checks that exactly one step declares `storage_type<Input>` and that
-   * the terminal step returns `void` or `Result<void, Error>`. Returns a
-   * tuple `{true, type_identity<StorageType>}` on success; fails via
-   * static_assert otherwise.
-   */
-  static constexpr auto analyze_decoder() {
-    return analyze_decoder_impl<void, detail::NoStorage, Fns...>();
-  }
-
-  /**
-   * @brief Statically validates this pipeline for use as an encoder.
-   *
-   * Checks that no step declares `storage_type<Input>` and that the
-   * terminal step returns `void` or `Result<void, Error>`. Returns
-   * `{true, type_identity<void>}` on success; fails via static_assert otherwise.
-   *
-   * @tparam Input The value type the encoder pipeline will receive.
-   */
-  template <class Input>
-  static constexpr auto analyze_encoder() {
-    return analyze_encoder_impl<Input, Fns...>();
-  }
-
-  /**
-   * @brief Returns `true` if this pipeline can be invoked with a `const
-   * Context&` starting from the given `Input` type.
-   *
-   * Walks the step chain at compile time, checking that each step is callable
-   * with the appropriate input and `const Context&` (or no context).
-   *
-   * @tparam Context Context type to probe.
-   * @tparam Input   Input type for the first step.
-   */
-  template <class Context, class Input>
-  static consteval auto callable_with_const_context() -> bool {
-    return callable_with_const_context_impl<Context, Input, Fns...>();
-  }
-
-  /**
-   * @brief Returns `true` if this pipeline can be invoked with a mutable
-   * `Context&` starting from the given `Input` type.
-   *
-   * Walks the step chain at compile time, checking that each step is callable
-   * with the appropriate input and `Context&` (or no context).
-   *
-   * @tparam Context Context type to probe.
-   * @tparam Input   Input type for the first step.
-   */
-  template <class Context, class Input>
-  static consteval auto callable_with_mutable_context() -> bool {
-    return callable_with_mutable_context_impl<Context, Input, Fns...>();
-  }
-
- private:
-  template <class Input, class Storage, auto FnHead, auto... FnTail>
-  static constexpr auto analyze_decoder_impl() {
-    using Head = std::remove_cvref_t<decltype(FnHead)>;
-    using Context = detail::AnyDecodeContext;
-    using In = std::remove_cvref_t<Input>;
-
-    constexpr bool has_storage =
-        requires { typename Head::template storage_type<In>; };
-
-    using NextStorage =
-        typename detail::NextStorage<Head, In, Storage, has_storage>::type;
-
-    if constexpr (has_storage && !std::same_as<Storage, detail::NoStorage>) {
-      static_assert(
-          sizeof(detail::DuplicateStorageType<Storage, Head, In>) == 0,
-          "Decoder pipeline defines storage_type<Input> more than once");
-    }
-
-    using raw_return_type = typename decltype([]() -> auto {
-      if constexpr (std::same_as<In, void> &&
-                    requires(Context& ctx) { FnHead(ctx); }) {
-        return std::type_identity<
-            std::invoke_result_t<decltype(FnHead), Context&>>{};
-      } else if constexpr (std::same_as<In, void> && requires { FnHead(); }) {
-        return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
-      } else if constexpr (!std::same_as<In, void> &&
-                           requires(In in, Context& ctx) {
-                             FnHead(std::move(in), ctx);
-                           }) {
-        return std::type_identity<
-            std::invoke_result_t<decltype(FnHead), In&&, Context&>>{};
-      } else if constexpr (!std::same_as<In, void> &&
-                           requires(In in) { FnHead(std::move(in)); }) {
-        return std::type_identity<
-            std::invoke_result_t<decltype(FnHead), In&&>>{};
-      } else {
-        static_assert(
-            detail::always_false<Head>,
-            "Decoder pipeline step is not callable. It must be callable as "
-            "Fn(ctx) or Fn() when input is void, or Fn(input, ctx) or Fn(input) "
-            "when input is non-void.");
-      }
-    }())::type;
-
-    using after_type = detail::step_output_t<raw_return_type>;
-
-    if constexpr (sizeof...(FnTail) == 0) {
-      static_assert(
-          std::same_as<after_type, void> || std::same_as<after_type, bool>,
-          "Decoder terminal action must return void, bool, Result<void, Error>, "
-          "or Result<bool, Error>");
-      static_assert(
-          !std::same_as<NextStorage, detail::NoStorage>,
-          "At least one decoder pipeline step must define storage_type<Input>");
-      return std::make_tuple(true, std::type_identity<NextStorage>{},
-                             std::type_identity<after_type>{});
-    } else {
-      return analyze_decoder_impl<after_type, NextStorage, FnTail...>();
-    }
-  }
-
-  template <class Input, auto FnHead, auto... FnTail>
-  static constexpr auto analyze_encoder_impl() {
-    using Head = std::remove_cvref_t<decltype(FnHead)>;
-    using Context = detail::AnyEncodeContext;
-    using In = std::remove_cvref_t<Input>;
-
-    if constexpr (requires { typename Head::template storage_type<In>; }) {
-      static_assert(sizeof(detail::UnexpectedStorageType<Head, Input>) == 0,
-                    "Encoder pipeline step must not define storage_type<Input>");
-    }
-
-    using raw_return_type = typename decltype([]() -> auto {
-      if constexpr (std::same_as<In, void> &&
-                    requires(Context& ctx) { FnHead(ctx); }) {
-        return std::type_identity<
-            std::invoke_result_t<decltype(FnHead), Context&>>{};
-      } else if constexpr (std::same_as<In, void> && requires { FnHead(); }) {
-        return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
-      } else if constexpr (!std::same_as<In, void> &&
-                           requires(In in, Context& ctx) {
-                             FnHead(std::move(in), ctx);
-                           }) {
-        return std::type_identity<
-            std::invoke_result_t<decltype(FnHead), In&&, Context&>>{};
-      } else if constexpr (!std::same_as<In, void> &&
-                           requires(In in) { FnHead(std::move(in)); }) {
-        return std::type_identity<
-            std::invoke_result_t<decltype(FnHead), In&&>>{};
-      } else {
-        static_assert(
-            detail::always_false<Head>,
-            "Encoder pipeline step is not callable. It must be callable as "
-            "Fn(ctx) or Fn() when input is void, or Fn(input, ctx) or Fn(input) "
-            "when input is non-void.");
-      }
-    }())::type;
-
-    using after_type = detail::step_output_t<raw_return_type>;
-
-    if constexpr (sizeof...(FnTail) == 0) {
-      static_assert(
-          std::same_as<after_type, void>,
-          "Encoder terminal action must return void, Result<void, Error>");
-      return std::make_tuple(true, std::type_identity<void>{},
-                             std::type_identity<after_type>{});
-    } else {
-      return analyze_encoder_impl<after_type, FnTail...>();
-    }
-  }
-
-  template <class Context, class Input, auto FnHead, auto... FnTail>
-  static consteval auto callable_with_const_context_impl() -> bool {
-    using In = std::remove_cvref_t<Input>;
-
-    using probe = decltype([]() consteval -> auto {
-      if constexpr (std::same_as<In, void>) {
-        if constexpr (requires(const Context& ctx) { FnHead(ctx); }) {
-          return std::type_identity<
-              std::invoke_result_t<decltype(FnHead), const Context&>>{};
-        } else if constexpr (requires { FnHead(); }) {
-          return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
-        } else {
-          return std::type_identity<detail::NotCallable>{};
-        }
-      } else {
-        if constexpr (requires(In input, const Context& ctx) {
-                        FnHead(std::move(input), ctx);
-                      }) {
-          return std::type_identity<
-              std::invoke_result_t<decltype(FnHead), In&&, const Context&>>{};
-        } else if constexpr (requires(In input) { FnHead(std::move(input)); }) {
-          return std::type_identity<
-              std::invoke_result_t<decltype(FnHead), In&&>>{};
-        } else {
-          return std::type_identity<detail::NotCallable>{};
-        }
-      }
-    }());
-
-    using raw_return_type = typename probe::type;
-
-    if constexpr (std::same_as<raw_return_type, detail::NotCallable>) {
-      return false;
-    } else if constexpr (sizeof...(FnTail) == 0) {
-      return true;
-    } else {
-      using After = detail::step_output_t<raw_return_type>;
-      return callable_with_const_context_impl<Context, After, FnTail...>();
-    }
-  }
-
-  template <class Context, class Input, auto FnHead, auto... FnTail>
-  static consteval auto callable_with_mutable_context_impl() -> bool {
-    using In = std::remove_cvref_t<Input>;
-
-    using probe = decltype([]() consteval -> auto {
-      if constexpr (std::same_as<In, void>) {
-        if constexpr (requires(Context& ctx) { FnHead(ctx); }) {
-          return std::type_identity<
-              std::invoke_result_t<decltype(FnHead), Context&>>{};
-        } else if constexpr (requires { FnHead(); }) {
-          return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
-        } else {
-          return std::type_identity<detail::NotCallable>{};
-        }
-      } else {
-        if constexpr (requires(In input, Context& ctx) {
-                        FnHead(std::move(input), ctx);
-                      }) {
-          return std::type_identity<
-              std::invoke_result_t<decltype(FnHead), In&&, Context&>>{};
-        } else if constexpr (requires(In input) { FnHead(std::move(input)); }) {
-          return std::type_identity<
-              std::invoke_result_t<decltype(FnHead), In&&>>{};
-        } else {
-          return std::type_identity<detail::NotCallable>{};
-        }
-      }
-    }());
-
-    using raw_return_type = typename probe::type;
-
-    if constexpr (std::same_as<raw_return_type, detail::NotCallable>) {
-      return false;
-    } else if constexpr (sizeof...(FnTail) == 0) {
-      return true;
-    } else {
-      using After = detail::step_output_t<raw_return_type>;
-      return callable_with_mutable_context_impl<Context, After, FnTail...>();
-    }
-  }
 };
 
 /// Convenience variable template that wraps a default-constructed `T` as a
@@ -968,6 +646,19 @@ template <auto... Lhs, auto... Rhs>
 constexpr auto operator|(Pipeline<Lhs...>, Pipeline<Rhs...>) {
   return Pipeline<Lhs..., Rhs...>{};
 }
+
+namespace detail {
+
+template <class T>
+struct IsPipeline : std::false_type {};
+
+template <auto... Fns>
+struct IsPipeline<Pipeline<Fns...>> : std::true_type {};
+
+template <class T>
+concept PipelineObject = IsPipeline<std::remove_cvref_t<T>>::value;
+
+}  // namespace detail
 
 }  // namespace ser20
 

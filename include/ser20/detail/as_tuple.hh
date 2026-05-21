@@ -4,12 +4,10 @@
 #include <tuple>
 #include <type_traits>
 
-namespace ser20 {
+namespace ser20::detail {
 
-namespace detail {
 template <class T>
 concept AggregateTupleCandidate = std::is_aggregate_v<std::remove_cvref_t<T>>;
-}
 
 #if defined(__cpp_structured_bindings) &&                           \
     __cpp_structured_bindings >= 202411L && defined(__cplusplus) && \
@@ -30,7 +28,7 @@ concept AggregateTupleCandidate = std::is_aggregate_v<std::remove_cvref_t<T>>;
  * @param t  The aggregate instance to decompose.
  * @return   A `std::tuple` of lvalue references to each field of `t`.
  */
-template <detail::AggregateTupleCandidate T>
+template <AggregateTupleCandidate T>
 constexpr auto as_tuple(T& t) {
   auto& [... args] = t;
   return std::forward_as_tuple(args...);
@@ -43,14 +41,13 @@ constexpr auto as_tuple(T& t) {
  * @param t  The const aggregate instance to decompose.
  * @return   A `std::tuple` of const lvalue references to each field of `t`.
  */
-template <detail::AggregateTupleCandidate T>
+template <AggregateTupleCandidate T>
 constexpr auto as_tuple(const T& t) {
   const auto& [... args] = t;
   return std::forward_as_tuple(args...);
 }
 
 #else
-namespace detail {
 
 /**
  * @brief A universal implicit-conversion type used for aggregate-member
@@ -110,8 +107,6 @@ consteval auto aggregate_initializable() -> std::size_t {
   }
 }
 
-}  // namespace detail
-
 // clang-format off
 /**
  * @brief Converts an aggregate value to a `std::tuple` of references to its members.
@@ -127,12 +122,12 @@ consteval auto aggregate_initializable() -> std::size_t {
  */
 template <class T>
   requires (
-      detail::AggregateTupleCandidate<T> &&
-      detail::aggregate_initializable<T>() <= 64 &&
+      AggregateTupleCandidate<T> &&
+      aggregate_initializable<T>() <= 64 &&
       ("as_tuple only supports up to 64 elements", true))
 constexpr auto as_tuple (T& t) {
   using U = std::remove_cvref_t<T>;
-  constexpr auto N = detail::aggregate_initializable<U>();
+  constexpr auto N = aggregate_initializable<U>();
   if constexpr (N == 0) {
     return std::tuple<>{};
   } 
@@ -403,12 +398,12 @@ constexpr auto as_tuple (T& t) {
  */
 template <class T>
   requires (
-      detail::AggregateTupleCandidate<T> &&
-      detail::aggregate_initializable<T>() <= 64 &&
+      AggregateTupleCandidate<T> &&
+      aggregate_initializable<T>() <= 64 &&
       ("as_tuple only supports up to 64 elements", true))
 constexpr auto as_tuple (const T& t) {
   using U = std::remove_cvref_t<T>;
-  constexpr auto N = detail::aggregate_initializable<U>();
+  constexpr auto N = aggregate_initializable<U>();
   if constexpr (N == 0) {
     return std::tuple<>{};
   } 
@@ -672,4 +667,4 @@ constexpr auto as_tuple (const T& t) {
 // clang-format on
 #endif
 
-}  // namespace ser20
+}  // namespace ser20::detail
