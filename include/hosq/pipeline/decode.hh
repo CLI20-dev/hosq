@@ -191,8 +191,8 @@ auto hard_decode_result_to_void(Ret&& ret, const Error& current_error)
 
 template <ScanPhase Phase, hosq::detail::TryT T, ReaderConcept R>
   requires hosq::detail::EntryT<typename std::remove_cvref_t<T>::base_type>
-auto try_decode_entry_key_candidate(
-    T& entry, R& reader, typename R::state_type& reader_state)
+auto try_decode_entry_key_candidate(T& entry, R& reader,
+                                    typename R::state_type& reader_state)
     -> Result<bool, Error> {
   using entry_type = std::remove_cvref_t<T>;
   using entry_context_type = DecodeContext<T, R, Phase>;
@@ -247,8 +247,8 @@ auto try_decode_entry_key_candidate(
 
 template <hosq::detail::TryT T, ReaderConcept R>
   requires hosq::detail::EntryT<typename std::remove_cvref_t<T>::base_type>
-auto decode_entry_value_hard(
-    T& entry, R& reader, typename R::state_type& reader_state)
+auto decode_entry_value_hard(T& entry, R& reader,
+                             typename R::state_type& reader_state)
     -> Result<void, Error> {
   constexpr auto phase = ScanPhase::first;
 
@@ -275,8 +275,8 @@ auto decode_entry_value_hard(
 
 template <ScanPhase Phase, hosq::detail::TryT T, ReaderConcept R>
   requires hosq::detail::EntryT<typename std::remove_cvref_t<T>::base_type>
-auto try_decode_entry_candidate(
-    T& entry, R& reader, typename R::state_type& reader_state)
+auto try_decode_entry_candidate(T& entry, R& reader,
+                                typename R::state_type& reader_state)
     -> Result<bool, Error> {
   auto key_ret =
       try_decode_entry_key_candidate<Phase>(entry, reader, reader_state);
@@ -295,9 +295,10 @@ auto try_decode_entry_candidate(
 }
 
 template <class Tuple, ReaderConcept R, std::size_t... I>
-auto try_decode_entry_candidates_impl(
-    Tuple& tuple, R& reader, typename R::state_type& reader_state,
-    std::index_sequence<I...>) -> Result<bool, Error> {
+auto try_decode_entry_candidates_impl(Tuple& tuple, R& reader,
+                                      typename R::state_type& reader_state,
+                                      std::index_sequence<I...>)
+    -> Result<bool, Error> {
   Result<bool, Error> result{false};
 
   ([&]() -> bool {

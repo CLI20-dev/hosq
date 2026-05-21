@@ -67,9 +67,8 @@ class Decoder {
       DecodeContext<typename T::storage_type, R, ScanPhase::first>;
 
   template <detail::ElemT T>
-  using elem_decode_raw_result_t =
-      decltype(std::declval<T&>().decode(
-          std::declval<first_decode_context_t<T>&>()));
+  using elem_decode_raw_result_t = decltype(std::declval<T&>().decode(
+      std::declval<first_decode_context_t<T>&>()));
 
   template <detail::TryT T, ScanPhase Phase>
     requires detail::ElemT<typename std::remove_cvref_t<T>::base_type>
@@ -77,9 +76,8 @@ class Decoder {
 
   template <detail::TryT T, ScanPhase Phase>
     requires detail::ElemT<typename std::remove_cvref_t<T>::base_type>
-  using try_elem_raw_result_t =
-      decltype(std::declval<T&>().decode(
-          std::declval<try_elem_context_t<T, Phase>&>()));
+  using try_elem_raw_result_t = decltype(std::declval<T&>().decode(
+      std::declval<try_elem_context_t<T, Phase>&>()));
 
   template <detail::TryT T, ScanPhase Phase>
     requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>

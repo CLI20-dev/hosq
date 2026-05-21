@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "hosq/error.hh"
@@ -19,7 +22,7 @@ struct AssignImpl {
 
   template <class Input, class Context>
   auto operator()(Input value, Context& ctx) const -> void {
-    ctx.elem() = std::move(value);
+    ctx.value() = std::move(value);
   }
 };
 
@@ -29,7 +32,7 @@ struct PushImpl {
 
   template <class Input, class Context>
   auto operator()(Input value, Context& ctx) const -> void {
-    ctx.elem().push_back(std::move(value));
+    ctx.value().push_back(std::move(value));
   }
 };
 
@@ -39,7 +42,7 @@ struct EmplaceImpl {
 
   template <class Input, class Context>
   auto operator()(Input value, Context& ctx) const -> void {
-    ctx.elem().emplace_back(std::move(value));
+    ctx.value().emplace_back(std::move(value));
   }
 };
 
@@ -53,15 +56,29 @@ struct IgnoreImpl {
 
 struct OnceImpl {
   template <class Input>
-  using storage_type = std::remove_cvref_t<Input>;
+  using storage_type = std::optional<std::remove_cvref_t<Input>>;
 
   template <class Input, class Context>
   auto operator()(Input value, Context& ctx) const -> Result<void, Error> {
-    if (ctx.occurrences > 0) {
+    if (ctx.value().has_value()) [[unlikely]] {
       return unexpected(Error{.code = ErrorCode::duplicate_member});
     }
-    ctx.elem() = std::move(value);
+    ctx.value() = std::move(value);
     return {};
+  }
+};
+
+struct FirstWinsImpl {
+  template <class Input>
+  using storage_type = std::optional<std::remove_cvref_t<Input>>;
+
+  template <class Input, class Context>
+  auto operator()(Input value, Context& ctx) const -> void {
+    if (ctx.value().has_value()) {
+      return;
+    }
+
+    ctx.value() = std::move(value);
   }
 };
 
@@ -71,7 +88,7 @@ struct OverwriteImpl {
 
   template <class Input, class Context>
   auto operator()(Input value, Context& ctx) const -> void {
-    ctx.elem() = std::move(value);
+    ctx.value() = std::move(value);
   }
 };
 
@@ -92,6 +109,9 @@ inline constexpr auto ignore = step<detail::IgnoreImpl>;
 /// Stores the decoded value once; errors with duplicate_member on subsequent
 /// stores.
 inline constexpr auto once = step<detail::OnceImpl>;
+
+/// Stores the decoded value once; later occurrences are consumed and ignored.
+inline constexpr auto first_wins = step<detail::FirstWinsImpl>;
 
 /// Stores the decoded value, allowing later occurrences to overwrite earlier
 /// ones.

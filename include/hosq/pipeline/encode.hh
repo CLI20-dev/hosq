@@ -2,6 +2,7 @@
 
 #include <charconv>
 #include <concepts>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -15,6 +16,15 @@
 namespace hosq::encode {
 
 namespace detail {
+
+template <class T>
+struct IsOptional : std::false_type {};
+
+template <class T>
+struct IsOptional<std::optional<T>> : std::true_type {};
+
+template <class T>
+concept OptionalT = IsOptional<std::remove_cvref_t<T>>::value;
 
 template <class T>
 concept Number = (std::integral<std::remove_cvref_t<T>> &&
@@ -36,16 +46,45 @@ struct NumberImpl {
     }
     return std::string{first, result.ptr};
   }
+
+  template <class U>
+    requires(OptionalT<U> &&
+             std::same_as<typename std::remove_cvref_t<U>::value_type, T>)
+  auto operator()(U&& value) const -> Result<std::string, Error> {
+    if (!value.has_value()) [[unlikely]] {
+      return unexpected(Error{.code = ErrorCode::invalid_state});
+    }
+
+    return (*this)(*std::forward<U>(value));
+  }
 };
 
 struct BooleanImpl {
   auto operator()(bool value) const -> std::string_view {
     return value ? std::string_view{"true"} : std::string_view{"false"};
   }
+
+  auto operator()(const std::optional<bool>& value) const
+      -> Result<std::string_view, Error> {
+    if (!value.has_value()) [[unlikely]] {
+      return unexpected(Error{.code = ErrorCode::invalid_state});
+    }
+
+    return (*this)(*value);
+  }
 };
 
 struct StringViewImpl {
   auto operator()(std::string_view sv) const -> std::string_view { return sv; }
+
+  auto operator()(const std::optional<std::string_view>& value) const
+      -> Result<std::string_view, Error> {
+    if (!value.has_value()) [[unlikely]] {
+      return unexpected(Error{.code = ErrorCode::invalid_state});
+    }
+
+    return *value;
+  }
 };
 
 struct IdentityImpl {

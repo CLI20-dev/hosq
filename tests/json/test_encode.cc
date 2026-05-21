@@ -1,5 +1,3 @@
-#include "hosq/pipeline/encode.hh"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -12,6 +10,7 @@
 #include "hosq/entry.hh"
 #include "hosq/json/compact_writer.hh"
 #include "hosq/pipeline/decode.hh"
+#include "hosq/pipeline/encode.hh"
 #include "hosq/pipeline/match.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/pipeline/store.hh"

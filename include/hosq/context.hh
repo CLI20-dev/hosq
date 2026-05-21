@@ -111,6 +111,16 @@ struct DecodeContext : private detail::DecodeContextBase<R> {
     return elem_.get();
   }
 
+  [[nodiscard]]
+  auto value() noexcept -> T& {
+    return elem();
+  }
+
+  [[nodiscard]]
+  auto value() const noexcept -> T& {
+    return elem();
+  }
+
  private:
   std::reference_wrapper<T> elem_;
 };

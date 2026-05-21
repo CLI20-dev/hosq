@@ -1,5 +1,3 @@
-#include "hosq/pipeline/decode.hh"
-
 #include <gtest/gtest.h>
 
 #include <string_view>
@@ -7,6 +5,7 @@
 #include "hosq/decoder.hh"
 #include "hosq/entry.hh"
 #include "hosq/json/simple_reader.hh"
+#include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/match.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/pipeline/store.hh"
@@ -24,15 +23,30 @@ template <hosq::StringLiteral Name>
 using Key = hosq::Elem<hosq::scan::string | hosq::match::literal<Name>,
                        hosq::noop_encoder>;
 
-using StringValue =
+using StringValue = hosq::Elem<hosq::scan::string | hosq::decode::string_view |
+                                   hosq::store::assign,
+                               hosq::noop_encoder>;
+
+using StringOnceValue =
     hosq::Elem<hosq::scan::string | hosq::decode::string_view |
-                   hosq::store::assign,
+                   hosq::store::once,
                hosq::noop_encoder>;
 
 template <class T>
-using NumberValue =
+using NumberValue = hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
+                                   hosq::store::assign,
+                               hosq::noop_encoder>;
+
+template <class T>
+using NumberOnceValue =
     hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
-                   hosq::store::assign,
+                   hosq::store::once,
+               hosq::noop_encoder>;
+
+template <class T>
+using NumberFirstWinsValue =
+    hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
+                   hosq::store::first_wins,
                hosq::noop_encoder>;
 
 struct Person {
@@ -65,12 +79,21 @@ struct OnlyRatio {
   hosq::Try<hosq::Entry<Key<"ratio">, NumberValue<double>>> ratio;
 };
 
+struct OnceId {
+  hosq::Try<hosq::Entry<Key<"id">, NumberOnceValue<int>>> id;
+};
+
+struct FirstWinsId {
+  hosq::Try<hosq::Entry<Key<"id">, NumberFirstWinsValue<int>>> id;
+};
+
 }  // namespace
 
 TEST(DecodeJson, StringAndIntFields) {
   auto json = Person{};
 
-  const auto result = hosq::decode_into<Reader>(json, R"({"name":"John","id":123})"sv);
+  const auto result =
+      hosq::decode_into<Reader>(json, R"({"name":"John","id":123})"sv);
 
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(json.name.value().value(), "John"sv);
@@ -124,4 +147,25 @@ TEST(DecodeJson, FloatField) {
 
   ASSERT_TRUE(result.has_value());
   EXPECT_DOUBLE_EQ(json.ratio.value().value(), 3.14);
+}
+
+TEST(DecodeJson, OnceRejectsDuplicateMembers) {
+  auto json = OnceId{};
+
+  const auto result = hosq::decode_into<Reader>(json, R"({"id":1,"id":2})"sv);
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code, hosq::ErrorCode::duplicate_member);
+  ASSERT_TRUE(json.id.value().value().has_value());
+  EXPECT_EQ(*json.id.value().value(), 1);
+}
+
+TEST(DecodeJson, FirstWinsKeepsFirstDuplicateMember) {
+  auto json = FirstWinsId{};
+
+  const auto result = hosq::decode_into<Reader>(json, R"({"id":1,"id":2})"sv);
+
+  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(json.id.value().value().has_value());
+  EXPECT_EQ(*json.id.value().value(), 1);
 }

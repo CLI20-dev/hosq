@@ -1,5 +1,3 @@
-#include "hosq/json/compact_writer.hh"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -7,6 +5,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+
+#include "hosq/json/compact_writer.hh"
 
 using namespace std::string_view_literals;
 

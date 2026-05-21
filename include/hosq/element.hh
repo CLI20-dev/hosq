@@ -76,7 +76,8 @@ struct Elem {
 
   template <ReaderConcept R, ScanPhase Phase>
   HOSQ_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R, Phase>& ctx) {
-    if constexpr (decoder_const_invokable<DecodeContext<storage_type, R, Phase>>) {
+    if constexpr (decoder_const_invokable<
+                      DecodeContext<storage_type, R, Phase>>) {
       const auto& cctx = ctx;
       return decoder_type::invoke(cctx);
     } else {

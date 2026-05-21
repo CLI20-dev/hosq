@@ -22,16 +22,14 @@ template <hosq::StringLiteral Name>
 using Key = hosq::Elem<hosq::scan::string | hosq::match::literal<Name>,
                        hosq::noop_encoder>;
 
-using StringValue =
-    hosq::Elem<hosq::scan::string | hosq::decode::string_view |
-                   hosq::store::assign,
-               hosq::noop_encoder>;
+using StringValue = hosq::Elem<hosq::scan::string | hosq::decode::string_view |
+                                   hosq::store::assign,
+                               hosq::noop_encoder>;
 
 template <class T>
-using NumberValue =
-    hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
-                   hosq::store::assign,
-               hosq::noop_encoder>;
+using NumberValue = hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
+                                   hosq::store::assign,
+                               hosq::noop_encoder>;
 
 struct Address {
   hosq::Try<hosq::Entry<Key<"city">, StringValue>> city;
@@ -42,15 +40,13 @@ struct Profile {
   hosq::Try<hosq::Entry<Key<"display_name">, StringValue>> display_name;
 };
 
-using AddressValue =
-    hosq::Elem<hosq::scan::object | hosq::decode::to<Address> |
-                   hosq::store::assign,
-               hosq::noop_encoder>;
+using AddressValue = hosq::Elem<hosq::scan::object | hosq::decode::to<Address> |
+                                    hosq::store::assign,
+                                hosq::noop_encoder>;
 
-using ProfileValue =
-    hosq::Elem<hosq::scan::object | hosq::decode::to<Profile> |
-                   hosq::store::assign,
-               hosq::noop_encoder>;
+using ProfileValue = hosq::Elem<hosq::scan::object | hosq::decode::to<Profile> |
+                                    hosq::store::assign,
+                                hosq::noop_encoder>;
 
 struct User {
   hosq::Try<hosq::Entry<Key<"id">, NumberValue<int>>> id;
@@ -60,8 +56,7 @@ struct User {
 };
 
 using UserValue =
-    hosq::Elem<hosq::scan::object | hosq::decode::to<User> |
-                   hosq::store::assign,
+    hosq::Elem<hosq::scan::object | hosq::decode::to<User> | hosq::store::assign,
                hosq::noop_encoder>;
 
 struct Company {
@@ -117,11 +112,18 @@ TEST(DecodeNestedJson, DecodesMultipleNestedObjectLevels) {
   EXPECT_EQ(company.name.value().value(), "Acme"sv);
   EXPECT_EQ(company.owner.value().value().id.value().value(), 1);
   EXPECT_EQ(company.owner.value().value().name.value().value(), "Carol"sv);
-  EXPECT_EQ(company.owner.value().value().address.value().value().city.value().value(),
-            "Kyoto"sv);
-  EXPECT_EQ(company.owner.value().value().address.value().value().zip.value().value(),
-            600);
-  EXPECT_EQ(company.owner.value().value().profile.value().value().display_name.value().value(),
+  EXPECT_EQ(
+      company.owner.value().value().address.value().value().city.value().value(),
+      "Kyoto"sv);
+  EXPECT_EQ(
+      company.owner.value().value().address.value().value().zip.value().value(),
+      600);
+  EXPECT_EQ(company.owner.value()
+                .value()
+                .profile.value()
+                .value()
+                .display_name.value()
+                .value(),
             "ceo"sv);
 }
 
