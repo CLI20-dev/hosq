@@ -17,6 +17,15 @@ class SimpleReader {
  public:
   using input_type = std::string_view;
 
+  SimpleReader() = default;
+  ~SimpleReader() = default;
+
+  SimpleReader(const SimpleReader&) = delete;
+  auto operator=(const SimpleReader&) -> SimpleReader& = delete;
+
+  SimpleReader(SimpleReader&&) = delete;
+  auto operator=(SimpleReader&&) -> SimpleReader& = delete;
+
   struct StateType {
     input_type input{};
     std::size_t pos{0};
@@ -54,12 +63,12 @@ class SimpleReader {
 
   using state_type = StateType;
 
-  void reset(StateType& st, input_type input) const {
+  void reset(StateType& st, input_type input) {
     st = {};
     st.input = input;
   }
 
-  auto next_token(StateType& st) const -> Result<void, Error> {
+  auto next_token(StateType& st) -> Result<void, Error> {
     auto r = next(st);
     if (!r) {
       return Result<void, Error>{unexpected(r.error())};
@@ -69,13 +78,11 @@ class SimpleReader {
     return Result<void, Error>{};
   }
 
-  auto current_token(StateType& st) const -> Token& { return st.current; }
-
   [[nodiscard]] auto current_token(const StateType& st) const -> const Token& {
     return st.current;
   }
 
-  [[nodiscard]] auto input(const StateType& st) const -> input_type {
+  [[nodiscard]] auto input(const StateType& st) const -> const input_type& {
     return st.input;
   }
 
@@ -338,17 +345,21 @@ class SimpleReader {
   }
 
   auto string(StateType& st) const -> Result<Token, Error> {
-    const auto offset = st.pos;
+    const auto quote_offset = st.pos;
 
     ++st.pos;  // opening quote
+
+    const auto content_offset = st.pos;
 
     while (st.pos < st.input.size()) {
       const char c = st.input[st.pos++];
 
       if (c == '"') {
+        const auto closing_quote_offset = st.pos - 1;
+
         return token(Token{
-            .offset = offset,
-            .length = st.pos - offset,
+            .offset = content_offset,
+            .length = closing_quote_offset - content_offset,
             .type = TokenType::Scalar,
             .context = context(JsonTokenContext::string),
         });
@@ -359,11 +370,11 @@ class SimpleReader {
           return error(ErrorCode::unexpected_eof, st.pos);
         }
 
-        ++st.pos;  // escaped char を1文字だけ飛ばす
+        ++st.pos;
       }
     }
 
-    return error(ErrorCode::unexpected_eof, st.pos);
+    return error(ErrorCode::unexpected_eof, quote_offset);
   }
 
   auto number(StateType& st) const -> Result<Token, Error> {

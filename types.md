@@ -56,8 +56,6 @@ Fn(ctx)
 // string が来たら type_mismatch
 ```
 
-ここまでは `Reader::advance()` だけで済むので、const context path も成立し得る。
-
 ```cpp
 [x] hosq::scan::object
 // pipeline input: void
@@ -79,47 +77,6 @@ Fn(ctx)
 // token 化も parse も行わない
 // mutable context 必須
 ```
-
-```cpp
-[-] hosq::scan::object_tokens<N>
-// pipeline input: void
-// context input: DecodeContext<T, R>&
-// context source: ctx.reader()
-// output: hosq::TokenView<N>
-// reader.next_token() を使って object 全体を消費し、object 内 token を固定長 buffer に積む
-// mutable context 必須
-```
-
-```cpp
-[-] hosq::scan::object_tokens
-// pipeline input: void
-// context input: DecodeContext<T, R>&
-// context source: ctx.reader()
-// output: hosq::TokenVector
-// allocation を許可する tokenized object scan
-// mutable context 必須
-```
-
-```cpp
-[-] hosq::scan::array_tokens<N>
-// pipeline input: void
-// context input: DecodeContext<T, R>&
-// context source: ctx.reader()
-// output: hosq::TokenView<N>
-// reader.next_token() を使って array 全体を消費し、array 内 token を固定長 buffer に積む
-// mutable context 必須
-```
-
-```cpp
-[-] hosq::scan::array_tokens
-// pipeline input: void
-// context input: DecodeContext<T, R>&
-// context source: ctx.reader()
-// output: hosq::TokenVector
-// allocation を許可する tokenized array scan
-// mutable context 必須
-```
-
 ---
 
 # decode_into

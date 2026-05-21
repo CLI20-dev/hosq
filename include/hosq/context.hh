@@ -22,22 +22,16 @@ struct AnyDecodeContext {
   AnyDecodeContext() = delete;
 };
 
-};  // namespace detail
-
-enum class ScanPhase {
-  normal,
-  first,
-};
-
 template <ReaderConcept R>
 struct DecodeContextBase {
   using reader_state_type = typename R::state_type;
   using input_type = typename R::input_type;
 
-  explicit DecodeContextBase(R& reader, reader_state_type& state,
-                             std::size_t occurrences_val = 0) noexcept
-      : reader_(reader), reader_state_(state), occurrences_(occurrences_val) {}
+ protected:
+  explicit DecodeContextBase(R& reader, reader_state_type& state) noexcept
+      : reader_(reader), reader_state_(state) {}
 
+ public:
   [[nodiscard]]
   auto reader() noexcept -> R& {
     return reader_.get();
@@ -63,43 +57,45 @@ struct DecodeContextBase {
     return reader().input(reader_state());
   }
 
-  [[nodiscard]]
-  auto occurrences() const noexcept -> std::size_t {
-    return occurrences_;
-  }
-
-  auto set_occurrences(std::size_t value) noexcept -> void {
-    occurrences_ = value;
-  }
-
-  auto increment_occurrences() noexcept -> void { ++occurrences_; }
-
  protected:
   std::reference_wrapper<R> reader_;                        // NOLINT
   std::reference_wrapper<reader_state_type> reader_state_;  // NOLINT
-  std::size_t occurrences_{0};                              // NOLINT
+};
+
+}  // namespace detail
+
+enum class ScanPhase {
+  normal,
+  first,
 };
 
 template <class T, ReaderConcept R, ScanPhase Phase = ScanPhase::normal>
-struct DecodeContext : public DecodeContextBase<R> {
+struct DecodeContext : private detail::DecodeContextBase<R> {
   template <class, ReaderConcept, ScanPhase>
   friend struct DecodeContext;
 
-  using base_type = DecodeContextBase<R>;
+  using base_type = detail::DecodeContextBase<R>;
   using reader_state_type = typename base_type::reader_state_type;
 
-  static constexpr auto first_scan = Phase;
+  static constexpr auto scan_phase = Phase;
 
-  explicit DecodeContext(T& value, R& reader, reader_state_type& state,
-                         std::size_t occurrences_val = 0) noexcept
-      : base_type(reader, state, occurrences_val), elem_(value) {}
+  using base_type::input;
+  using base_type::reader;
+  using base_type::reader_state;
+
+  explicit DecodeContext(T& value, R& reader, reader_state_type& state) noexcept
+      : base_type(reader, state), elem_(value) {}
+
+  template <ScanPhase OtherPhase>
+    requires(Phase == OtherPhase)
+  explicit DecodeContext(T& value,
+                         DecodeContext<void, R, OtherPhase>& other) noexcept
+      : base_type(other.reader(), other.reader_state()), elem_(value) {}
 
   template <ScanPhase OtherPhase>
     requires(Phase == ScanPhase::normal && OtherPhase == ScanPhase::first)
-  /* implicit */ DecodeContext(
-      const DecodeContext<T, R, OtherPhase>& other) noexcept
-      : base_type(other.reader(), other.reader_state(), other.occurrences()),
-        elem_(other.elem()) {}
+  /* implicit */ DecodeContext(DecodeContext<T, R, OtherPhase>& other) noexcept
+      : base_type(other.reader(), other.reader_state()), elem_(other.elem()) {}
 
   // Probe-only constructor.
   // Declared but intentionally not defined.
@@ -122,27 +118,30 @@ struct DecodeContext : public DecodeContextBase<R> {
 };
 
 template <ReaderConcept R, ScanPhase Phase>
-struct DecodeContext<void, R, Phase> : public DecodeContextBase<R> {
+struct DecodeContext<void, R, Phase> : private detail::DecodeContextBase<R> {
   template <class, ReaderConcept, ScanPhase>
   friend struct DecodeContext;
 
-  using base_type = DecodeContextBase<R>;
+  using base_type = detail::DecodeContextBase<R>;
   using reader_state_type = typename base_type::reader_state_type;
 
-  static constexpr auto first_scan = Phase;
+  static constexpr auto scan_phase = Phase;
+
+  using base_type::input;
+  using base_type::reader;
+  using base_type::reader_state;
 
   template <class T, ScanPhase OtherPhase>
     requires(!std::same_as<T, void> &&
              (Phase == ScanPhase::normal || OtherPhase == ScanPhase::first))
-  /* implicit */ DecodeContext(
-      const DecodeContext<T, R, OtherPhase>& other) noexcept
-      : base_type(other.reader(), other.reader_state(), other.occurrences()) {}
+  /* implicit */ DecodeContext(DecodeContext<T, R, OtherPhase>& other) noexcept
+      : base_type(other.reader(), other.reader_state()) {}
 
   template <ScanPhase OtherPhase>
     requires(Phase == ScanPhase::normal && OtherPhase == ScanPhase::first)
   /* implicit */ DecodeContext(
-      const DecodeContext<void, R, OtherPhase>& other) noexcept
-      : base_type(other.reader(), other.reader_state(), other.occurrences()) {}
+      DecodeContext<void, R, OtherPhase>& other) noexcept
+      : base_type(other.reader(), other.reader_state()) {}
 
   // Probe-only constructor.
   // Declared but intentionally not defined.
@@ -151,32 +150,82 @@ struct DecodeContext<void, R, Phase> : public DecodeContextBase<R> {
   /* implicit */ DecodeContext(detail::AnyDecodeContext);
 };
 
+namespace detail {
+
+template <WriterConcept W>
+struct EncodeContextBase {
+ protected:
+  explicit EncodeContextBase(W& writer) noexcept : writer_(writer) {}
+
+ public:
+  [[nodiscard]]
+  auto writer() noexcept -> W& {
+    return writer_.get();
+  }
+
+  [[nodiscard]]
+  auto writer() const noexcept -> const W& {
+    return writer_.get();
+  }
+
+ protected:
+  std::reference_wrapper<W> writer_;  // NOLINT
+};
+
+}  // namespace detail
+
 template <class T, WriterConcept W>
-struct EncodeContext {
-  std::reference_wrapper<T> arg;
-  std::reference_wrapper<W> writer;
-  explicit EncodeContext(T& value, W& writer) : arg(value), writer(writer) {}
+struct EncodeContext : private detail::EncodeContextBase<W> {
+  template <class, WriterConcept>
+  friend struct EncodeContext;
+  using base_type = detail::EncodeContextBase<W>;
+
+  explicit EncodeContext(T& value, W& writer) noexcept
+      : detail::EncodeContextBase<W>(writer), arg_(value) {}
+
+  using base_type::writer;
 
   // Probe-only constructor.
   // Declared but intentionally not defined.
   // Used only in unevaluated requires expressions.
-  /* implicit */ EncodeContext(detail::AnyContext /* context */);
-  /* implicit */ EncodeContext(detail::AnyEncodeContext /* context */);
+  /* implicit */ EncodeContext(detail::AnyContext);
+  /* implicit */ EncodeContext(detail::AnyEncodeContext);
+
+  [[nodiscard]]
+  auto arg() noexcept -> T& {
+    return arg_.get();
+  }
+
+  [[nodiscard]]
+  auto arg() const noexcept -> T& {
+    return arg_.get();
+  }
+
+ private:
+  std::reference_wrapper<T> arg_;  // NOLINT
 };
 
 template <WriterConcept W>
-struct EncodeContext<void, W> {
+struct EncodeContext<void, W> : private detail::EncodeContextBase<W> {
+  template <class, WriterConcept>
+  friend struct EncodeContext;
+
+  using base_type = detail::EncodeContextBase<W>;
+
+  explicit EncodeContext(W& writer) noexcept : base_type(writer) {}
+
+  using base_type::writer;
+
   template <class T>
-  /*implicit*/ EncodeContext(EncodeContext<T, W>& other)
-      : writer(other.writer) {}
+    requires(!std::same_as<T, void>)
+  /* implicit */ EncodeContext(EncodeContext<T, W>& other) noexcept
+      : base_type(other.writer()) {}
 
   // Probe-only constructor.
   // Declared but intentionally not defined.
   // Used only in unevaluated requires expressions.
-  /* implicit */ EncodeContext(detail::AnyContext /* context */);
-  /* implicit */ EncodeContext(detail::AnyEncodeContext /* context */);
-
-  W* writer{nullptr};
+  /* implicit */ EncodeContext(detail::AnyContext);
+  /* implicit */ EncodeContext(detail::AnyEncodeContext);
 };
 
 }  // namespace hosq

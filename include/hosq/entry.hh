@@ -17,15 +17,15 @@ struct Entry {
   using value_type = Value;
   using key_type = Key;
 
-  template <class R>
+  template <class R, ScanPhase Phase>
   static constexpr bool key_decoder_const_invokable =
       Key::template decoder_const_invokable<
-          DecodeContext<typename Key::storage_type, R>>;
+          DecodeContext<typename Key::storage_type, R, Phase>>;
 
-  template <class R>
+  template <class R, ScanPhase Phase>
   static constexpr bool value_decoder_const_invokable =
       Value::template decoder_const_invokable<
-          DecodeContext<typename Value::storage_type, R>>;
+          DecodeContext<typename Value::storage_type, R, Phase>>;
 
   template <class W>
   static constexpr bool key_encoder_const_invokable =
@@ -48,41 +48,45 @@ struct Entry {
   [[nodiscard]] auto operator*() -> value_type& { return value_; }
   [[nodiscard]] auto operator*() const -> const value_type& { return value_; }
 
-  [[nodiscard]] auto operator->() -> value_type* { return &value_; }
-  [[nodiscard]] auto operator->() const -> const value_type* { return &value_; }
-
- public:
-  key_type key_{};      // NOLINT
-  value_type value_{};  // NOLINT
-
   // ── decode_key
   // ───────────────────────────────────────────────────────────────
-  template <ReaderConcept R>
-    requires(!key_decoder_const_invokable<R>)
-  [[nodiscard]] auto decode_key(R& reader) {
-    return key().decode(reader);
+  template <ReaderConcept R, ScanPhase Phase>
+    requires(!key_decoder_const_invokable<R, Phase>)
+  [[nodiscard]] auto decode_key(DecodeContext<void, R, Phase>& ctx) {
+    auto c =
+        DecodeContext<typename key_type::storage_type, R, Phase>{*key(), ctx};
+    return key().decode(c);
   }
 
-  template <ReaderConcept R>
-    requires(key_decoder_const_invokable<R>)
-  [[nodiscard]] auto decode_key(const R& reader) {
-    return key().decode(reader);
+  template <ReaderConcept R, ScanPhase Phase>
+    requires(key_decoder_const_invokable<R, Phase>)
+  [[nodiscard]] auto decode_key(const DecodeContext<void, R, Phase>& ctx) {
+    const auto c =
+        DecodeContext<typename key_type::storage_type, R, Phase>{*key(), ctx};
+    return key().decode(c);
   }
 
   // ── decode_value
   // ─────────────────────────────────────────────────────────────
-
-  template <ReaderConcept R>
-    requires(!value_decoder_const_invokable<R>)
-  [[nodiscard]] auto decode_value(R& reader) {
-    return value().decode(reader);
+  template <ReaderConcept R, ScanPhase Phase>
+    requires(!value_decoder_const_invokable<R, Phase>)
+  [[nodiscard]] auto decode_value(DecodeContext<void, R, Phase>& ctx) {
+    auto c = DecodeContext<typename value_type::storage_type, R, Phase>{*value(),
+                                                                        ctx};
+    return value().decode(c);
   }
 
-  template <ReaderConcept R>
-    requires(value_decoder_const_invokable<R>)
-  [[nodiscard]] auto decode_value(const R& reader) {
-    return value().decode(reader);
+  template <ReaderConcept R, ScanPhase Phase>
+    requires(value_decoder_const_invokable<R, Phase>)
+  [[nodiscard]] auto decode_value(const DecodeContext<void, R, Phase>& ctx) {
+    const auto c = DecodeContext<typename value_type::storage_type, R, Phase>{
+        *value(), ctx};
+    return value().decode(c);
   }
+
+ private:
+  key_type key_{};      // NOLINT
+  value_type value_{};  // NOLINT
 };
 
 namespace detail {
@@ -111,6 +115,8 @@ concept AsEntryTupleT = requires(T t) {
   { hosq::detail::as_tuple(t) } -> EntryTupleT;
 };
 
+}  // namespace detail
+
 /**
  * @brief Prevents Entry from being decomposed as an aggregate schema.
  *
@@ -126,7 +132,5 @@ template <detail::EntryT T>
 constexpr auto as_tuple(T&) = delete;
 template <detail::EntryT T>
 constexpr auto as_tuple(const T&) = delete;
-
-}  // namespace detail
 
 }  // namespace hosq

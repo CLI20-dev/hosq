@@ -1,122 +1,176 @@
 #pragma once
 
-#include <type_traits>
-
+#include "hosq/context.hh"
 #include "hosq/error.hh"
-#include "hosq/pipeline_util.hh"
+#include "hosq/pipeline.hh"
 #include "hosq/reader_base.hh"
 #include "hosq/result.hh"
+#include "hosq/view.hh"
 
-#if defined(__GNUC__) || defined(__clang__)
-#define HOSQ_ALWAYS_INLINE_ATTR __attribute__((always_inline))
-#define HOSQ_FUNCTION_ALWAYS_INLINE inline __attribute__((always_inline))
-#elif defined(_MSC_VER)
-#define HOSQ_ALWAYS_INLINE_ATTR
-#define HOSQ_FUNCTION_ALWAYS_INLINE __forceinline
-#else
-#define HOSQ_ALWAYS_INLINE_ATTR
-#define HOSQ_FUNCTION_ALWAYS_INLINE inline
-#endif
+namespace hosq {
 
-namespace hosq::ext {
-
-
+namespace ext {
 
 template <ReaderConcept R>
+  requires(!ReaderTraits<R>::is_binary_format)
+struct ScanScalar {
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<std::string_view, Error> {
+    const R& reader = ctx.reader();
+    const auto& state = ctx.reader_state();
+    const auto& tok = reader.current_token(state);
+
+    if (tok.type != TokenType::Scalar) {
+      return Result<std::string_view, Error>{unexpected(Error{
+          .code = ErrorCode::type_mismatch,
+          .offset = tok.offset,
+      })};
+    }
+
+    return reader.input(state).substr(tok.offset, tok.length);
+  }
+};
+
+template <ReaderConcept R>
+  requires(!ReaderTraits<R>::is_binary_format &&
+           ReaderTraits<R>::format == Format::json)
+struct ScanString {
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<std::string_view, Error> {
+    const R& reader = ctx.reader();
+    const auto& state = ctx.reader_state();
+    const auto& tok = reader.current_token(state);
+
+    if (tok.type != TokenType::Scalar ||
+        tok.context != static_cast<std::uint8_t>(JsonTokenContext::string)) {
+      return Result<std::string_view, Error>{unexpected(Error{
+          .code = ErrorCode::type_mismatch,
+          .offset = tok.offset,
+      })};
+    }
+
+    return reader.input(state).substr(tok.offset, tok.length);
+  }
+};
+
+template <ReaderConcept R>
+  requires(!ReaderTraits<R>::is_binary_format &&
+           ReaderTraits<R>::format == Format::json)
 struct ScanLiteral {
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<std::string_view, Error> {
+    const R& reader = ctx.reader();
+    const auto& state = ctx.reader_state();
+    const auto& tok = reader.current_token(state);
 
-  auto operator()(DecodeContext<void, R>& ctx) const -> Result<std::string_view, Error> {
+    if (tok.type != TokenType::Scalar ||
+        tok.context != static_cast<std::uint8_t>(JsonTokenContext::literal)) {
+      return Result<std::string_view, Error>{unexpected(Error{
+          .code = ErrorCode::type_mismatch,
+          .offset = tok.offset,
+      })};
+    }
 
-  };
-
-  auto operator()(DecodeContext<void, R>& ctx) const -> Result<std::string_view, Error> {
-
-  };
-
-
+    return reader.input(state).substr(tok.offset, tok.length);
+  }
 };
 
+template <ReaderConcept R>
+struct ScanObject {
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<ObjectView, Error>;
+};
+template <ReaderConcept R>
+inline auto ScanObject<R>::operator()(
+    const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+    -> Result<ObjectView, Error> {
+  const R& reader = ctx.reader();
+  const auto& state = ctx.reader_state();
+  const auto& tok = reader.current_token(state);
 
+  if (tok.type != TokenType::ObjectBegin) {
+    return Result<ObjectView, Error>{unexpected(Error{
+        .code = ErrorCode::type_mismatch,
+        .offset = tok.offset,
+    })};
+  }
 
+  return ObjectView{};
+}
 
+template <ReaderConcept R>
+struct ScanArray {
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<ArrayView, Error> {
+    const R& reader = ctx.reader();
+    const auto& state = ctx.reader_state();
+    const auto& tok = reader.current_token(state);
 
+    if (tok.type != TokenType::ArrayBegin) {
+      return Result<ArrayView, Error>{unexpected(Error{
+          .code = ErrorCode::type_mismatch,
+          .offset = tok.offset,
+      })};
+    }
 
+    return ArrayView{};
+  }
 };
 
-namespace hosq::scan {
+};  // namespace ext
 
-
-
-
-
-
+namespace scan {
 
 namespace detail {
 
-template <ReaderConcept T>
-struct ScanLiteralDispatch {
-
-
+struct ScanScalar {
+  template <ReaderConcept R>
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<std::string_view, Error> {
+    return ext::ScanScalar<R>{}(ctx);
+  }
 };
 
+struct ScanString {
+  template <ReaderConcept R>
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<std::string_view, Error> {
+    return ext::ScanString<R>{}(ctx);
+  }
+};
 
+struct ScanLiteral {
+  template <ReaderConcept R>
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<std::string_view, Error> {
+    return ext::ScanLiteral<R>{}(ctx);
+  }
+};
 
-}
+struct ScanObject {
+  template <ReaderConcept R>
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<ObjectView, Error> {
+    return ext::ScanObject<R>{}(ctx);
+  }
+};
 
+struct ScanArray {
+  template <ReaderConcept R>
+  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+      -> Result<ArrayView, Error> {
+    return ext::ScanArray<R>{}(ctx);
+  }
+};
 
-// namespace detail {
-//
-// struct ScanLiteralImpl {
-//   template <class Context>
-//   auto operator()(const Context& ctx) const -> Result<std::string_view, Error> {
-//     const auto& reader = ctx.reader();
-//     return scan_literal_for(reader, reader.current_token());
-//   }
-// };
-//
-// struct ScanStringImpl {
-//   template <class Context>
-//   auto operator()(Context& ctx) const -> Result<std::string_view, Error> {
-//     const auto& reader = ctx.reader();
-//     return scan_string_for(reader, reader.current_token());
-//   }
-// };
-//
-// struct ScanScalarImpl {
-//   template <class Context>
-//   auto operator()(const Context& ctx) const -> Result<std::string_view, Error> {
-//     const auto& reader = ctx.reader();
-//     return scan_scalar_for(reader, reader.current_token());
-//   }
-// };
-//
-// struct ScanObjectImpl {
-//   template <class Context>
-//     requires(!std::is_const_v<std::remove_reference_t<Context>>)
-//   auto operator()(Context& ctx) const -> Result<std::string_view, Error> {
-//     auto& reader = ctx.reader();
-//     return scan_object_for(reader, reader.current_token());
-//   }
-// };
-//
-// struct ScanArrayImpl {
-//   template <class Context>
-//     requires(!std::is_const_v<std::remove_reference_t<Context>>)
-//   auto operator()(Context& ctx) const -> Result<std::string_view, Error> {
-//     auto& reader = ctx.reader();
-//     return scan_array_for(reader, reader.current_token());
-//   }
-// };
-//
-// }  // namespace detail
+}  // namespace detail
 
-// inline constexpr auto literal = hosq::step<detail::ScanLiteralImpl>;
-// inline constexpr auto string = hosq::step<detail::ScanStringImpl>;
-// inline constexpr auto scalar = hosq::step<detail::ScanScalarImpl>;
-// inline constexpr auto object = hosq::step<detail::ScanObjectImpl>;
-// inline constexpr auto array = hosq::step<detail::ScanArrayImpl>;
+inline constexpr auto scalar = hosq::step<detail::ScanScalar>;
+inline constexpr auto string = hosq::step<detail::ScanString>;
+inline constexpr auto literal = hosq::step<detail::ScanLiteral>;
+inline constexpr auto object = hosq::step<detail::ScanObject>;
+inline constexpr auto array = hosq::step<detail::ScanArray>;
 
-}  // namespace hosq::scan
+}  // namespace scan
 
-#undef HOSQ_ALWAYS_INLINE_ATTR
-#undef HOSQ_FUNCTION_ALWAYS_INLINE
+}  // namespace hosq

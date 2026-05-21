@@ -29,26 +29,22 @@ inline constexpr std::size_t unresolved_length =
 
 struct Token {
   size_t offset;
-  mutable size_t length;
+  size_t length;
   TokenType type;
   uint8_t context;
 };
 
 template <class T>
-concept ReaderConcept =
-    std::default_initializable<T> && std::copy_constructible<T> &&
-    std::assignable_from<T&, const T&> &&
-    requires(const T reader, typename T::state_type state,
-             const typename T::state_type const_state,
-             typename T::input_type input) {
-      typename T::input_type;
-      typename T::state_type;
-      { reader.reset(state, input) } -> std::same_as<void>;
-      { reader.next_token(state) } -> std::same_as<Result<void, Error>>;
-      { reader.current_token(state) } -> std::same_as<Token&>;
-      { reader.current_token(const_state) } -> std::same_as<const Token&>;
-      { reader.input(const_state) } -> std::same_as<typename T::input_type>;
-    };
+concept ReaderConcept = requires(T r, const T cr, typename T::state_type state,
+                                 const typename T::state_type const_state,
+                                 typename T::input_type input) {
+  typename T::input_type;
+  typename T::state_type;
+  { r.reset(state, input) } -> std::same_as<void>;
+  { r.next_token(state) } -> std::same_as<Result<void, Error>>;
+  { cr.current_token(const_state) } -> std::same_as<const Token&>;
+  { cr.input(const_state) } -> std::same_as<const typename T::input_type&>;
+};
 
 enum class Format : uint8_t {
   unknown,
