@@ -48,17 +48,18 @@ static auto read_all(std::string_view input) -> ReadResult {
     if (!res) return res.error();
 
     const auto& tok = r.current_token(s);
-    auto ctx = static_cast<JTC>(tok.context);
+    const auto ctx = static_cast<JTC>(tok.context);
     seq.push_back({tok.type, ctx});
 
     switch (tok.type) {
+      case TT::End:
+        return seq;
       case TT::ObjectBegin:
       case TT::ArrayBegin:
       case TT::Scalar:
       case TT::ObjectEnd:
       case TT::ArrayEnd:
-      case TT::End:
-        return seq;
+        break;
     }
   }
 }
@@ -284,18 +285,18 @@ TEST(ReaderError, DoubleOpenBraceSpaced) {
 // ── Error: trailing data ──────────────────────────────────────────────────────
 
 TEST(ReaderError, TrailingDataAfterObject) {
-  // `a` at offset 2 with expect_=comma_delimiter → unexpected_token
-  expect_error_at("{}a", EC::unexpected_token, 2);
+  // Top-level trailing bytes are reported after the root value completes.
+  expect_error_at("{}a", EC::trailing_data, 2);
 }
 
 TEST(ReaderError, TrailingDataAfterObjectSpaced) {
   // `a` at offset 5 in "{   }a"
-  expect_error_at("{   }a", EC::unexpected_token, 5);
+  expect_error_at("{   }a", EC::trailing_data, 5);
 }
 
 TEST(ReaderError, TrailingCommaAtTopLevel) {
-  // `,` at top level (ctx_size_=0) after closing `}`
-  expect_error_at("{},", EC::unexpected_token, 2);
+  // Any bytes after the completed root value are trailing data.
+  expect_error_at("{},", EC::trailing_data, 2);
 }
 
 // ── Error: bracket mismatches ─────────────────────────────────────────────────

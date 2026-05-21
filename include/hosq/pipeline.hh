@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "hosq/detail/always_false.hh"
+#include "hosq/detail/pipeline_analysis.hh"
 #include "hosq/error.hh"
 #include "hosq/result.hh"
 
@@ -176,6 +177,18 @@ static constexpr auto continue_result(Result<Output, Error> next,
 template <auto... Fns>
   requires(sizeof...(Fns) > 0)
 struct Pipeline {
+  template <class Context, class Input>
+  static consteval auto callable_with_const_context() -> bool {
+    return detail::pipeline_callable_with_const_context_v<Pipeline, Context,
+                                                          Input>;
+  }
+
+  template <class Context, class Input>
+  static consteval auto callable_with_mutable_context() -> bool {
+    return detail::pipeline_callable_with_mutable_context_v<Pipeline, Context,
+                                                            Input>;
+  }
+
   /**
    * @brief Invokes this pipeline from an explicit input value using a mutable
    * context.

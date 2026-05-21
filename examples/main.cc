@@ -12,4 +12,4 @@
 //       a;
 // };
 
-auto main() -> int { decltype(hosq::store::ignore)::analyze_decoder(); }
+auto main() -> int { return 0; }

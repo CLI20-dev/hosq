@@ -111,7 +111,8 @@
 //     return {};
 //   }
 //
-//   auto advance_unchecked(state_type& st, std::size_t n) const noexcept -> void {
+//   auto advance_unchecked(state_type& st, std::size_t n) const noexcept -> void
+//   {
 //     st.current.length = n;
 //     st.pos += n;
 //   }
@@ -133,11 +134,13 @@
 //     st.allow_top_level_value_after_scan = true;
 //   }
 //
-//   // ---------------------------------------------------------------------------
+//   //
+//   ---------------------------------------------------------------------------
 //   // Public fast-path readers.
 //   //
 //   // scan::* can call these directly to avoid read_one()'s expectation switch.
-//   // ---------------------------------------------------------------------------
+//   //
+//   ---------------------------------------------------------------------------
 //
 //   [[nodiscard]]
 //   auto read_one(state_type& st) const -> Result<Token, Error> {
@@ -166,7 +169,8 @@
 //   value_begin:
 //     if (p >= st.end) [[unlikely]] {
 //       st.pos = p;
-//       return unexpected(make_error(ErrorCode::unexpected_eof, end_offset(st)));
+//       return unexpected(make_error(ErrorCode::unexpected_eof,
+//       end_offset(st)));
 //     }
 //
 //     const char c = *p;
@@ -234,7 +238,8 @@
 //
 //     if (!skip_ws_require_char(st, p)) [[unlikely]] {
 //       st.pos = p;
-//       return unexpected(make_error(ErrorCode::unexpected_eof, end_offset(st)));
+//       return unexpected(make_error(ErrorCode::unexpected_eof,
+//       end_offset(st)));
 //     }
 //
 //     if (*p == ']') {
@@ -252,7 +257,8 @@
 //
 //     if (!skip_ws_require_char(st, p)) [[unlikely]] {
 //       st.pos = p;
-//       return unexpected(make_error(ErrorCode::unexpected_eof, end_offset(st)));
+//       return unexpected(make_error(ErrorCode::unexpected_eof,
+//       end_offset(st)));
 //     }
 //
 //     const char c = *p;
@@ -279,12 +285,14 @@
 //
 //     if (!skip_ws_require_char(st, p)) [[unlikely]] {
 //       st.pos = p;
-//       return unexpected(make_error(ErrorCode::unexpected_eof, end_offset(st)));
+//       return unexpected(make_error(ErrorCode::unexpected_eof,
+//       end_offset(st)));
 //     }
 //
 //     if (*p != ':') [[unlikely]] {
 //       st.pos = p;
-//       return unexpected(make_error(ErrorCode::unexpected_token, offset(st, p)));
+//       return unexpected(make_error(ErrorCode::unexpected_token, offset(st,
+//       p)));
 //     }
 //
 //     ++p;
@@ -304,12 +312,14 @@
 //         return make_none_token(end_offset(st), TokenType::End);
 //       }
 //
-//       return unexpected(make_error(ErrorCode::unexpected_eof, end_offset(st)));
+//       return unexpected(make_error(ErrorCode::unexpected_eof,
+//       end_offset(st)));
 //     }
 //
 //     if (st.ctx_size == 0) [[unlikely]] {
 //       st.pos = p;
-//       return unexpected(make_error(ErrorCode::unexpected_token, offset(st, p)));
+//       return unexpected(make_error(ErrorCode::unexpected_token, offset(st,
+//       p)));
 //     }
 //
 //     if (current_ctx(st) == JsonObjectContext::object) {
@@ -518,7 +528,8 @@
 //   }
 //
 //   [[nodiscard]]
-//   static auto current_ctx(const state_type& st) noexcept -> JsonObjectContext {
+//   static auto current_ctx(const state_type& st) noexcept -> JsonObjectContext
+//   {
 //     return st.ctx[st.ctx_size - 1] != 0 ? JsonObjectContext::object
 //                                         : JsonObjectContext::array;
 //   }
@@ -541,7 +552,8 @@
 //   static auto pop_context(state_type& st) noexcept -> void { --st.ctx_size; }
 //
 //   [[nodiscard]]
-//   static auto skip_ws_require_char(const state_type& st, const char*& p) noexcept
+//   static auto skip_ws_require_char(const state_type& st, const char*& p)
+//   noexcept
 //       -> bool {
 //     while (p < st.end && is_ws(*p)) {
 //       ++p;
@@ -573,4 +585,3 @@
 // };
 //
 // }  // namespace hosq
-

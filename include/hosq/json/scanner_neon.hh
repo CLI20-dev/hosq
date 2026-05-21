@@ -170,8 +170,7 @@ class ScannerNeon {
   }
 
   [[nodiscard]]
-  HOSQ_ALWAYS_INLINE static auto movemask_u8(uint8x16_t v) noexcept
-      -> uint16_t {
+  HOSQ_ALWAYS_INLINE static auto movemask_u8(uint8x16_t v) noexcept -> uint16_t {
     const uint64x2_t x = vreinterpretq_u64_u8(v);
     const uint64_t lo = vgetq_lane_u64(x, 0);
     const uint64_t hi = vgetq_lane_u64(x, 1);
@@ -194,7 +193,7 @@ class ScannerNeon {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
 
-#define HOSQ_SCAN16_AT(OFFSET)                              \
+#define HOSQ_SCAN16_AT(OFFSET)                               \
   do {                                                       \
     const uint8x16_t v = vld1q_u8(p + (OFFSET));             \
     const uint8x16_t lo = vandq_u8(v, low_nibble_mask);      \

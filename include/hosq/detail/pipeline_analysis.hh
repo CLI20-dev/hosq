@@ -175,6 +175,47 @@ consteval auto callable_with_const_context_impl() -> bool {
   }
 }
 
+template <class Context, class Input, auto FnHead, auto... FnTail>
+consteval auto callable_with_mutable_context_impl() -> bool {
+  using In = std::remove_cvref_t<Input>;
+
+  using probe = decltype([]() consteval -> auto {
+    if constexpr (std::same_as<In, void>) {
+      if constexpr (requires(Context& ctx) { FnHead(ctx); }) {
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), Context&>>{};
+      } else if constexpr (requires { FnHead(); }) {
+        return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
+      } else {
+        return std::type_identity<detail::NotCallable>{};
+      }
+    } else {
+      if constexpr (requires(In input, Context& ctx) {
+                      FnHead(std::move(input), ctx);
+                    }) {
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), In&&, Context&>>{};
+      } else if constexpr (requires(In input) { FnHead(std::move(input)); }) {
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), In&&>>{};
+      } else {
+        return std::type_identity<detail::NotCallable>{};
+      }
+    }
+  }());
+
+  using raw_return_type = typename probe::type;
+
+  if constexpr (std::same_as<raw_return_type, detail::NotCallable>) {
+    return false;
+  } else if constexpr (sizeof...(FnTail) == 0) {
+    return true;
+  } else {
+    using After = detail::step_output_t<raw_return_type>;
+    return callable_with_mutable_context_impl<Context, After, FnTail...>();
+  }
+}
+
 template <PipelineVerificationMode V, class ProbeContext, class Start, class T>
 struct PipelineAnalysis {
   static_assert(always_false<T>,
@@ -208,6 +249,22 @@ template <class Pipeline, class Context, class Input>
 inline constexpr bool pipeline_callable_with_const_context_v =
     PipelineCallableWithConstContext<std::remove_cvref_t<Pipeline>, Context,
                                      Input>::value;
+
+template <class Pipeline, class Context, class Input>
+struct PipelineCallableWithMutableContext {
+  static_assert(always_false<Pipeline>,
+                "callability probe requires hosq::Pipeline<...>");
+};
+
+template <auto... Fns, class Context, class Input>
+struct PipelineCallableWithMutableContext<hosq::Pipeline<Fns...>, Context, Input>
+    : std::bool_constant<
+          callable_with_mutable_context_impl<Context, Input, Fns...>()> {};
+
+template <class Pipeline, class Context, class Input>
+inline constexpr bool pipeline_callable_with_mutable_context_v =
+    PipelineCallableWithMutableContext<std::remove_cvref_t<Pipeline>, Context,
+                                       Input>::value;
 
 template <class Analysis>
 using pipeline_storage_t = typename std::tuple_element_t<1, Analysis>::type;

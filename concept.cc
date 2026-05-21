@@ -1,10 +1,10 @@
 struct JsonVec2 {
   hosq::Entry<key<"x">, Elem<hosq::scan::scalar | hosq::decode::integer<int> |
-                              hosq::pack::once>>
+                             hosq::pack::once>>
       x;
 
   hosq::Entry<key<"y">, Elem<hosq::scan::scalar | hosq::decode::integer<int> |
-                              hosq::pack::once>>
+                             hosq::pack::once>>
       y;
 };
 
@@ -17,23 +17,22 @@ constexpr auto to_vec2 = [](const JsonVec2& p) {
 
 struct Circle {
   hosq::Entry<key<"type">, Elem<hosq::scan::string |
-                                 hosq::validate::match<"circle"_json_string> |
-                                 hosq::pack::once>>
+                                hosq::validate::match<"circle"_json_string> |
+                                hosq::pack::once>>
       type;
 
   hosq::Entry<key<"color">,
-               Elem<hosq::decode::parse_to<JsonRGB> |
-                    hosq::decode::custom<to_rgb> | hosq::pack::once>>
+              Elem<hosq::decode::parse_to<JsonRGB> |
+                   hosq::decode::custom<to_rgb> | hosq::pack::once>>
       color;
 
   hosq::Entry<key<"center">,
-               Elem<hosq::decode::parse_to<JsonVec2> |
-                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
+              Elem<hosq::decode::parse_to<JsonVec2> |
+                   hosq::decode::custom<to_vec2> | hosq::pack::once>>
       center;
 
-  hosq::Entry<key<"radius">,
-               Elem<hosq::scan::scalar | hosq::decode::integer<int> |
-                    hosq::pack::once>>
+  hosq::Entry<key<"radius">, Elem<hosq::scan::scalar |
+                                  hosq::decode::integer<int> | hosq::pack::once>>
       radius;
 
   hosq::Entry<
@@ -44,30 +43,27 @@ struct Circle {
 };
 
 struct Rectangle {
-  hosq::Entry<
-      key<"type">,
-      Elem<hosq::scan::string |
-           hosq::validate::match<"rectangle"_json_string> | hosq::pack::once>>
+  hosq::Entry<key<"type">, Elem<hosq::scan::string |
+                                hosq::validate::match<"rectangle"_json_string> |
+                                hosq::pack::once>>
       type;
 
   hosq::Entry<key<"color">,
-               Elem<hosq::decode::parse_to<JsonRGB> |
-                    hosq::decode::custom<to_rgb> | hosq::pack::once>>
+              Elem<hosq::decode::parse_to<JsonRGB> |
+                   hosq::decode::custom<to_rgb> | hosq::pack::once>>
       color;
 
   hosq::Entry<key<"top_left">,
-               Elem<hosq::decode::parse_to<JsonVec2> |
-                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
+              Elem<hosq::decode::parse_to<JsonVec2> |
+                   hosq::decode::custom<to_vec2> | hosq::pack::once>>
       top_left;
 
-  hosq::Entry<key<"width">,
-               Elem<hosq::scan::scalar | hosq::decode::integer<int> |
-                    hosq::pack::once>>
+  hosq::Entry<key<"width">, Elem<hosq::scan::scalar |
+                                 hosq::decode::integer<int> | hosq::pack::once>>
       width;
 
-  hosq::Entry<key<"height">,
-               Elem<hosq::scan::scalar | hosq::decode::integer<int> |
-                    hosq::pack::once>>
+  hosq::Entry<key<"height">, Elem<hosq::scan::scalar |
+                                  hosq::decode::integer<int> | hosq::pack::once>>
       height;
 
   hosq::Entry<
@@ -79,28 +75,28 @@ struct Rectangle {
 
 struct Triangle {
   hosq::Entry<key<"type">, Elem<hosq::scan::string |
-                                 hosq::validate::match<"triangle"_json_string> |
-                                 hosq::pack::once>>
+                                hosq::validate::match<"triangle"_json_string> |
+                                hosq::pack::once>>
       type;
 
   hosq::Entry<key<"color">,
-               Elem<hosq::decode::parse_to<JsonRGB> |
-                    hosq::decode::custom<to_rgb> | hosq::pack::once>>
+              Elem<hosq::decode::parse_to<JsonRGB> |
+                   hosq::decode::custom<to_rgb> | hosq::pack::once>>
       color;
 
   hosq::Entry<key<"vertex1">,
-               Elem<hosq::decode::parse_to<JsonVec2> |
-                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
+              Elem<hosq::decode::parse_to<JsonVec2> |
+                   hosq::decode::custom<to_vec2> | hosq::pack::once>>
       vertex1;
 
   hosq::Entry<key<"vertex2">,
-               Elem<hosq::decode::parse_to<JsonVec2> |
-                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
+              Elem<hosq::decode::parse_to<JsonVec2> |
+                   hosq::decode::custom<to_vec2> | hosq::pack::once>>
       vertex2;
 
   hosq::Entry<key<"vertex3">,
-               Elem<hosq::decode::parse_to<JsonVec2> |
-                    hosq::decode::custom<to_vec2> | hosq::pack::once>>
+              Elem<hosq::decode::parse_to<JsonVec2> |
+                   hosq::decode::custom<to_vec2> | hosq::pack::once>>
       vertex3;
 
   hosq::Entry<
@@ -111,14 +107,13 @@ struct Triangle {
 };
 
 struct Metadata {
-  hosq::Entry<
-      key<"source">,
-      Elem<hosq::scan::string | hosq::decode::string_view | hosq::pack::once>>
+  hosq::Entry<key<"source">, Elem<hosq::scan::string |
+                                  hosq::decode::string_view | hosq::pack::once>>
       source;
 
-  hosq::Entry<key<"version">,
-               Elem<hosq::scan::scalar | hosq::decode::integer<int> |
-                    hosq::pack::once>>
+  hosq::Entry<
+      key<"version">,
+      Elem<hosq::scan::scalar | hosq::decode::integer<int> | hosq::pack::once>>
       version;
 
   hosq::Entry<
@@ -131,17 +126,17 @@ using Shape = std::OneOf<Circle, Rectangle, Triangle>;
 
 struct Document {
   hosq::Entry<key<"data">,
-               Elem<hosq::decode::vector<hosq::decode::parse_to<Shape>,
-                                          hosq::pack::push> |
-                    hosq::pack::once>>
+              Elem<hosq::decode::vector<hosq::decode::parse_to<Shape>,
+                                        hosq::pack::push> |
+                   hosq::pack::once>>
       data;
 
   hosq::Entry<key<"metadata">,
-               Elem<hosq::decode::parse_to<Metadata> | hosq::pack::once>>
+              Elem<hosq::decode::parse_to<Metadata> | hosq::pack::once>>
       metadata;
 
   hosq::Entry<Elem<hosq::scan::string>,
-               Elem<hosq::unknown::reject_with_suggestion>>
+              Elem<hosq::unknown::reject_with_suggestion>>
       unknown;
 };
 

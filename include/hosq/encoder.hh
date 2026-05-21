@@ -7,14 +7,14 @@
 
 #include "hosq/as_tuple.hh"
 #include "hosq/element.hh"
+#include "hosq/entry.hh"
 #include "hosq/writer_base.hh"
 
 namespace hosq {
 
 #if defined(__GNUC__) || defined(__clang__)
 #define HOSQ_ENCODER_ALWAYS_INLINE_ATTR __attribute__((always_inline))
-#define HOSQ_ENCODER_FUNCTION_ALWAYS_INLINE \
-  inline __attribute__((always_inline))
+#define HOSQ_ENCODER_FUNCTION_ALWAYS_INLINE inline __attribute__((always_inline))
 #elif defined(_MSC_VER)
 #define HOSQ_ENCODER_ALWAYS_INLINE_ATTR
 #define HOSQ_ENCODER_FUNCTION_ALWAYS_INLINE __forceinline
@@ -86,18 +86,9 @@ class Encoder {
       -> Result<void, Error> {
     using Elem = std::remove_cvref_t<T>;
     using Storage = typename Elem::storage_type;
-    // Encode pipelines should not mutate the value. The context type is kept
-    // as EncodeContext<Storage, W> to match Elem's existing encoder contract.
     auto& value = const_cast<Storage&>(t.value());  // NOLINT
     EncodeContext<Storage, W> ctx{value, writer()};
-
-    if constexpr (Elem::template encoder_const_invokable<
-                      EncodeContext<Storage, W>>) {
-      const auto& cctx = ctx;
-      return t.encode(cctx);
-    } else {
-      return t.encode(ctx);
-    }
+    return t.encode(ctx);
   }
 
   template <detail::AsEntryTupleT T>
@@ -141,6 +132,7 @@ class Encoder {
   }
 
   template <class Entry>
+    requires(detail::EntryT<std::remove_cvref_t<Entry>>)
   [[nodiscard]]
   HOSQ_ENCODER_FUNCTION_ALWAYS_INLINE auto encode_one_member(const Entry& entry)
       -> Result<void, Error> {
@@ -156,35 +148,19 @@ class Encoder {
   }
 
   template <class Entry>
+    requires(detail::EntryT<std::remove_cvref_t<Entry>>)
   [[nodiscard]]
   HOSQ_ENCODER_FUNCTION_ALWAYS_INLINE auto encode_entry_key(const Entry& entry)
       -> Result<void, Error> {
-    using E = std::remove_cvref_t<Entry>;
-    if constexpr (E::category == detail::EntryCategory::ElemElem ||
-                  E::category == detail::EntryCategory::ElemSchema) {
-      return encode_element(entry.key());
-    } else if constexpr (E::category == detail::EntryCategory::SchemaElem ||
-                         E::category == detail::EntryCategory::SchemaSchema) {
-      return encode_as_entry_tuple(entry.key());
-    } else {
-      static_assert(detail::always_false<E>, "Unsupported Entry category");
-    }
+    return encode_element(entry.key());
   }
 
   template <class Entry>
+    requires(detail::EntryT<std::remove_cvref_t<Entry>>)
   [[nodiscard]]
-  HOSQ_ENCODER_FUNCTION_ALWAYS_INLINE auto encode_entry_value(
-      const Entry& entry) -> Result<void, Error> {
-    using E = std::remove_cvref_t<Entry>;
-    if constexpr (E::category == detail::EntryCategory::ElemElem ||
-                  E::category == detail::EntryCategory::SchemaElem) {
-      return encode_element(entry.value());
-    } else if constexpr (E::category == detail::EntryCategory::ElemSchema ||
-                         E::category == detail::EntryCategory::SchemaSchema) {
-      return encode_as_entry_tuple(entry.value());
-    } else {
-      static_assert(detail::always_false<E>, "Unsupported Entry category");
-    }
+  HOSQ_ENCODER_FUNCTION_ALWAYS_INLINE auto encode_entry_value(const Entry& entry)
+      -> Result<void, Error> {
+    return encode_element(entry.value());
   }
 
   std::reference_wrapper<W> writer_ref_;

@@ -18,7 +18,8 @@
 //
 // using Reader = hosq::json::SimpleReader;
 //
-// // ── Basic object decode ───────────────────────────────────────────────────────
+// // ── Basic object decode
+// ───────────────────────────────────────────────────────
 //
 // TEST(DecodeJson, StringAndIntFields) {
 //   struct {

@@ -14,7 +14,8 @@ namespace ext {
 template <ReaderConcept R>
   requires(!ReaderTraits<R>::is_binary_format)
 struct ScanScalar {
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+  template <class T, ScanPhase Phase>
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
       -> Result<std::string_view, Error> {
     const R& reader = ctx.reader();
     const auto& state = ctx.reader_state();
@@ -35,7 +36,8 @@ template <ReaderConcept R>
   requires(!ReaderTraits<R>::is_binary_format &&
            ReaderTraits<R>::format == Format::json)
 struct ScanString {
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+  template <class T, ScanPhase Phase>
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
       -> Result<std::string_view, Error> {
     const R& reader = ctx.reader();
     const auto& state = ctx.reader_state();
@@ -57,7 +59,8 @@ template <ReaderConcept R>
   requires(!ReaderTraits<R>::is_binary_format &&
            ReaderTraits<R>::format == Format::json)
 struct ScanLiteral {
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+  template <class T, ScanPhase Phase>
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
       -> Result<std::string_view, Error> {
     const R& reader = ctx.reader();
     const auto& state = ctx.reader_state();
@@ -77,43 +80,59 @@ struct ScanLiteral {
 
 template <ReaderConcept R>
 struct ScanObject {
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
-      -> Result<ObjectView, Error>;
+  template <class T, ScanPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const
+      -> Result<ObjectView<R, Phase>, Error>;
 };
 template <ReaderConcept R>
-inline auto ScanObject<R>::operator()(
-    const DecodeContext<void, R, ScanPhase::normal>& ctx) const
-    -> Result<ObjectView, Error> {
-  const R& reader = ctx.reader();
-  const auto& state = ctx.reader_state();
+template <class T, ScanPhase Phase>
+inline auto ScanObject<R>::operator()(DecodeContext<T, R, Phase>& ctx) const
+    -> Result<ObjectView<R, Phase>, Error> {
+  auto& reader = ctx.reader();
+  auto& state = ctx.reader_state();
+
+  if constexpr (Phase == ScanPhase::normal) {
+    if (!reader.next_token(state)) [[unlikely]] {
+      return unexpected(reader.error(state));
+    }
+  }
+
   const auto& tok = reader.current_token(state);
 
   if (tok.type != TokenType::ObjectBegin) {
-    return Result<ObjectView, Error>{unexpected(Error{
+    return Result<ObjectView<R, Phase>, Error>{unexpected(Error{
         .code = ErrorCode::type_mismatch,
         .offset = tok.offset,
     })};
   }
 
-  return ObjectView{};
+  return ObjectView<R, Phase>{reader, state};
 }
 
 template <ReaderConcept R>
 struct ScanArray {
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
-      -> Result<ArrayView, Error> {
-    const R& reader = ctx.reader();
-    const auto& state = ctx.reader_state();
+  template <class T, ScanPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const
+      -> Result<ArrayView<R, Phase>, Error> {
+    auto& reader = ctx.reader();
+    auto& state = ctx.reader_state();
+
+    if constexpr (Phase == ScanPhase::normal) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return unexpected(reader.error(state));
+      }
+    }
+
     const auto& tok = reader.current_token(state);
 
     if (tok.type != TokenType::ArrayBegin) {
-      return Result<ArrayView, Error>{unexpected(Error{
+      return Result<ArrayView<R, Phase>, Error>{unexpected(Error{
           .code = ErrorCode::type_mismatch,
           .offset = tok.offset,
       })};
     }
 
-    return ArrayView{};
+    return ArrayView<R, Phase>{reader, state};
   }
 };
 
@@ -124,41 +143,58 @@ namespace scan {
 namespace detail {
 
 struct ScanScalar {
-  template <ReaderConcept R>
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+  auto operator()(hosq::detail::AnyDecodeContext) const
+      -> Result<std::string_view, Error>;
+
+  template <class T, ReaderConcept R, ScanPhase Phase>
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
       -> Result<std::string_view, Error> {
     return ext::ScanScalar<R>{}(ctx);
   }
 };
 
 struct ScanString {
-  template <ReaderConcept R>
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+  auto operator()(hosq::detail::AnyDecodeContext) const
+      -> Result<std::string_view, Error>;
+
+  template <class T, ReaderConcept R, ScanPhase Phase>
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
       -> Result<std::string_view, Error> {
     return ext::ScanString<R>{}(ctx);
   }
 };
 
 struct ScanLiteral {
-  template <ReaderConcept R>
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
+  auto operator()(hosq::detail::AnyDecodeContext) const
+      -> Result<std::string_view, Error>;
+
+  template <class T, ReaderConcept R, ScanPhase Phase>
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
       -> Result<std::string_view, Error> {
     return ext::ScanLiteral<R>{}(ctx);
   }
 };
 
 struct ScanObject {
-  template <ReaderConcept R>
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
-      -> Result<ObjectView, Error> {
+  auto operator()(hosq::detail::AnyDecodeContext) const
+      -> Result<ObjectView<hosq::detail::PipelineProbeReader, ScanPhase::first>,
+                Error>;
+
+  template <class T, ReaderConcept R, ScanPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const
+      -> Result<ObjectView<R, Phase>, Error> {
     return ext::ScanObject<R>{}(ctx);
   }
 };
 
 struct ScanArray {
-  template <ReaderConcept R>
-  auto operator()(const DecodeContext<void, R, ScanPhase::normal>& ctx) const
-      -> Result<ArrayView, Error> {
+  auto operator()(hosq::detail::AnyDecodeContext) const
+      -> Result<ArrayView<hosq::detail::PipelineProbeReader, ScanPhase::first>,
+                Error>;
+
+  template <class T, ReaderConcept R, ScanPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const
+      -> Result<ArrayView<R, Phase>, Error> {
     return ext::ScanArray<R>{}(ctx);
   }
 };

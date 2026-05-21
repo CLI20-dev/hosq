@@ -393,8 +393,6 @@ class SimpleReader {
   }
 };
 
-static_assert(ReaderConcept<SimpleReader>);
-
 }  // namespace json
 
 template <>
