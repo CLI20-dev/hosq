@@ -46,34 +46,53 @@ struct IsTry<::hosq::Try<T>> : std::true_type {};
 template <class T>
 concept TryT = IsTry<std::remove_cvref_t<T>>::value;
 
+template <class T>
+struct TryBase {
+  static_assert(always_false<T>, "TryBase<T> requires hosq::Try<U>");
+};
+
+template <class U>
+struct TryBase<::hosq::Try<U>> {
+  using type = U;
+};
+
+template <class T>
+using try_base_t = typename TryBase<std::remove_cvref_t<T>>::type;
+
+// ── Try<Elem> tuple ─────────────────────────────────────────────
+
 template <class Tuple>
 struct TryElemTuple : std::false_type {};
 
-template <ElemT... Ts>
+template <class... Ts>
 struct TryElemTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (TryT<Ts> && ...)> {};
+    : std::bool_constant<(sizeof...(Ts) > 0) && (TryT<Ts> && ...) &&
+                         (ElemT<try_base_t<Ts>> && ...)> {};
 
 template <class T>
-concept TryElemTupleT = ElemTuple<std::remove_cvref_t<T>>::value;
+concept TryElemTupleT = TryElemTuple<std::remove_cvref_t<T>>::value;
 
 template <class T>
 concept AsTryElemTupleT = requires(T t) {
-  { hosq::detail::as_tuple(t) } -> ElemTupleT;
+  { hosq::detail::as_tuple(t) } -> TryElemTupleT;
 };
+
+// ── Try<Entry> tuple ────────────────────────────────────────────
 
 template <class Tuple>
 struct TryEntryTuple : std::false_type {};
 
-template <EntryT... Ts>
+template <class... Ts>
 struct TryEntryTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (TryT<Ts> && ...)> {};
+    : std::bool_constant<(sizeof...(Ts) > 0) && (TryT<Ts> && ...) &&
+                         (EntryT<try_base_t<Ts>> && ...)> {};
 
 template <class T>
-concept TryEntryTupleT = EntryTuple<std::remove_cvref_t<T>>::value;
+concept TryEntryTupleT = TryEntryTuple<std::remove_cvref_t<T>>::value;
 
 template <class T>
 concept AsTryEntryTupleT = requires(T t) {
-  { hosq::detail::as_tuple(t) } -> EntryTupleT;
+  { hosq::detail::as_tuple(t) } -> TryEntryTupleT;
 };
 
 }  // namespace detail

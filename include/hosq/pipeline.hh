@@ -28,7 +28,6 @@ template <auto... Fns>
   requires(sizeof...(Fns) > 0)
 struct Pipeline;
 
-
 namespace detail {
 
 template <class Value, class Context, auto... Fn>
@@ -73,6 +72,8 @@ constexpr auto lift_plain_success(R&& value) {
     return Result<Clean, Error>{std::forward<R>(value)};
   }
 }
+
+constexpr auto lift_plain_success() -> Result<void, Error> { return {}; }
 
 template <class R>
 constexpr auto lift_error(Error error) {
@@ -205,7 +206,7 @@ struct Pipeline {
   template <class Input, class Context>
   [[nodiscard]]
   HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Input input,
-                                                            Context& ctx) {
+                                                           Context& ctx) {
     return []<auto FnHead, auto... FnTail>(Input input,
                                            Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
@@ -322,7 +323,7 @@ struct Pipeline {
   template <class Input, class Context>
   [[nodiscard]]
   HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Input input,
-                                                            const Context& ctx) {
+                                                           const Context& ctx) {
     return []<auto FnHead, auto... FnTail>(
                Input input, const Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;

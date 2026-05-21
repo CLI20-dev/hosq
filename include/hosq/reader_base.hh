@@ -1,15 +1,16 @@
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 
 #include "hosq/error.hh"
-#include "hosq/result.hh"
 
 namespace hosq {
 
-enum class TokenType : uint8_t {
+enum class TokenType : std::uint8_t {
   ObjectBegin,
   ObjectEnd,
   ArrayBegin,
@@ -31,8 +32,18 @@ struct Token {
   size_t offset;
   size_t length;
   TokenType type;
-  uint8_t context;
+  std::uint8_t context;
 };
+
+template <class T>
+concept CheckpointableStateConcept = requires(T state) {
+  { state.rollback(state.checkpoint()) } -> std::same_as<void>;
+};
+
+template <class T>
+concept ReaderStateConcept =
+    ((std::is_copy_assignable_v<T> && std::is_copy_constructible_v<T>) ||
+     CheckpointableStateConcept<T>);
 
 template <class T>
 concept ReaderConcept = requires(T r, const T cr, typename T::state_type state,
@@ -40,13 +51,15 @@ concept ReaderConcept = requires(T r, const T cr, typename T::state_type state,
                                  typename T::input_type input) {
   typename T::input_type;
   typename T::state_type;
+  requires ReaderStateConcept<typename T::state_type>;
   { r.reset(state, input) } -> std::same_as<void>;
-  { r.next_token(state) } -> std::same_as<Result<void, Error>>;
+  { r.next_token(state) } -> std::same_as<bool>;
+  { cr.error(const_state) } -> std::same_as<Error>;
   { cr.current_token(const_state) } -> std::same_as<const Token&>;
   { cr.input(const_state) } -> std::same_as<const typename T::input_type&>;
 };
 
-enum class Format : uint8_t {
+enum class Format : std::uint8_t {
   unknown,
   json,
   // bson,
@@ -63,4 +76,4 @@ struct ReaderTraits {
 template <class R>
 using reader_traits_t = ReaderTraits<std::remove_cvref_t<R>>;
 
-};  // namespace hosq
+}  // namespace hosq

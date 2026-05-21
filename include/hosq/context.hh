@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <functional>
 
 #include "hosq/reader_base.hh"
@@ -31,7 +30,6 @@ struct DecodeContextBase {
   explicit DecodeContextBase(R& reader, reader_state_type& state) noexcept
       : reader_(reader), reader_state_(state) {}
 
- public:
   [[nodiscard]]
   auto reader() noexcept -> R& {
     return reader_.get();
@@ -57,9 +55,9 @@ struct DecodeContextBase {
     return reader().input(reader_state());
   }
 
- protected:
-  std::reference_wrapper<R> reader_;                        // NOLINT
-  std::reference_wrapper<reader_state_type> reader_state_;  // NOLINT
+ private:
+  std::reference_wrapper<R> reader_;
+  std::reference_wrapper<reader_state_type> reader_state_;
 };
 
 }  // namespace detail
@@ -227,5 +225,18 @@ struct EncodeContext<void, W> : private detail::EncodeContextBase<W> {
   /* implicit */ EncodeContext(detail::AnyContext);
   /* implicit */ EncodeContext(detail::AnyEncodeContext);
 };
+
+namespace detail {
+
+template <class T, ReaderConcept R, ScanPhase Phase>
+auto make_decode_context_from_const(
+    T& value, const DecodeContext<void, R, Phase>& other) noexcept {
+  auto& mutable_other =
+      const_cast<DecodeContext<void, R, Phase>&>(other);  // NOLINT
+
+  return DecodeContext<T, R, Phase>{value, mutable_other};
+}
+
+}  // namespace detail
 
 }  // namespace hosq

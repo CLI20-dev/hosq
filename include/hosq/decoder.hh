@@ -1,6 +1,5 @@
 #pragma once
 
-#include <functional>
 #include <tuple>
 #include <type_traits>
 
@@ -29,8 +28,8 @@ template <class T>
 struct DecoderAcceptableType : std::false_type {};
 
 template <class T>
-  requires(AsElemTupleT<T> || AsEntryTupleT<T> || AsTryElemTupleT<T> ||
-           AsTryEntryTupleT<T>)
+  requires(ElemT<T> || AsElemTupleT<T> || AsEntryTupleT<T> ||
+           AsTryElemTupleT<T> || AsTryEntryTupleT<T>)
 struct DecoderAcceptableType<T> : std::true_type {};
 
 template <class T>
@@ -48,271 +47,618 @@ class Decoder {
   Decoder() = default;
   ~Decoder() = default;
 
+  using reader_type = R;
+  using input_type = typename reader_type::input_type;
+  using reader_state_type = typename reader_type::state_type;
+
   template <class T>
+    requires detail::DecoderAcceptableT<T>
   [[nodiscard]]
-  auto decode(T& t, typename R::input_type input) -> Result<void, Error> {
-    static_assert(
-        detail::DecoderAcceptableT<T>,
-        "Decoder<T> requires a decomposable schema containing one of: "
-        "only Elem, only Entry, only Try<Elem>, or only Try<Entry> members");
-    auto& r = reader();
-    r.reset(input);
-    auto next = r.next_token();
-    if (!next) {
-      return unexpected(next.error());
-    }
-    if constexpr (detail::ElemT<T>) {
-      return decode_element(t);
-    } else if constexpr (detail::AsEntryTupleT<T>) {
-      return decode_as_entry_tuple(t);
+  auto decode(T& t, input_type input) -> Result<void, Error> {
+    reader_.reset(reader_state_, input);
+    return decode_impl(t);
+  }
+
+  template <detail::ElemT T>
+  using first_decode_context_t =
+      DecodeContext<typename T::storage_type, R, ScanPhase::first>;
+
+  template <detail::ElemT T>
+  using elem_decode_raw_result_t =
+      std::invoke_result_t<T&, first_decode_context_t<T>&>;
+
+  template <detail::TryT T, ScanPhase Phase>
+    requires detail::ElemT<typename std::remove_cvref_t<T>::base_type>
+  using try_elem_context_t = DecodeContext<typename T::storage_type, R, Phase>;
+
+  template <detail::TryT T, ScanPhase Phase>
+    requires detail::ElemT<typename std::remove_cvref_t<T>::base_type>
+  using try_elem_raw_result_t =
+      std::invoke_result_t<T&, try_elem_context_t<T, Phase>&>;
+
+  template <detail::TryT T, ScanPhase Phase>
+    requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+  using try_entry_key_context_t = DecodeContext<T, R, Phase>;
+
+  template <detail::TryT T, ScanPhase Phase>
+    requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+  using try_entry_key_void_context_t = DecodeContext<void, R, Phase>;
+
+  template <detail::TryT T, ScanPhase Phase>
+    requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+  using try_entry_key_raw_result_t = decltype(std::declval<T&>().decode_key(
+      std::declval<try_entry_key_void_context_t<T, Phase>&>()));
+
+  template <detail::TryT T, ScanPhase Phase>
+    requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+  using try_entry_value_raw_result_t = decltype(std::declval<T&>().decode_value(
+      std::declval<DecodeContext<void, R, Phase>&>()));
+
+  [[nodiscard]]
+  auto make_reader_checkpoint() {
+    if constexpr (CheckpointableStateConcept<reader_state_type>) {
+      return reader_state_.checkpoint();
     } else {
-      static_assert(detail::ElemT<T> || detail::AsEntryTupleT<T>,
-                    "T must be an Elem or have an as_tuple() of Entries");
+      static_assert(std::is_copy_constructible_v<reader_state_type> &&
+                    std::is_copy_assignable_v<reader_state_type>);
+      return reader_state_;
     }
   }
 
-  template <class T>
-  [[nodiscard]]
-  static auto decode_from_reader(T& t, R& reader) -> Result<void, Error> {
-    Decoder decoder{reader};
-
-    if constexpr (detail::ElemT<T>) {
-      return decoder.decode_element(t);
-    } else if constexpr (detail::AsEntryTupleT<T>) {
-      return decoder.decode_as_entry_tuple(t);
+  template <class Checkpoint>
+  auto rollback_reader_checkpoint(Checkpoint&& checkpoint) -> void {
+    if constexpr (CheckpointableStateConcept<reader_state_type>) {
+      reader_state_.rollback(std::forward<Checkpoint>(checkpoint));
+    } else {
+      static_assert(std::is_copy_constructible_v<reader_state_type> &&
+                    std::is_copy_assignable_v<reader_state_type>);
+      reader_state_ = checkpoint;
     }
-  }
-
- private:
-  explicit Decoder(R& reader) : reader_ref_(reader) {}
-
-  [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE constexpr auto reader() -> R& {
-    return reader_ref_.get();
-  }
-
-  [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE constexpr auto reader() const -> const R& {
-    return reader_ref_.get();
   }
 
   template <detail::ElemT T>
   [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE constexpr auto decode_element(T& t)
-      -> Result<void, Error> {
-    if constexpr (std::remove_cvref_t<T>::template decoder_const_invokable<R>) {
-      const auto& r = static_cast<const R&>(reader());
-      return t.decode(r);
-    } else {
-      return t.decode(reader());
+  auto decode_impl(T& t) -> Result<void, Error> {
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      return unexpected(reader_.error(reader_state_));
     }
+    first_decode_context_t<T> ctx{t.value(), reader_, reader_state_};
+    using ret_type = elem_decode_raw_result_t<T>;
+    if constexpr (std::same_as<ret_type, void>) {
+      t.decode(ctx);
+      return {};
+    } else {
+      auto ret = t.decode(ctx);
+      if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+        if (!ret) [[unlikely]] {
+          return unexpected(ret.error());
+        }
+      } else if constexpr (std::same_as<std::remove_cvref_t<ret_type>, bool>) {
+        if (!ret) [[unlikely]] {
+          return unexpected(Error{
+              .code = ErrorCode::candidate_rejected,
+              .offset = reader_.error(reader_state_).offset,
+          });
+        }
+      }
+
+      return {};
+    }
+  }
+
+  template <detail::EntryT T>
+  [[nodiscard]]
+  auto decode_impl(T& entry) -> Result<void, Error> {
+    DecodeContext<T, R, ScanPhase::normal> entry_ctx{entry, reader_,
+                                                     reader_state_};
+    DecodeContext<void, R, ScanPhase::normal> ctx{entry_ctx};
+
+    auto key_result = entry.decode_key(ctx);
+    if (!key_result) [[unlikely]] {
+      return unexpected(key_result.error());
+    }
+
+    auto value_result = entry.decode_value(ctx);
+    if (!value_result) [[unlikely]] {
+      return unexpected(value_result.error());
+    }
+
+    return {};
+  }
+
+  template <detail::AsElemTupleT T>
+  [[nodiscard]]
+  auto decode_impl(T& t) -> Result<void, Error> {
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      return unexpected(reader_.error(reader_state_));
+    }
+    if (reader_.current_token(reader_state_).type != TokenType::ArrayBegin)
+        [[unlikely]] {
+      return unexpected(Error{
+          .code = ErrorCode::type_mismatch,
+          .offset = reader_.current_token(reader_state_).offset,
+      });
+    }
+    auto ret = std::apply(
+        [&](auto&... elem) HOSQ_ALWAYS_INLINE_ATTR -> Result<void, Error> {
+          Result<void, Error> result{};
+          ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
+            auto decode_result = decode_impl(elem);
+            if (!decode_result) [[unlikely]] {
+              result = unexpected(decode_result.error());
+              return false;
+            }
+            return true;
+          }() && ...);
+          return result;
+        },
+        as_tuple(t));
+    if (!ret) [[unlikely]] {
+      return unexpected(ret.error());
+    }
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      return unexpected(reader_.error(reader_state_));
+    }
+    const auto& tok = reader_.current_token(reader_state_);
+    if (tok.type != TokenType::ArrayEnd) [[unlikely]] {
+      return unexpected(Error{
+          .code = ErrorCode::size_mismatch,
+          .offset = tok.offset,
+      });
+    }
+    return {};
   }
 
   template <detail::AsEntryTupleT T>
   [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE auto decode_as_entry_tuple(T& t)
-      -> Result<void, Error> {
-    auto& r = reader();
-    if (r.current_token().type != TokenType::ObjectBegin) {
+  auto decode_impl(T& t) -> Result<void, Error> {
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      return unexpected(reader_.error(reader_state_));
+    }
+
+    if (reader_.current_token(reader_state_).type != TokenType::ObjectBegin)
+        [[unlikely]] {
       return unexpected(Error{
           .code = ErrorCode::type_mismatch,
-          .offset = r.current_token().offset,
+          .offset = reader_.current_token(reader_state_).offset,
       });
     }
 
-    auto advanced = r.advance(1);
-    if (!advanced) {
-      return unexpected(advanced.error());
-    }
-
-    while (true) {
-      auto next = r.next_token();
-      if (!next) {
-        return unexpected(next.error());
-      }
-
-      if (r.current_token().type == TokenType::ObjectEnd) {
-        return {};
-      }
-
-      auto result = decode_one_member(t);
-      if (!result) {
-        return unexpected(result.error());
-      }
-    }
-  }
-
-  template <detail::AsEntryTupleT T>
-  [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE auto decode_one_member(T& t)
-      -> Result<void, Error> {
-    return std::apply(
+    auto ret = std::apply(
         [&](auto&... entry) HOSQ_ALWAYS_INLINE_ATTR -> Result<void, Error> {
-          Result<void, Error> result{
-              unexpected(Error{.code = ErrorCode::candidate_rejected})};
+          Result<void, Error> result{};
 
           ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
-            using Entry = std::remove_cvref_t<decltype(entry)>;
-
-            if constexpr (entry_key_const_invokable<Entry>()) {
-              auto key_result = decode_entry_key_const(entry);
-
-              if (is_candidate_rejected(key_result)) {
-                return false;
-              }
-
-              if (!key_result) {
-                result = unexpected(key_result.error());
-                return true;
-              }
-            } else {
-              auto snapshot = reader();
-              auto key_result = decode_entry_key(entry);
-
-              if (is_candidate_rejected(key_result)) {
-                reader() = snapshot;
-                return false;
-              }
-
-              if (!key_result) {
-                reader() = snapshot;
-                result = unexpected(key_result.error());
-                return true;
-              }
+            auto decode_result = decode_impl(entry);
+            if (!decode_result) [[unlikely]] {
+              result = unexpected(decode_result.error());
+              return false;
             }
-
-            auto next = reader().next_token();
-            if (!next) {
-              result = unexpected(next.error());
-              return true;
-            }
-
-            if constexpr (entry_value_const_invokable<Entry>()) {
-              auto value_result = decode_entry_value_const(entry);
-
-              if (!value_result) {
-                result = unexpected(value_result.error());
-                return true;
-              }
-
-              result = {};
-              return true;
-            } else {
-              auto snapshot = reader();
-              auto value_result = decode_entry_value(entry);
-
-              if (is_candidate_rejected(value_result)) {
-                reader() = snapshot;
-                return false;
-              }
-
-              if (!value_result) {
-                reader() = snapshot;
-                result = unexpected(value_result.error());
-                return true;
-              }
-
-              result = {};
-              return true;
-            }
-          }() || ...);
+            return true;
+          }() && ...);
 
           return result;
         },
-        hosq::detail::as_tuple(t));
+        detail::as_tuple(t));
+
+    if (!ret) [[unlikely]] {
+      return unexpected(ret.error());
+    }
+
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      return unexpected(reader_.error(reader_state_));
+    }
+
+    if (reader_.current_token(reader_state_).type != TokenType::ObjectEnd)
+        [[unlikely]] {
+      return unexpected(Error{
+          .code = ErrorCode::size_mismatch,
+          .offset = reader_.current_token(reader_state_).offset,
+      });
+    }
+
+    return {};
   }
 
-  template <class Entry>
-  static consteval auto entry_key_const_invokable() -> bool {
-    using E = std::remove_cvref_t<Entry>;
-    return E::template key_decoder_const_invokable<R>;
-  }
-
-  template <class Entry>
-  static consteval auto entry_value_const_invokable() -> bool {
-    using E = std::remove_cvref_t<Entry>;
-    return E::template value_decoder_const_invokable<R>;
-  }
-
-  template <class Entry>
-  HOSQ_FUNCTION_ALWAYS_INLINE auto decode_entry_key(Entry& entry)
-      -> Result<void, Error> {
-    return entry.decode_key(reader());
-  }
-
-  template <class Entry>
-  HOSQ_FUNCTION_ALWAYS_INLINE auto decode_entry_value(Entry& entry)
-      -> Result<void, Error> {
-    return entry.decode_value(reader());
-  }
-
-  template <class Entry>
-  HOSQ_FUNCTION_ALWAYS_INLINE auto decode_entry_key_const(Entry& entry)
-      -> Result<void, Error> {
-    const auto& r = static_cast<const R&>(reader());
-    return entry.decode_key(r);
-  }
-
-  template <class Entry>
-  HOSQ_FUNCTION_ALWAYS_INLINE auto decode_entry_value_const(Entry& entry)
-      -> Result<void, Error> {
-    const auto& r = static_cast<const R&>(reader());
-    return entry.decode_value(r);
-  }
-
-  template <class T>
+  template <ScanPhase Phase, detail::TryT T>
+    requires detail::ElemT<typename std::remove_cvref_t<T>::base_type>
   [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto is_candidate_rejected(
-      const Result<T, Error>& result) -> bool {
-    return !result && result.error().code == ErrorCode::candidate_rejected;
+  auto try_decode_elem_candidate(T& elem) -> Result<bool, Error> {
+    using elem_type = std::remove_cvref_t<T>;
+    using context_type = try_elem_context_t<T, Phase>;
+    using ret_type = try_elem_raw_result_t<T, Phase>;
+
+    if constexpr (elem_type::template decoder_const_invokable<context_type>) {
+      auto ctx = context_type{elem.value(), reader_, reader_state_};
+      const auto& cctx = ctx;
+
+      if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+        auto ret = elem.decode(cctx);
+        if (!ret) [[unlikely]] {
+          return unexpected(ret.error());
+        }
+        return *ret;
+      } else {
+        return elem.decode(cctx);
+      }
+    } else {
+      auto checkpoint = make_reader_checkpoint();
+
+      auto ctx = context_type{elem.value(), reader_, reader_state_};
+
+      if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+        auto ret = elem.decode(ctx);
+        if (!ret) [[unlikely]] {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return unexpected(ret.error());
+        }
+
+        if (!*ret) {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return false;
+        }
+
+        return true;
+      } else {
+        auto ret = elem.decode(ctx);
+        if (!ret) {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return false;
+        }
+
+        return true;
+      }
+    }
   }
 
-  R reader_{};
-  std::reference_wrapper<R> reader_ref_{reader_};
+  template <class Tuple, std::size_t... I>
+  [[nodiscard]]
+  auto try_decode_elem_candidates_impl(Tuple& tuple, std::index_sequence<I...>)
+      -> Result<bool, Error> {
+    Result<bool, Error> result{false};
+    ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
+      auto& elem = std::get<I>(tuple);
+      auto candidate =
+          try_decode_elem_candidate<I == 0 ? ScanPhase::first
+                                           : ScanPhase::normal>(elem);
+      if (!candidate) [[unlikely]] {
+        result = unexpected(candidate.error());
+        return true;
+      }
+      if (*candidate) {
+        result = true;
+        return true;
+      }
+      return false;
+    }() || ...);
+    return result;
+  }
+
+  template <detail::AsTryElemTupleT T>
+  [[nodiscard]]
+  auto decode_impl(T& t) -> Result<void, Error> {
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      return unexpected(reader_.error(reader_state_));
+    }
+    const auto& tok = reader_.current_token(reader_state_);
+    if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
+      return unexpected(Error{
+          .code = ErrorCode::type_mismatch,
+          .offset = tok.offset,
+      });
+    }
+    auto tuple = detail::as_tuple(t);
+    constexpr auto tuple_size =
+        std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>;
+    while (true) {
+      if (!reader_.next_token(reader_state_)) [[unlikely]] {
+        return unexpected(reader_.error(reader_state_));
+      }
+      const auto& tok = reader_.current_token(reader_state_);
+      if (tok.type == TokenType::ArrayEnd) {
+        return {};
+      }
+      auto ret = try_decode_elem_candidates_impl(
+          tuple, std::make_index_sequence<tuple_size>{});
+      if (!ret) [[unlikely]] {
+        return unexpected(ret.error());
+      }
+      if (!*ret) [[unlikely]] {
+        return unexpected(Error{
+            .code = ErrorCode::invalid_choice,
+            .offset = tok.offset,
+        });
+      }
+    }
+  }
+
+  template <detail::TryT T>
+    requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+  [[nodiscard]]
+  auto try_decode_entry_value_candidate(T& entry) -> Result<bool, Error> {
+    using entry_type = std::remove_cvref_t<T>;
+    using value_type = typename entry_type::value_type;
+
+    static_assert(detail::TryT<value_type>,
+                  "try_decode_entry_value_candidate requires Try value");
+
+    constexpr auto phase = ScanPhase::first;
+
+    using entry_context_type = DecodeContext<T, R, phase>;
+    using void_context_type = DecodeContext<void, R, phase>;
+    using ret_type = try_entry_value_raw_result_t<T, phase>;
+
+    auto checkpoint = make_reader_checkpoint();
+
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      rollback_reader_checkpoint(std::move(checkpoint));
+      return unexpected(reader_.error(reader_state_));
+    }
+
+    auto entry_ctx = entry_context_type{entry, reader_, reader_state_};
+    auto ctx = void_context_type{entry_ctx};
+
+    if constexpr (entry_type::template value_decoder_const_invokable<R, phase>) {
+      const auto& cctx = ctx;
+
+      if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+        auto ret = entry.decode_value(cctx);
+        if (!ret) [[unlikely]] {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return unexpected(ret.error());
+        }
+
+        if (!*ret) {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return false;
+        }
+
+        return true;
+      } else {
+        auto ret = entry.decode_value(cctx);
+        if (!ret) {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return false;
+        }
+
+        return true;
+      }
+    } else {
+      if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+        auto ret = entry.decode_value(ctx);
+        if (!ret) [[unlikely]] {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return unexpected(ret.error());
+        }
+
+        if (!*ret) {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return false;
+        }
+
+        return true;
+      } else {
+        auto ret = entry.decode_value(ctx);
+        if (!ret) {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return false;
+        }
+
+        return true;
+      }
+    }
+  }
+
+  template <detail::TryT T>
+    requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+  [[nodiscard]]
+  auto decode_entry_value_hard(T& entry) -> Result<void, Error> {
+    constexpr auto phase = ScanPhase::first;
+
+    using entry_context_type = DecodeContext<T, R, phase>;
+    using void_context_type = DecodeContext<void, R, phase>;
+    using ret_type = try_entry_value_raw_result_t<T, phase>;
+
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      return unexpected(reader_.error(reader_state_));
+    }
+
+    auto entry_ctx = entry_context_type{entry, reader_, reader_state_};
+    auto ctx = void_context_type{entry_ctx};
+
+    if constexpr (std::same_as<ret_type, void>) {
+      entry.decode_value(ctx);
+      return {};
+    } else {
+      auto ret = entry.decode_value(ctx);
+
+      if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+        if (!ret) [[unlikely]] {
+          return unexpected(ret.error());
+        }
+
+        return {};
+      } else if constexpr (std::same_as<std::remove_cvref_t<ret_type>, bool>) {
+        if (!ret) [[unlikely]] {
+          return unexpected(Error{
+              .code = ErrorCode::validation_failed,
+              .offset = reader_.error(reader_state_).offset,
+          });
+        }
+
+        return {};
+      } else {
+        return {};
+      }
+    }
+  }
+
+  template <ScanPhase Phase, detail::TryT T>
+    requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+  [[nodiscard]]
+  auto try_decode_entry_candidate(T& entry) -> Result<bool, Error> {
+    using entry_type = std::remove_cvref_t<T>;
+    using value_type = typename entry_type::value_type;
+
+    auto key_ret = try_decode_entry_key_candidate<Phase>(entry);
+    if (!key_ret) [[unlikely]] {
+      return unexpected(key_ret.error());
+    }
+
+    if (!*key_ret) {
+      return false;
+    }
+
+    if constexpr (detail::TryT<value_type>) {
+      return try_decode_entry_value_candidate(entry);
+    } else {
+      auto value_ret = decode_entry_value_hard(entry);
+      if (!value_ret) [[unlikely]] {
+        return unexpected(value_ret.error());
+      }
+
+      return true;
+    }
+  }
+
+  template <ScanPhase Phase, detail::TryT T>
+    requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+  [[nodiscard]]
+  auto try_decode_entry_key_candidate(T& entry) -> Result<bool, Error> {
+    using entry_type = std::remove_cvref_t<T>;
+    using entry_context_type = DecodeContext<T, R, Phase>;
+    using void_context_type = DecodeContext<void, R, Phase>;
+    using ret_type = try_entry_key_raw_result_t<T, Phase>;
+
+    auto entry_ctx = entry_context_type{entry, reader_, reader_state_};
+    auto ctx = void_context_type{entry_ctx};
+
+    if constexpr (entry_type::template key_decoder_const_invokable<R, Phase>) {
+      const auto& cctx = ctx;
+
+      if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+        auto ret = entry.decode_key(cctx);
+        if (!ret) [[unlikely]] {
+          return unexpected(ret.error());
+        }
+        return *ret;
+      } else {
+        return entry.decode_key(cctx);
+      }
+    } else {
+      auto checkpoint = make_reader_checkpoint();
+
+      if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+        auto ret = entry.decode_key(ctx);
+        if (!ret) [[unlikely]] {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return unexpected(ret.error());
+        }
+
+        if (!*ret) {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return false;
+        }
+
+        return true;
+      } else {
+        auto ret = entry.decode_key(ctx);
+        if (!ret) {
+          rollback_reader_checkpoint(std::move(checkpoint));
+          return false;
+        }
+
+        return true;
+      }
+    }
+  }
+
+  template <class Tuple, std::size_t... I>
+  [[nodiscard]]
+  auto try_decode_entry_candidates_impl(Tuple& tuple, std::index_sequence<I...>)
+      -> Result<bool, Error> {
+    Result<bool, Error> result{false};
+
+    ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
+      auto& entry = std::get<I>(tuple);
+
+      auto candidate =
+          try_decode_entry_candidate<I == 0 ? ScanPhase::first
+                                            : ScanPhase::normal>(entry);
+
+      if (!candidate) [[unlikely]] {
+        result = unexpected(candidate.error());
+        return true;
+      }
+
+      if (*candidate) {
+        result = true;
+        return true;
+      }
+
+      return false;
+    }() || ...);
+
+    return result;
+  }
+
+  template <detail::AsTryEntryTupleT T>
+  [[nodiscard]]
+  auto decode_impl(T& t) -> Result<void, Error> {
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      return unexpected(reader_.error(reader_state_));
+    }
+
+    {
+      const auto& tok = reader_.current_token(reader_state_);
+      if (tok.type != TokenType::ObjectBegin) [[unlikely]] {
+        return unexpected(Error{
+            .code = ErrorCode::type_mismatch,
+            .offset = tok.offset,
+        });
+      }
+    }
+
+    auto tuple = detail::as_tuple(t);
+    constexpr auto tuple_size =
+        std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>;
+
+    while (true) {
+      if (!reader_.next_token(reader_state_)) [[unlikely]] {
+        return unexpected(reader_.error(reader_state_));
+      }
+
+      const auto& tok = reader_.current_token(reader_state_);
+      if (tok.type == TokenType::ObjectEnd) {
+        return {};
+      }
+
+      auto ret = try_decode_entry_candidates_impl(
+          tuple, std::make_index_sequence<tuple_size>{});
+
+      if (!ret) [[unlikely]] {
+        return unexpected(ret.error());
+      }
+
+      if (!*ret) [[unlikely]] {
+        return unexpected(Error{
+            .code = ErrorCode::unknown_member,
+            .offset = tok.offset,
+        });
+      }
+    }
+  }
+
+ private:
+  reader_type reader_{};
+  reader_state_type reader_state_{};
 };
-
-namespace detail {
-
-template <ReaderConcept R>
-auto skip_json_scalar(R& reader) -> Result<void, Error> {
-  const auto& tok = reader.current_token();
-  if (tok.type != TokenType::Scalar) {
-    return unexpected(Error{.code = ErrorCode::unknown_member});
-  }
-  const auto sv = reader.input();
-  std::size_t end = tok.offset;
-  if (static_cast<JsonTokenContext>(tok.context) == JsonTokenContext::string) {
-    ++end;
-    while (end < sv.size()) {
-      if (sv[end] == '\\') {
-        end += 2;
-        continue;
-      }
-      if (sv[end] == '"') {
-        ++end;
-        break;
-      }
-      ++end;
-    }
-  } else {
-    while (end < sv.size()) {
-      char c = sv[end];
-      if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ',' ||
-          c == ']' || c == '}')
-        break;
-      ++end;
-    }
-  }
-  return reader.advance(end - tok.offset);
-}
-
-}  // namespace detail
 
 /// Free-function convenience wrapper: decodes a JSON object into a struct whose
 /// members are hosq::Entry fields. Reader type R defaults to json::Reader<>.
 /// Free-function convenience wrapper.
 template <ReaderConcept R, class T>
-  requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
+  requires detail::DecoderAcceptableT<T>
 [[nodiscard]]
 auto decode_into(T& t, typename R::input_type input) -> Result<void, Error> {
   Decoder<R> decoder;
