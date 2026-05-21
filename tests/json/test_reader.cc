@@ -44,8 +44,7 @@ static auto read_all(std::string_view input) -> ReadResult {
   r.reset(s, input);
   TokenSeq seq;
   for (;;) {
-    auto res = r.next_token(s);
-    if (!res) return res.error();
+    if (!r.next_token(s)) return r.error(s);
 
     const auto& tok = r.current_token(s);
     const auto ctx = static_cast<JTC>(tok.context);

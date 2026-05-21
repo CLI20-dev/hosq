@@ -34,8 +34,8 @@ struct StringLiteralMatchImpl {
     requires std::same_as<std::remove_cvref_t<Input>, std::string_view>
   using storage_type = std::monostate;
 
-  auto operator()(std::string_view input) const -> Result<void, Error> {
-    if (input == Str.view()) return {};
+  auto operator()(std::string_view input) const -> Result<bool, Error> {
+    if (input == Str.view()) return true;
     return unexpected(Error{.code = ErrorCode::candidate_rejected});
   }
 };

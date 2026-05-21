@@ -68,7 +68,8 @@ class Decoder {
 
   template <detail::ElemT T>
   using elem_decode_raw_result_t =
-      std::invoke_result_t<T&, first_decode_context_t<T>&>;
+      decltype(std::declval<T&>().decode(
+          std::declval<first_decode_context_t<T>&>()));
 
   template <detail::TryT T, ScanPhase Phase>
     requires detail::ElemT<typename std::remove_cvref_t<T>::base_type>
@@ -77,7 +78,8 @@ class Decoder {
   template <detail::TryT T, ScanPhase Phase>
     requires detail::ElemT<typename std::remove_cvref_t<T>::base_type>
   using try_elem_raw_result_t =
-      std::invoke_result_t<T&, try_elem_context_t<T, Phase>&>;
+      decltype(std::declval<T&>().decode(
+          std::declval<try_elem_context_t<T, Phase>&>()));
 
   template <detail::TryT T, ScanPhase Phase>
     requires detail::EntryT<typename std::remove_cvref_t<T>::base_type>
@@ -324,6 +326,9 @@ class Decoder {
       if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
         auto ret = elem.decode(cctx);
         if (!ret) [[unlikely]] {
+          if (ret.error().code == ErrorCode::candidate_rejected) {
+            return false;
+          }
           return unexpected(ret.error());
         }
         return *ret;
@@ -338,6 +343,10 @@ class Decoder {
       if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
         auto ret = elem.decode(ctx);
         if (!ret) [[unlikely]] {
+          if (ret.error().code == ErrorCode::candidate_rejected) {
+            rollback_reader_checkpoint(std::move(checkpoint));
+            return false;
+          }
           rollback_reader_checkpoint(std::move(checkpoint));
           return unexpected(ret.error());
         }
@@ -516,6 +525,9 @@ class Decoder {
       if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
         auto ret = entry.decode_key(cctx);
         if (!ret) [[unlikely]] {
+          if (ret.error().code == ErrorCode::candidate_rejected) {
+            return false;
+          }
           return unexpected(ret.error());
         }
         return *ret;
@@ -528,6 +540,10 @@ class Decoder {
       if constexpr (detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
         auto ret = entry.decode_key(ctx);
         if (!ret) [[unlikely]] {
+          if (ret.error().code == ErrorCode::candidate_rejected) {
+            rollback_reader_checkpoint(std::move(checkpoint));
+            return false;
+          }
           rollback_reader_checkpoint(std::move(checkpoint));
           return unexpected(ret.error());
         }

@@ -12,10 +12,13 @@
 
 #include "hosq/context.hh"
 #include "hosq/detail/always_false.hh"
+#include "hosq/detail/as_tuple.hh"
 #include "hosq/detail/pipeline_analysis.hh"
+#include "hosq/entry.hh"
 #include "hosq/error.hh"
 #include "hosq/pipeline.hh"
 #include "hosq/result.hh"
+#include "hosq/try.hh"
 #include "hosq/view.hh"
 
 namespace hosq::decode {
@@ -91,6 +94,28 @@ using lifted_result_t = hosq::detail::lift_result_t<Result>;
 
 struct VoidContextScratch {};
 
+template <class State>
+auto make_reader_checkpoint(State& state) {
+  if constexpr (CheckpointableStateConcept<State>) {
+    return state.checkpoint();
+  } else {
+    static_assert(std::is_copy_constructible_v<State> &&
+                  std::is_copy_assignable_v<State>);
+    return state;
+  }
+}
+
+template <class State, class Checkpoint>
+auto rollback_reader_checkpoint(State& state, Checkpoint&& checkpoint) -> void {
+  if constexpr (CheckpointableStateConcept<State>) {
+    state.rollback(std::forward<Checkpoint>(checkpoint));
+  } else {
+    static_assert(std::is_copy_constructible_v<State> &&
+                  std::is_copy_assignable_v<State>);
+    state = std::forward<Checkpoint>(checkpoint);
+  }
+}
+
 template <auto Pipeline, class Context>
 using pipeline_invoke_result_t =
     decltype(std::remove_cvref_t<decltype(Pipeline)>::invoke(
@@ -139,6 +164,159 @@ auto invoke_for_collect(Context& ctx)
                   "collect pipeline must return a value");
     return lifted_result{pipeline_type::invoke(ctx)};
   }
+}
+
+template <class Ret>
+auto hard_decode_result_to_void(Ret&& ret, const Error& current_error)
+    -> Result<void, Error> {
+  using ret_type = std::remove_cvref_t<Ret>;
+
+  if constexpr (hosq::detail::HosqResultType<ret_type>) {
+    if (!ret) [[unlikely]] {
+      return unexpected(ret.error());
+    }
+    return {};
+  } else if constexpr (std::same_as<ret_type, bool>) {
+    if (!ret) [[unlikely]] {
+      return unexpected(Error{
+          .code = ErrorCode::validation_failed,
+          .offset = current_error.offset,
+      });
+    }
+    return {};
+  } else {
+    return {};
+  }
+}
+
+template <ScanPhase Phase, hosq::detail::TryT T, ReaderConcept R>
+  requires hosq::detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+auto try_decode_entry_key_candidate(
+    T& entry, R& reader, typename R::state_type& reader_state)
+    -> Result<bool, Error> {
+  using entry_type = std::remove_cvref_t<T>;
+  using entry_context_type = DecodeContext<T, R, Phase>;
+  using void_context_type = DecodeContext<void, R, Phase>;
+  using ret_type = decltype(std::declval<T&>().decode_key(
+      std::declval<void_context_type&>()));
+
+  auto entry_ctx = entry_context_type{entry, reader, reader_state};
+  auto ctx = void_context_type{entry_ctx};
+
+  if constexpr (entry_type::template key_decoder_const_invokable<R, Phase>) {
+    const auto& cctx = ctx;
+    if constexpr (hosq::detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+      auto ret = entry.decode_key(cctx);
+      if (!ret) [[unlikely]] {
+        if (ret.error().code == ErrorCode::candidate_rejected) {
+          return false;
+        }
+        return unexpected(ret.error());
+      }
+      return *ret;
+    } else {
+      return entry.decode_key(cctx);
+    }
+  } else {
+    auto checkpoint = make_reader_checkpoint(reader_state);
+    if constexpr (hosq::detail::HosqResultType<std::remove_cvref_t<ret_type>>) {
+      auto ret = entry.decode_key(ctx);
+      if (!ret) [[unlikely]] {
+        if (ret.error().code == ErrorCode::candidate_rejected) {
+          rollback_reader_checkpoint(reader_state, std::move(checkpoint));
+          return false;
+        }
+        rollback_reader_checkpoint(reader_state, std::move(checkpoint));
+        return unexpected(ret.error());
+      }
+      if (!*ret) {
+        rollback_reader_checkpoint(reader_state, std::move(checkpoint));
+        return false;
+      }
+      return true;
+    } else {
+      auto ret = entry.decode_key(ctx);
+      if (!ret) {
+        rollback_reader_checkpoint(reader_state, std::move(checkpoint));
+        return false;
+      }
+      return true;
+    }
+  }
+}
+
+template <hosq::detail::TryT T, ReaderConcept R>
+  requires hosq::detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+auto decode_entry_value_hard(
+    T& entry, R& reader, typename R::state_type& reader_state)
+    -> Result<void, Error> {
+  constexpr auto phase = ScanPhase::first;
+
+  using entry_context_type = DecodeContext<T, R, phase>;
+  using void_context_type = DecodeContext<void, R, phase>;
+  using ret_type = decltype(std::declval<T&>().decode_value(
+      std::declval<void_context_type&>()));
+
+  if (!reader.next_token(reader_state)) [[unlikely]] {
+    return unexpected(reader.error(reader_state));
+  }
+
+  auto entry_ctx = entry_context_type{entry, reader, reader_state};
+  auto ctx = void_context_type{entry_ctx};
+
+  if constexpr (std::same_as<ret_type, void>) {
+    entry.decode_value(ctx);
+    return {};
+  } else {
+    auto ret = entry.decode_value(ctx);
+    return hard_decode_result_to_void(ret, reader.error(reader_state));
+  }
+}
+
+template <ScanPhase Phase, hosq::detail::TryT T, ReaderConcept R>
+  requires hosq::detail::EntryT<typename std::remove_cvref_t<T>::base_type>
+auto try_decode_entry_candidate(
+    T& entry, R& reader, typename R::state_type& reader_state)
+    -> Result<bool, Error> {
+  auto key_ret =
+      try_decode_entry_key_candidate<Phase>(entry, reader, reader_state);
+  if (!key_ret) [[unlikely]] {
+    return unexpected(key_ret.error());
+  }
+  if (!*key_ret) {
+    return false;
+  }
+
+  auto value_ret = decode_entry_value_hard(entry, reader, reader_state);
+  if (!value_ret) [[unlikely]] {
+    return unexpected(value_ret.error());
+  }
+  return true;
+}
+
+template <class Tuple, ReaderConcept R, std::size_t... I>
+auto try_decode_entry_candidates_impl(
+    Tuple& tuple, R& reader, typename R::state_type& reader_state,
+    std::index_sequence<I...>) -> Result<bool, Error> {
+  Result<bool, Error> result{false};
+
+  ([&]() -> bool {
+    auto& entry = std::get<I>(tuple);
+    auto candidate = try_decode_entry_candidate<I == 0 ? ScanPhase::first
+                                                       : ScanPhase::normal>(
+        entry, reader, reader_state);
+    if (!candidate) [[unlikely]] {
+      result = unexpected(candidate.error());
+      return true;
+    }
+    if (*candidate) {
+      result = true;
+      return true;
+    }
+    return false;
+  }() || ...);
+
+  return result;
 }
 
 template <class KeyStorage, class ValueStorage>
@@ -448,6 +626,47 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
   }
 };
 
+template <class T>
+struct ToImpl {
+  static_assert(hosq::detail::AsTryEntryTupleT<T>,
+                "decode::to<T> currently requires T to be a tuple of "
+                "hosq::Try<hosq::Entry<...>> members");
+
+  template <ReaderConcept R, ScanPhase Phase>
+  auto operator()(ObjectView<R, Phase> view) const -> Result<T, Error> {
+    auto value = T{};
+    auto tuple = hosq::detail::as_tuple(value);
+    constexpr auto tuple_size =
+        std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>;
+
+    auto& reader = view.reader();
+    auto& state = view.reader_state();
+
+    while (true) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return unexpected(reader.error(state));
+      }
+
+      const auto& tok = reader.current_token(state);
+      if (tok.type == TokenType::ObjectEnd) {
+        return value;
+      }
+
+      auto ret = try_decode_entry_candidates_impl(
+          tuple, reader, state, std::make_index_sequence<tuple_size>{});
+      if (!ret) [[unlikely]] {
+        return unexpected(ret.error());
+      }
+      if (!*ret) [[unlikely]] {
+        return unexpected(Error{
+            .code = ErrorCode::unknown_member,
+            .offset = tok.offset,
+        });
+      }
+    }
+  }
+};
+
 }  // namespace detail
 
 /// Parses a numeric string_view into arithmetic type T using std::from_chars.
@@ -490,5 +709,8 @@ inline constexpr auto each = step<detail::EachImpl<Pipelines...>>;
 
 template <auto... Pipelines>
 inline constexpr auto collect = step<detail::CollectImpl<Pipelines...>>;
+
+template <class T>
+inline constexpr auto to = step<detail::ToImpl<T>>;
 
 }  // namespace hosq::decode

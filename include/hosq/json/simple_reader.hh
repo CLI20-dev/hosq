@@ -59,6 +59,7 @@ class SimpleReader {
 
     bool root_done{false};
     bool end_done{false};
+    Error last_error{};
   };
 
   using state_type = StateType;
@@ -68,18 +69,24 @@ class SimpleReader {
     st.input = input;
   }
 
-  auto next_token(StateType& st) -> Result<void, Error> {
-    auto r = next(st);
+  auto next_token(StateType& st) -> bool {
+    const auto r = next(st);
     if (!r) {
-      return Result<void, Error>{unexpected(r.error())};
+      st.last_error = r.error();
+      return false;
     }
 
     st.current = *r;
-    return Result<void, Error>{};
+    st.last_error = {};
+    return true;
   }
 
   [[nodiscard]] auto current_token(const StateType& st) const -> const Token& {
     return st.current;
+  }
+
+  [[nodiscard]] auto error(const StateType& st) const -> Error {
+    return st.last_error;
   }
 
   [[nodiscard]] auto input(const StateType& st) const -> const input_type& {

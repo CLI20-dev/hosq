@@ -74,15 +74,20 @@ struct Elem {
   [[nodiscard]] auto operator*() -> storage_type& { return value_; }
   [[nodiscard]] auto operator*() const -> const storage_type& { return value_; }
 
-  template <ReaderConcept R>
-    requires(!decoder_const_invokable<DecodeContext<storage_type, R>>)
-  HOSQ_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R>& ctx) {
-    return decoder_type::invoke(ctx);
+  template <ReaderConcept R, ScanPhase Phase>
+  HOSQ_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R, Phase>& ctx) {
+    if constexpr (decoder_const_invokable<DecodeContext<storage_type, R, Phase>>) {
+      const auto& cctx = ctx;
+      return decoder_type::invoke(cctx);
+    } else {
+      return decoder_type::invoke(ctx);
+    }
   }
 
-  template <ReaderConcept R>
-    requires(decoder_const_invokable<DecodeContext<storage_type, R>>)
-  HOSQ_ALWAYS_INLINE auto decode(const DecodeContext<storage_type, R>& ctx) {
+  template <ReaderConcept R, ScanPhase Phase>
+    requires(decoder_const_invokable<DecodeContext<storage_type, R, Phase>>)
+  HOSQ_ALWAYS_INLINE auto decode(
+      const DecodeContext<storage_type, R, Phase>& ctx) {
     return decoder_type::invoke(ctx);
   }
 
