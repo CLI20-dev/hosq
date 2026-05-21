@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "hosq/context.hh"
+#include "hosq/detail/as_tuple.hh"
 #include "hosq/pipeline.hh"
 
 namespace hosq {
@@ -157,6 +158,21 @@ struct IsElem<::hosq::Elem<Decoder, Encoder>> : std::true_type {};
 
 template <class T>
 concept ElemT = IsElem<std::remove_cvref_t<T>>::value;
+
+template <class Tuple>
+struct ElemTuple : std::false_type {};
+
+template <class... Ts>
+struct ElemTuple<std::tuple<Ts...>>
+    : std::bool_constant<(sizeof...(Ts) > 0) && (ElemT<Ts> && ...)> {};
+
+template <class T>
+concept ElemTupleT = ElemTuple<std::remove_cvref_t<T>>::value;
+
+template <class T>
+concept AsElemTupleT = requires(T t) {
+  { hosq::detail::as_tuple(t) } -> ElemTupleT;
+};
 
 }  // namespace detail
 

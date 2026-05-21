@@ -50,23 +50,6 @@ concept ReaderConcept =
       { reader.input(const_state) } -> std::same_as<typename T::input_type>;
     };
 
-template <class T>
-concept TokenReaderConcept =
-    ReaderConcept<T> && requires(const T reader, typename T::state_type state) {
-      { reader.read_one(state) } -> std::same_as<Result<Token, Error>>;
-      { reader.read_value(state) } -> std::same_as<Result<Token, Error>>;
-      {
-        reader.read_array_value_or_end(state)
-      } -> std::same_as<Result<Token, Error>>;
-      {
-        reader.read_object_key(state, true)
-      } -> std::same_as<Result<Token, Error>>;
-      {
-        reader.read_object_colon_then_value(state)
-      } -> std::same_as<Result<Token, Error>>;
-      { reader.read_value_end(state) } -> std::same_as<Result<Token, Error>>;
-    };
-
 enum class Format : uint8_t {
   unknown,
   json,

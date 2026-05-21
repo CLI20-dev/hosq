@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <functional>
-#include <string_view>
 
 #include "hosq/reader_base.hh"
 #include "hosq/writer_base.hh"
@@ -24,6 +23,11 @@ struct AnyDecodeContext {
 };
 
 };  // namespace detail
+
+enum class ScanPhase {
+  normal,
+  first,
+};
 
 template <ReaderConcept R>
 struct DecodeContextBase {
@@ -76,60 +80,24 @@ struct DecodeContextBase {
   std::size_t occurrences_{0};                              // NOLINT
 };
 
-template <class T, ReaderConcept R, bool First = false>
-struct DecodeContext;
-
-template <class T, ReaderConcept R>
-struct DecodeContext<T, R, true> : public DecodeContextBase<R> {
-  template <class, ReaderConcept, bool>
+template <class T, ReaderConcept R, ScanPhase Phase = ScanPhase::normal>
+struct DecodeContext : public DecodeContextBase<R> {
+  template <class, ReaderConcept, ScanPhase>
   friend struct DecodeContext;
 
   using base_type = DecodeContextBase<R>;
   using reader_state_type = typename base_type::reader_state_type;
 
-  static constexpr bool first_scan = true;
+  static constexpr auto first_scan = Phase;
 
   explicit DecodeContext(T& value, R& reader, reader_state_type& state,
                          std::size_t occurrences_val = 0) noexcept
       : base_type(reader, state, occurrences_val), elem_(value) {}
 
-  // Probe-only constructor.
-  // Declared but intentionally not defined.
-  // Used only in unevaluated requires expressions.
-  /* implicit */ DecodeContext(detail::AnyContext);
-  /* implicit */ DecodeContext(detail::AnyDecodeContext);
-
-  [[nodiscard]]
-  auto elem() noexcept -> T& {
-    return elem_.get();
-  }
-
-  [[nodiscard]]
-  auto elem() const noexcept -> T& {
-    return elem_.get();
-  }
-
- private:
-  std::reference_wrapper<T> elem_;
-};
-
-template <class T, ReaderConcept R>
-struct DecodeContext<T, R, false> : public DecodeContextBase<R> {
-  template <class, ReaderConcept, bool>
-  friend struct DecodeContext;
-
-  using base_type = DecodeContextBase<R>;
-  using reader_state_type = typename base_type::reader_state_type;
-
-  static constexpr bool first_scan = false;
-
-  explicit DecodeContext(T& value, R& reader, reader_state_type& state,
-                         std::size_t occurrences_val = 0) noexcept
-      : base_type(reader, state, occurrences_val), elem_(value) {}
-
-  template <bool OtherFirst>
+  template <ScanPhase OtherPhase>
+    requires(Phase == ScanPhase::normal && OtherPhase == ScanPhase::first)
   /* implicit */ DecodeContext(
-      const DecodeContext<T, R, OtherFirst>& other) noexcept
+      const DecodeContext<T, R, OtherPhase>& other) noexcept
       : base_type(other.reader(), other.reader_state(), other.occurrences()),
         elem_(other.elem()) {}
 
@@ -153,43 +121,27 @@ struct DecodeContext<T, R, false> : public DecodeContextBase<R> {
   std::reference_wrapper<T> elem_;
 };
 
-template <ReaderConcept R>
-struct DecodeContext<void, R, true> : public DecodeContextBase<R> {
-  template <class, ReaderConcept, bool>
+template <ReaderConcept R, ScanPhase Phase>
+struct DecodeContext<void, R, Phase> : public DecodeContextBase<R> {
+  template <class, ReaderConcept, ScanPhase>
   friend struct DecodeContext;
 
   using base_type = DecodeContextBase<R>;
+  using reader_state_type = typename base_type::reader_state_type;
 
-  static constexpr bool first_scan = true;
+  static constexpr auto first_scan = Phase;
 
-  template <class T>
-  /* implicit */ DecodeContext(const DecodeContext<T, R, true>& other) noexcept
+  template <class T, ScanPhase OtherPhase>
+    requires(!std::same_as<T, void> &&
+             (Phase == ScanPhase::normal || OtherPhase == ScanPhase::first))
+  /* implicit */ DecodeContext(
+      const DecodeContext<T, R, OtherPhase>& other) noexcept
       : base_type(other.reader(), other.reader_state(), other.occurrences()) {}
 
-  // Probe-only constructor.
-  // Declared but intentionally not defined.
-  // Used only in unevaluated requires expressions.
-  /* implicit */ DecodeContext(detail::AnyContext);
-  /* implicit */ DecodeContext(detail::AnyDecodeContext);
-};
-
-template <ReaderConcept R>
-struct DecodeContext<void, R, false> : public DecodeContextBase<R> {
-  template <class, ReaderConcept, bool>
-  friend struct DecodeContext;
-
-  using base_type = DecodeContextBase<R>;
-
-  static constexpr bool first_scan = false;
-
-  template <class T, bool OtherFirst>
+  template <ScanPhase OtherPhase>
+    requires(Phase == ScanPhase::normal && OtherPhase == ScanPhase::first)
   /* implicit */ DecodeContext(
-      const DecodeContext<T, R, OtherFirst>& other) noexcept
-      : base_type(other.reader(), other.reader_state(), other.occurrences()) {}
-
-  template <bool OtherFirst>
-  /* implicit */ DecodeContext(
-      const DecodeContext<void, R, OtherFirst>& other) noexcept
+      const DecodeContext<void, R, OtherPhase>& other) noexcept
       : base_type(other.reader(), other.reader_state(), other.occurrences()) {}
 
   // Probe-only constructor.
@@ -226,61 +178,5 @@ struct EncodeContext<void, W> {
 
   W* writer{nullptr};
 };
-
-enum class ContextKind {
-  decode,
-  encode,
-};
-
-template <class C>
-struct ContextTraits;
-
-template <class T, ReaderConcept R>
-struct ContextTraits<DecodeContext<T, R>> {
-  static constexpr ContextKind kind = ContextKind::decode;
-  using value_type = T;
-  using reader_type = R;
-};
-
-template <ReaderConcept R>
-struct ContextTraits<DecodeContext<void, R>> {
-  static constexpr ContextKind kind = ContextKind::decode;
-  using value_type = void;
-  using reader_type = R;
-};
-
-template <class T, WriterConcept W>
-struct ContextTraits<EncodeContext<T, W>> {
-  static constexpr ContextKind kind = ContextKind::encode;
-  using value_type = T;
-  using writer_type = W;
-};
-
-template <WriterConcept W>
-struct ContextTraits<EncodeContext<void, W>> {
-  static constexpr ContextKind kind = ContextKind::encode;
-  using value_type = void;
-  using writer_type = W;
-};
-
-template <class C>
-using context_traits_t = ContextTraits<std::remove_cvref_t<C>>;
-
-template <class C>
-concept DecodeContextLike = requires(C ctx) {
-  typename context_traits_t<C>::value_type;
-  typename context_traits_t<C>::reader_type;
-  { ctx.reader.operator->() } -> ReaderConcept;
-  { ctx.input } -> std::same_as<std::string_view>;
-  { ctx.occurrences } -> std::convertible_to<std::size_t>;
-} && context_traits_t<C>::kind == ContextKind::decode;
-
-template <class C>
-concept EncodeContextLike =
-    requires {
-      typename context_traits_t<C>::value_type;
-      typename context_traits_t<C>::writer_type;
-    } && context_traits_t<C>::kind == ContextKind::encode &&
-    WriterConcept<typename context_traits_t<C>::writer_type>;
 
 }  // namespace hosq

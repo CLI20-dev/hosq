@@ -8,6 +8,7 @@
 #include "hosq/element.hh"
 #include "hosq/entry.hh"
 #include "hosq/reader_base.hh"
+#include "hosq/try.hh"
 
 namespace hosq {
 
@@ -22,7 +23,20 @@ namespace hosq {
 #define HOSQ_FUNCTION_ALWAYS_INLINE inline
 #endif
 
-namespace detail {}  // namespace detail
+namespace detail {
+
+template <class T>
+struct DecoderAcceptableType : std::false_type {};
+
+template <class T>
+  requires(AsElemTupleT<T> || AsEntryTupleT<T> || AsTryElemTupleT<T> ||
+           AsTryEntryTupleT<T>)
+struct DecoderAcceptableType<T> : std::true_type {};
+
+template <class T>
+concept DecoderAcceptableT = DecoderAcceptableType<T>::value;
+
+}  // namespace detail
 
 template <ReaderConcept R>
 class Decoder {
@@ -35,9 +49,12 @@ class Decoder {
   ~Decoder() = default;
 
   template <class T>
-    requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
   [[nodiscard]]
   auto decode(T& t, typename R::input_type input) -> Result<void, Error> {
+    static_assert(
+        detail::DecoderAcceptableT<T>,
+        "Decoder<T> requires a decomposable schema containing one of: "
+        "only Elem, only Entry, only Try<Elem>, or only Try<Entry> members");
     auto& r = reader();
     r.reset(input);
     auto next = r.next_token();
@@ -55,7 +72,6 @@ class Decoder {
   }
 
   template <class T>
-    requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
   [[nodiscard]]
   static auto decode_from_reader(T& t, R& reader) -> Result<void, Error> {
     Decoder decoder{reader};

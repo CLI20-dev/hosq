@@ -2,7 +2,6 @@
 
 #include "hosq/element.hh"
 #include "hosq/entry.hh"
-#include "hosq/pipeline.hh"
 namespace hosq {
 
 template <class T>
@@ -46,6 +45,36 @@ struct IsTry<::hosq::Try<T>> : std::true_type {};
 
 template <class T>
 concept TryT = IsTry<std::remove_cvref_t<T>>::value;
+
+template <class Tuple>
+struct TryElemTuple : std::false_type {};
+
+template <ElemT... Ts>
+struct TryElemTuple<std::tuple<Ts...>>
+    : std::bool_constant<(sizeof...(Ts) > 0) && (TryT<Ts> && ...)> {};
+
+template <class T>
+concept TryElemTupleT = ElemTuple<std::remove_cvref_t<T>>::value;
+
+template <class T>
+concept AsTryElemTupleT = requires(T t) {
+  { hosq::detail::as_tuple(t) } -> ElemTupleT;
+};
+
+template <class Tuple>
+struct TryEntryTuple : std::false_type {};
+
+template <EntryT... Ts>
+struct TryEntryTuple<std::tuple<Ts...>>
+    : std::bool_constant<(sizeof...(Ts) > 0) && (TryT<Ts> && ...)> {};
+
+template <class T>
+concept TryEntryTupleT = EntryTuple<std::remove_cvref_t<T>>::value;
+
+template <class T>
+concept AsTryEntryTupleT = requires(T t) {
+  { hosq::detail::as_tuple(t) } -> EntryTupleT;
+};
 
 }  // namespace detail
 
