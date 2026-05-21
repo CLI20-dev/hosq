@@ -772,11 +772,11 @@ struct Pipeline {
         requires { typename Head::template storage_type<In>; };
 
     using NextStorage =
-        typename detail::NextStorage<Head, Input, Storage, has_storage>::type;
+        typename detail::NextStorage<Head, In, Storage, has_storage>::type;
 
     if constexpr (has_storage && !std::same_as<Storage, detail::NoStorage>) {
       static_assert(
-          sizeof(detail::DuplicateStorageType<Storage, Head, Input>) == 0,
+          sizeof(detail::DuplicateStorageType<Storage, Head, In>) == 0,
           "Decoder pipeline defines storage_type<Input> more than once");
     }
 
@@ -816,7 +816,8 @@ struct Pipeline {
       static_assert(
           !std::same_as<NextStorage, detail::NoStorage>,
           "At least one decoder pipeline step must define storage_type<Input>");
-      return std::make_tuple(true, std::type_identity<NextStorage>{});
+      return std::make_tuple(true, std::type_identity<NextStorage>{},
+                             std::type_identity<after_type>{});
     } else {
       return analyze_decoder_impl<after_type, NextStorage, FnTail...>();
     }
@@ -865,7 +866,8 @@ struct Pipeline {
       static_assert(
           std::same_as<after_type, void>,
           "Encoder terminal action must return void, Result<void, Error>");
-      return std::make_tuple(true, std::type_identity<void>{});
+      return std::make_tuple(true, std::type_identity<void>{},
+                             std::type_identity<after_type>{});
     } else {
       return analyze_encoder_impl<after_type, FnTail...>();
     }

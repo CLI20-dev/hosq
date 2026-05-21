@@ -671,3 +671,37 @@ store / write:
 unknown:
   pipeline ではなく object decoder policy
 ```
+
+
+
+---> Fixed Object
+struct FixedObject {
+  Entry<Elem<scan::string | match::literal<"name>>, Elem<scan::string | decode::number | store::once>>;
+  Entry<Elem<scan::string | match::literal<"id">>, Elem<scan::literal | decode::number | store::once>>;
+  Entry<Elem<scan::string | match::literal<"data">>, Elem<scan::literal | decode::number | store::once>>;
+  ...
+}; -> fixed number of object (order not aware)
+
+
+struct OrderedFixedObject {
+  Entry<Elem<scan::string | store::once>, Elem<scan::string | decode::number | store::once>>;
+  Entry<Elem<scan::string | store::once>, Elem<scan::literal | decode::number | store::once>>;
+  Entry<Elem<scan::string | store::once>, Elem<scan::literal | decode::number | store::once>>;
+  ...
+}; -> fixed number of object (order aware)
+
+
+---> Fixed Array
+struct OrderedTuple {
+  Elem<scan::string | decode::number | scan::push>
+  Elem<scan::string | decode::number | scan::push>
+  Elem<scan::string | decode::number | scan::push>
+}; -> variable array
+
+  Branch<Elem<scan::string | decode::number | scan::push>>
+
+
+struct VariableObject {
+  Entry<Elem<scan::string | decode::number | scan::push>, Elem<scan::string | decode::number | scan::push>>
+}; -> variable object
+

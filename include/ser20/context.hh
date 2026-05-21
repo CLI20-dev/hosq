@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <functional>
-#include <limits>
 #include <string_view>
 
 #include "ser20/reader_base.hh"
