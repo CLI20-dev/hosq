@@ -157,8 +157,20 @@ struct ScanString {
   auto operator()(hosq::detail::AnyDecodeContext) const
       -> Result<std::string_view, Error>;
 
+  // Const overload: available only for eager readers (has_lazy_token_resolution = false).
+  // Disabling it for lazy readers makes the pipeline non-const-invokable, so the decoder
+  // takes a partial checkpoint instead of a full state copy.
   template <class T, ReaderConcept R, ScanPhase Phase>
+    requires(!has_lazy_token_resolution_v<R>)
   auto operator()(const DecodeContext<T, R, Phase>& ctx) const
+      -> Result<std::string_view, Error> {
+    return ext::ScanString<R>{}(ctx);
+  }
+
+  // Mutable overload: preferred for lazy readers; also available for eager readers
+  // (mutable ctx binds to the ext's const overload in that case).
+  template <class T, ReaderConcept R, ScanPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const
       -> Result<std::string_view, Error> {
     return ext::ScanString<R>{}(ctx);
   }
@@ -169,7 +181,14 @@ struct ScanLiteral {
       -> Result<std::string_view, Error>;
 
   template <class T, ReaderConcept R, ScanPhase Phase>
+    requires(!has_lazy_token_resolution_v<R>)
   auto operator()(const DecodeContext<T, R, Phase>& ctx) const
+      -> Result<std::string_view, Error> {
+    return ext::ScanLiteral<R>{}(ctx);
+  }
+
+  template <class T, ReaderConcept R, ScanPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const
       -> Result<std::string_view, Error> {
     return ext::ScanLiteral<R>{}(ctx);
   }

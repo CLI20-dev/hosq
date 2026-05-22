@@ -41,9 +41,7 @@ concept CheckpointableStateConcept = requires(T state) {
 };
 
 template <class T>
-concept ReaderStateConcept =
-    ((std::is_copy_assignable_v<T> && std::is_copy_constructible_v<T>) ||
-     CheckpointableStateConcept<T>);
+concept ReaderStateConcept = std::copyable<T> || CheckpointableStateConcept<T>;
 
 template <class T>
 concept ReaderConcept = requires(T r, const T cr, typename T::state_type state,
@@ -75,5 +73,18 @@ struct ReaderTraits {
 
 template <class R>
 using reader_traits_t = ReaderTraits<std::remove_cvref_t<R>>;
+
+/// Opt-in trait for readers that emit scalar tokens with `length =
+/// unresolved_length`. Specialize to `std::true_type` for readers that resolve
+/// lengths lazily via mutable `ext::ScanString` / `ext::ScanLiteral` overloads.
+/// When true, the const overloads of `scan::string` and `scan::literal` are
+/// disabled, making key decoders non-const-invokable so that partial checkpoints
+/// are taken instead of full state copies.
+template <class R>
+struct has_lazy_token_resolution : std::false_type {};
+
+template <class R>
+inline constexpr bool has_lazy_token_resolution_v =
+    has_lazy_token_resolution<std::remove_cvref_t<R>>::value;
 
 }  // namespace hosq

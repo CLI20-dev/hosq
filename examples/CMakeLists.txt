@@ -28,3 +28,26 @@ foreach(example_source ${EXAMPLE_SOURCES})
   get_filename_component(example_name "${example_source}" NAME_WE)
   add_hosq_example("${example_source}" "" cxx_std_20)
 endforeach()
+
+# twitter example: provide path to twitter.json
+set(TWITTER_JSON
+    "${CMAKE_CURRENT_SOURCE_DIR}/../bench/json_examples/twitter.json")
+if(TARGET twitter)
+  target_compile_definitions(twitter PRIVATE
+      TWITTER_JSON_PATH="${TWITTER_JSON}")
+
+  # PGO instrumentation: build a separate instrumented variant when requested.
+  option(HOSQ_EXAMPLES_PGO_INSTRUMENT
+      "Build twitter_pgo_instr with -fprofile-instr-generate" OFF)
+  if(HOSQ_EXAMPLES_PGO_INSTRUMENT AND
+     CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_hosq_example("${CMAKE_CURRENT_SOURCE_DIR}/twitter.cc"
+                     "_pgo_instr" cxx_std_20)
+    target_compile_definitions(twitter_pgo_instr PRIVATE
+        TWITTER_JSON_PATH="${TWITTER_JSON}")
+    target_compile_options(twitter_pgo_instr PRIVATE
+        -fprofile-instr-generate -O2)
+    target_link_options(twitter_pgo_instr PRIVATE
+        -fprofile-instr-generate)
+  endif()
+endif()

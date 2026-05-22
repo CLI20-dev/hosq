@@ -5,103 +5,132 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include "hosq/decoder.hh"
 #include "hosq/element.hh"
+#include "hosq/entry.hh"
+#include "hosq/json/fast_reader.hh"
+#include "hosq/json/simple_reader.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/match.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/pipeline/store.hh"
 #include "hosq/pipeline_util.hh"
 #include "hosq/string_literal.hh"
+#include "hosq/try.hh"
 
 using namespace hosq;
 using namespace std::string_view_literals;
 
 namespace {
 
+using Reader = hosq::json::SimpleReader;
+
 // Expected sums — computed from twitter.json with uint64 wrapping
-constexpr uint64_t kStatusIdSum = 13693999927316377626ULL;
+constexpr uint64_t kStatusIdSum = 13693999927316377398ULL;
 constexpr uint64_t kUserIdSum = 221361100704ULL;
 constexpr int kRetweetSum = 7122;
 constexpr int kFavoriteSum = 0;
 
-// ─── skip_any_value ─────────────────────────────────────────────────────────
-// A single decoder step that consumes any JSON value (scalar, object, array)
-// and stores nothing. Used as the catch-all value sink for unknown fields.
-struct SkipAnyValueImpl {
-  template <class>
+// ─── Custom pipeline steps ────────────────────────────────────────────────────
+
+// Matches any string key, returning bool=true (required for Try<Entry<Key,...>>)
+struct AnyBoolImpl {
+  template <class Input>
   using storage_type = std::monostate;
 
-  template <class Context>
-    requires(!std::is_const_v<std::remove_reference_t<Context>>)
-  auto operator()(Context& ctx) const -> Result<void, Error> {
+  auto operator()(std::string_view) const -> bool { return true; }
+};
+
+constexpr auto any_bool = step<AnyBoolImpl>;
+
+// Consumes any JSON value (scalar, object, or array) without storing it.
+// When Phase::first the caller has already advanced the reader to the value
+// token; when Phase::normal this step advances the reader itself first.
+struct SkipValueImpl {
+  template <class Input>
+  using storage_type = std::monostate;
+
+  // Probe overload used only for compile-time type deduction — never called.
+  auto operator()(detail::AnyDecodeContext) const -> Result<void, Error>;
+
+  template <class Storage, ReaderConcept R, ScanPhase Phase>
+  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const
+      -> Result<void, Error> {
     auto& reader = ctx.reader();
-    const auto& tok = reader.current_token();
+    auto& state = ctx.reader_state();
+
+    if constexpr (Phase == ScanPhase::normal) {
+      if (!reader.next_token(state)) return unexpected(reader.error(state));
+    }
+
+    const auto& tok = reader.current_token(state);
     if (tok.type == TokenType::Scalar) {
-      auto r = scan::detail::scan_scalar_for(reader, tok);
-      if (!r) return unexpected(r.error());
       return {};
     }
-    if (tok.type == TokenType::ObjectBegin) {
-      auto r = scan::detail::scan_object_for(reader, tok);
-      if (!r) return unexpected(r.error());
-      return {};
-    }
-    if (tok.type == TokenType::ArrayBegin) {
-      auto r = scan::detail::scan_array_for(reader, tok);
-      if (!r) return unexpected(r.error());
+    if (tok.type == TokenType::ObjectBegin ||
+        tok.type == TokenType::ArrayBegin) {
+      int depth = 1;
+      while (depth > 0) {
+        if (!reader.next_token(state)) return unexpected(reader.error(state));
+        const auto& t = reader.current_token(state);
+        if (t.type == TokenType::ObjectBegin || t.type == TokenType::ArrayBegin)
+          ++depth;
+        else if (t.type == TokenType::ObjectEnd || t.type == TokenType::ArrayEnd)
+          --depth;
+      }
       return {};
     }
     return unexpected(Error{.code = ErrorCode::type_mismatch});
   }
 };
 
-constexpr auto skip_any_value = step<SkipAnyValueImpl>;
+constexpr auto skip_value = step<SkipValueImpl>;
 
-// ─── Schema ──────────────────────────────────────────────────────────────────
-// Each struct must have specific entries first; the _skip catch-all must be
-// last so match::any only fires after all named keys have been tried.
+// ─── Schema aliases ───────────────────────────────────────────────────────────
 
-using SkipEntry =
-    Entry<Elem<scan::string | match::any | store::ignore, noop_encoder>,
-          Elem<skip_any_value, noop_encoder>>;
+template <StringLiteral Name>
+using Key = Elem<scan::string | match::literal<Name>, noop_encoder>;
+
+// Catch-all entry: matches any key, skips the associated value.
+using SkipKey = Elem<scan::string | any_bool, noop_encoder>;
+using SkipVal = Elem<skip_value, noop_encoder>;
+using SkipEntry = Try<Entry<SkipKey, SkipVal>>;
+
+template <class T>
+using NumberField =
+    Elem<scan::literal | decode::number<T> | store::assign, noop_encoder>;
+
+// ─── Schema structs ───────────────────────────────────────────────────────────
 
 struct UserSchema {
-  Entry<
-      Elem<scan::string | match::literal<"id"_literal>, noop_encoder>,
-      Elem<scan::literal | decode::number<uint64_t> | store::once, noop_encoder>>
-      id;
+  Try<Entry<Key<"id"_literal>, NumberField<uint64_t>>> id;
   SkipEntry _skip;
 };
+
+using UserField =
+    Elem<scan::object | decode::to<UserSchema> | store::assign, noop_encoder>;
 
 struct StatusSchema {
-  Entry<
-      Elem<scan::string | match::literal<"id"_literal>, noop_encoder>,
-      Elem<scan::literal | decode::number<uint64_t> | store::once, noop_encoder>>
-      id;
-  Entry<
-      Elem<scan::string | match::literal<"retweet_count"_literal>, noop_encoder>,
-      Elem<scan::literal | decode::number<int> | store::once, noop_encoder>>
-      retweet_count;
-  Entry<Elem<scan::string | match::literal<"favorite_count"_literal>,
-             noop_encoder>,
-        Elem<scan::literal | decode::number<int> | store::once, noop_encoder>>
-      favorite_count;
-  Entry<Elem<scan::string | match::literal<"user"_literal>, noop_encoder>,
-        UserSchema>
-      user;
+  Try<Entry<Key<"id"_literal>, NumberField<uint64_t>>> id;
+  Try<Entry<Key<"retweet_count"_literal>, NumberField<int>>> retweet_count;
+  Try<Entry<Key<"favorite_count"_literal>, NumberField<int>>> favorite_count;
+  Try<Entry<Key<"user"_literal>, UserField>> user;
   SkipEntry _skip;
 };
+
+using StatusesField =
+    Elem<scan::array | decode::collect<scan::object | decode::to<StatusSchema>> |
+             store::assign,
+         noop_encoder>;
 
 struct TwitterSchema {
-  Entry<Elem<scan::string | match::literal<"statuses"_literal>, noop_encoder>,
-        Elem<decode::vector<StatusSchema> | store::once, noop_encoder>>
-      statuses;
+  Try<Entry<Key<"statuses"_literal>, StatusesField>> statuses;
   SkipEntry _skip;
 };
 
-// ─── Shared JSON data ────────────────────────────────────────────────────────
+// ─── Shared JSON data ─────────────────────────────────────────────────────────
 
 std::string g_json;
 
@@ -110,7 +139,7 @@ void load_json() {
   g_json.assign(std::istreambuf_iterator<char>(f), {});
 }
 
-// ─── Verification helpers ────────────────────────────────────────────────────
+// ─── Verification helpers ─────────────────────────────────────────────────────
 
 struct Sums {
   uint64_t status_id{0};
@@ -121,7 +150,7 @@ struct Sums {
 
 Sums collect_hosq() {
   TwitterSchema schema;
-  auto result = decode_into(schema, std::string_view{g_json});
+  auto result = decode_into<Reader>(schema, std::string_view{g_json});
   if (!result) {
     std::cerr << "hosq parse error: code="
               << static_cast<int>(result.error().code)
@@ -129,9 +158,32 @@ Sums collect_hosq() {
     return {};
   }
   Sums s;
+  // statuses.value() -> StatusesField (Elem), .value() -> vector<StatusSchema>
+  for (const auto& st : schema.statuses.value().value()) {
+    // id.value() -> NumberField Elem, .value() -> uint64_t
+    s.status_id += st.id.value().value();
+    // user.value() -> UserField Elem, .value() -> UserSchema
+    s.user_id += st.user.value().value().id.value().value();
+    s.retweet += st.retweet_count.value().value();
+    s.favorite += st.favorite_count.value().value();
+  }
+  return s;
+}
+
+Sums collect_hosq_fast() {
+  using FastReader = hosq::json::FastReader<>;
+  TwitterSchema schema;
+  auto result = decode_into<FastReader>(schema, std::string_view{g_json});
+  if (!result) {
+    std::cerr << "hosq fast parse error: code="
+              << static_cast<int>(result.error().code)
+              << " offset=" << result.error().offset << "\n";
+    return {};
+  }
+  Sums s;
   for (const auto& st : schema.statuses.value().value()) {
     s.status_id += st.id.value().value();
-    s.user_id += st.user.value().id.value().value();
+    s.user_id += st.user.value().value().id.value().value();
     s.retweet += st.retweet_count.value().value();
     s.favorite += st.favorite_count.value().value();
   }
@@ -164,12 +216,12 @@ Sums collect_yyjson() {
 
 }  // namespace
 
-// ─── Benchmarks ──────────────────────────────────────────────────────────────
+// ─── Benchmarks ───────────────────────────────────────────────────────────────
 
 static void BM_hosq_twitter(benchmark::State& state) {
   for (auto _ : state) {
     TwitterSchema schema;
-    auto result = decode_into(schema, std::string_view{g_json});
+    auto result = decode_into<Reader>(schema, std::string_view{g_json});
     benchmark::DoNotOptimize(schema);
     if (!result) {
       state.SkipWithError("hosq parse failed");
@@ -180,13 +232,14 @@ static void BM_hosq_twitter(benchmark::State& state) {
                           static_cast<int64_t>(g_json.size()));
 }
 
-static void BM_yyjson_twitter(benchmark::State& state) {
+static void BM_hosq_twitter_fast(benchmark::State& state) {
+  using FastReader = hosq::json::FastReader<>;
   for (auto _ : state) {
-    yyjson_doc* doc = yyjson_read(g_json.data(), g_json.size(), 0);
-    benchmark::DoNotOptimize(doc);
-    yyjson_doc_free(doc);
-    if (!doc) {
-      state.SkipWithError("yyjson parse failed");
+    TwitterSchema schema;
+    auto result = decode_into<FastReader>(schema, std::string_view{g_json});
+    benchmark::DoNotOptimize(schema);
+    if (!result) {
+      state.SkipWithError("hosq fast parse failed");
       break;
     }
   }
@@ -194,13 +247,57 @@ static void BM_yyjson_twitter(benchmark::State& state) {
                           static_cast<int64_t>(g_json.size()));
 }
 
+static void BM_yyjson_twitter(benchmark::State& state) {
+  for (auto _ : state) {
+    Sums s;
+    yyjson_doc* doc = yyjson_read(g_json.data(), g_json.size(), 0);
+    if (!doc) {
+      state.SkipWithError("yyjson parse failed");
+      break;
+    }
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    yyjson_val* arr = yyjson_obj_get(root, "statuses");
+    size_t idx, max;
+    yyjson_val* st;
+    yyjson_arr_foreach(arr, idx, max, st) {
+      bool has_id = false, has_retweet = false, has_favorite = false,
+           has_user = false;
+      yyjson_val* key;
+      yyjson_val* val;
+      yyjson_obj_iter iter;
+      yyjson_obj_iter_init(st, &iter);
+      while ((key = yyjson_obj_iter_next(&iter))) {
+        val = yyjson_obj_iter_get_val(key);
+        const char* k = yyjson_get_str(key);
+        if (!has_id && strcmp(k, "id") == 0) {
+          s.status_id += yyjson_get_uint(val);
+          has_id = true;
+        } else if (!has_retweet && strcmp(k, "retweet_count") == 0) {
+          s.retweet += static_cast<int>(yyjson_get_int(val));
+          has_retweet = true;
+        } else if (!has_favorite && strcmp(k, "favorite_count") == 0) {
+          s.favorite += static_cast<int>(yyjson_get_int(val));
+          has_favorite = true;
+        } else if (!has_user && strcmp(k, "user") == 0) {
+          s.user_id += yyjson_get_uint(yyjson_obj_get(val, "id"));
+          has_user = true;
+        }
+      }
+    }
+    benchmark::DoNotOptimize(s);
+    yyjson_doc_free(doc);
+  }
+  state.SetBytesProcessed(state.iterations() *
+                          static_cast<int64_t>(g_json.size()));
+}
+
 BENCHMARK(BM_yyjson_twitter);
 BENCHMARK(BM_hosq_twitter);
+BENCHMARK(BM_hosq_twitter_fast);
 
 int main(int argc, char** argv) {
   load_json();
 
-  // Verify hosq correctness by comparing extracted sums
   auto s1 = collect_hosq();
   std::cout << "[hosq]  status_id_sum=" << s1.status_id
             << "  user_id_sum=" << s1.user_id << "  retweet_sum=" << s1.retweet
@@ -212,7 +309,17 @@ int main(int argc, char** argv) {
   }
   std::cout << "[hosq]  verification PASSED\n";
 
-  // Verify yyjson correctness with the same sums
+  auto sf = collect_hosq_fast();
+  std::cout << "[hosq/fast]  status_id_sum=" << sf.status_id
+            << "  user_id_sum=" << sf.user_id << "  retweet_sum=" << sf.retweet
+            << "  favorite_sum=" << sf.favorite << "\n";
+  if (sf.status_id != kStatusIdSum || sf.user_id != kUserIdSum ||
+      sf.retweet != kRetweetSum || sf.favorite != kFavoriteSum) {
+    std::cerr << "[hosq/fast]  verification FAILED\n";
+    return 1;
+  }
+  std::cout << "[hosq/fast]  verification PASSED\n";
+
   auto s2 = collect_yyjson();
   std::cout << "[yyjson] status_id_sum=" << s2.status_id
             << "  user_id_sum=" << s2.user_id << "  retweet_sum=" << s2.retweet

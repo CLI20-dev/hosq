@@ -71,6 +71,7 @@
           devShells.default = pkgs.mkShellNoCC {
             packages = [
               pkgs.llvmPackages.libcxxClang
+              pkgs.llvmPackages.llvm
               pkgs.cmake
               pkgs.ninja
               (pkgs.gtest.override {
