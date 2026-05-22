@@ -9,7 +9,6 @@
 
 #include "hosq/error.hh"
 #include "hosq/reader_base.hh"
-#include "hosq/result.hh"
 #include "hosq/writer_base.hh"
 
 namespace hosq {
@@ -33,12 +32,10 @@ class CompactWriter {
   ~CompactWriter() = default;
 
   [[nodiscard]]
-  auto write(const WriteRequest& request) -> Result<buffer_type, Error> {
+  auto write(const WriteRequest& request) -> buffer_type {
     if (finished_ || pending_.active) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+      return 
+        ;
     }
 
     switch (request.type) {

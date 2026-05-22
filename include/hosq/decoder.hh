@@ -394,8 +394,6 @@ class Decoder {
   reader_state_type reader_state_{};
 };
 
-/// Free-function convenience wrapper: decodes a JSON object into a struct whose
-/// members are hosq::Entry fields. Reader type R defaults to json::Reader<>.
 /// Free-function convenience wrapper.
 template <ReaderConcept R, class T>
   requires detail::DecoderAcceptableT<T>
