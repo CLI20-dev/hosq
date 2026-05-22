@@ -4,7 +4,6 @@
 
 #include "hosq/error.hh"
 #include "hosq/reader_base.hh"
-#include "hosq/result.hh"
 
 namespace hosq {
 
@@ -19,11 +18,9 @@ concept WriterConcept =
     requires(T t, const T ct, const WriteRequest& request, std::size_t written) {
       typename T::output_type;
       typename T::buffer_type;
-      {
-        t.write(request)
-      } -> std::same_as<Result<typename T::buffer_type, Error>>;
-      { t.commit(written) } -> std::same_as<Result<void, Error>>;
-
+      { t.write(request) } -> std::same_as<typename T::buffer_type>;
+      { t.commit(written) } -> std::same_as<bool>;
+      { t.error() } -> std::same_as<Error>;
       { ct.output() } -> std::same_as<typename T::output_type>;
     };
 

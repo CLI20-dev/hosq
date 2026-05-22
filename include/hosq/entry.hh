@@ -49,40 +49,6 @@ struct Entry {
   [[nodiscard]] auto operator*() -> value_type& { return value_; }
   [[nodiscard]] auto operator*() const -> const value_type& { return value_; }
 
-  // ── decode_key
-  // ───────────────────────────────────────────────────────────────
-  template <ReaderConcept R, ScanPhase Phase>
-    requires(!key_decoder_const_invokable<R, Phase>)
-  [[nodiscard]] auto decode_key(DecodeContext<void, R, Phase>& ctx) {
-    auto c = DecodeContext<typename key_type::storage_type, R, Phase>{
-        key().value(), ctx};
-    return key().decode(c);
-  }
-
-  template <ReaderConcept R, ScanPhase Phase>
-    requires(key_decoder_const_invokable<R, Phase>)
-  [[nodiscard]] auto decode_key(const DecodeContext<void, R, Phase>& ctx) {
-    const auto c = detail::make_decode_context_from_const(key().value(), ctx);
-    return key().decode(c);
-  }
-
-  // ── decode_value
-  // ─────────────────────────────────────────────────────────────
-  template <ReaderConcept R, ScanPhase Phase>
-    requires(!value_decoder_const_invokable<R, Phase>)
-  [[nodiscard]] auto decode_value(DecodeContext<void, R, Phase>& ctx) {
-    auto c = DecodeContext<typename value_type::storage_type, R, Phase>{
-        value().value(), ctx};
-    return value().decode(c);
-  }
-
-  template <ReaderConcept R, ScanPhase Phase>
-    requires(value_decoder_const_invokable<R, Phase>)
-  [[nodiscard]] auto decode_value(const DecodeContext<void, R, Phase>& ctx) {
-    const auto c = detail::make_decode_context_from_const(value().value(), ctx);
-    return value().decode(c);
-  }
-
  private:
   key_type key_{};      // NOLINT
   value_type value_{};  // NOLINT

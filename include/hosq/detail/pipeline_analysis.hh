@@ -6,8 +6,6 @@
 #include <utility>
 
 #include "hosq/detail/always_false.hh"
-#include "hosq/error.hh"
-#include "hosq/result.hh"
 
 namespace hosq {
 
@@ -47,23 +45,6 @@ struct NextStorage<Head, Input, Storage, true> {
   using type = typename Head::template storage_type<Input>;
 };
 
-/// Unwraps the value type `T` from `Result<T, Error>`; passes `R` through
-/// unchanged for non-Result types.
-template <class R>
-struct StepOutput {
-  using type = std::remove_cvref_t<R>;
-};
-
-template <class T>
-struct StepOutput<Result<T, Error>> {
-  using type = T;
-};
-
-/// The unwrapped output type of a pipeline step: `T` for `Result<T, Error>`, `R`
-/// for everything else.
-template <class R>
-using step_output_t = typename StepOutput<std::remove_cvref_t<R>>::type;
-
 enum class PipelineVerificationMode : std::uint8_t {
   none,
   exactly_one_storage,
@@ -94,7 +75,7 @@ constexpr auto analyze_pipeline_impl() {
                   "Pipeline defines storage_type<Input> more than once");
   }
 
-  using raw_return_type = typename decltype([]() -> auto {
+  using after_type = typename decltype([]() -> auto {
     if constexpr (std::same_as<In, void> &&
                   requires(Context& ctx) { FnHead(ctx); }) {
       return std::type_identity<
@@ -118,8 +99,6 @@ constexpr auto analyze_pipeline_impl() {
           "when input is non-void.");
     }
   }())::type;
-
-  using after_type = detail::step_output_t<raw_return_type>;
 
   if constexpr (sizeof...(FnTail) == 0) {
     if constexpr (Mode == PipelineVerificationMode::exactly_one_storage) {
@@ -170,7 +149,7 @@ consteval auto callable_with_const_context_impl() -> bool {
   } else if constexpr (sizeof...(FnTail) == 0) {
     return true;
   } else {
-    using After = detail::step_output_t<raw_return_type>;
+    using After = raw_return_type;
     return callable_with_const_context_impl<Context, After, FnTail...>();
   }
 }
@@ -211,7 +190,7 @@ consteval auto callable_with_mutable_context_impl() -> bool {
   } else if constexpr (sizeof...(FnTail) == 0) {
     return true;
   } else {
-    using After = detail::step_output_t<raw_return_type>;
+    using After = raw_return_type;
     return callable_with_mutable_context_impl<Context, After, FnTail...>();
   }
 }

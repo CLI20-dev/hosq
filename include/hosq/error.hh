@@ -43,6 +43,8 @@ enum class ErrorCode {
 
   // Candidate
   candidate_rejected,
+
+  ok,
 };
 
 enum class ErrorKind {
@@ -53,6 +55,7 @@ enum class ErrorKind {
   conversion,  ///< A value could not be converted to the requested C++ type.
   validation,  ///< A value failed a validation rule.
   matching,    ///< No matching candidate was found for the input.
+  ok,          ///< No error.
 };
 
 [[nodiscard]] constexpr auto kind_of(ErrorCode code) noexcept -> ErrorKind {
@@ -93,6 +96,8 @@ enum class ErrorKind {
       return ErrorKind::syntax;
     case ErrorCode::candidate_rejected:
       return ErrorKind::matching;
+    case ErrorCode::ok:
+      return ErrorKind::ok;
   }
   return ErrorKind::syntax;
 }
@@ -156,14 +161,31 @@ enum class ErrorKind {
       return "invalid object state";
     case ErrorCode::candidate_rejected:
       return "candidate rejected";
+    case ErrorCode::ok:
+      return "ok";
   }
   return "unknown error";
 }
 
-// Full error type used at API boundaries (e.g. Result<T, Error>).
 struct Error {
   ErrorCode code{ErrorCode::unknown_error};
   size_t offset{0};
+
+  [[nodiscard]] static constexpr auto ok() noexcept -> Error {
+    return Error{.code = ErrorCode::ok, .offset = 0};
+  }
+
+  [[nodiscard]] constexpr auto is_ok() const noexcept -> bool {
+    return code == ErrorCode::ok;
+  }
+
+  [[nodiscard]] constexpr auto has_error() const noexcept -> bool {
+    return code != ErrorCode::ok;
+  }
+
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return has_error();
+  }
 
   [[nodiscard]] constexpr auto kind() const noexcept -> ErrorKind {
     return kind_of(code);

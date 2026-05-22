@@ -18,13 +18,6 @@ class SimpleReader {
   using input_type = std::string_view;
 
   SimpleReader() = default;
-  ~SimpleReader() = default;
-
-  SimpleReader(const SimpleReader&) = delete;
-  auto operator=(const SimpleReader&) -> SimpleReader& = delete;
-
-  SimpleReader(SimpleReader&&) = delete;
-  auto operator=(SimpleReader&&) -> SimpleReader& = delete;
 
   struct StateType {
     input_type input{};
@@ -59,7 +52,35 @@ class SimpleReader {
 
     bool root_done{false};
     bool end_done{false};
-    Error last_error{};
+    mutable Error last_error{};
+    mutable bool error_flag{false};
+    mutable Token error_token{
+        .offset = 0,
+        .length = 0,
+        .type = TokenType::Error,
+        .context = 0,
+    };
+
+    struct Checkpoint {
+      std::size_t pos;
+      Token current;
+      std::vector<Frame> stack;
+      bool root_done;
+      bool end_done;
+    };
+
+    [[nodiscard]] auto checkpoint() const -> Checkpoint {
+      return {pos, current, stack, root_done, end_done};
+    }
+
+    auto rollback(const Checkpoint& cp) -> void {
+      pos = cp.pos;
+      current = cp.current;
+      stack = cp.stack;
+      root_done = cp.root_done;
+      end_done = cp.end_done;
+      // error_flag and last_error intentionally NOT restored
+    }
   };
 
   using state_type = StateType;
@@ -70,18 +91,28 @@ class SimpleReader {
   }
 
   auto next_token(StateType& st) -> bool {
+    if (st.error_flag) [[unlikely]] return false;
     const auto r = next(st);
     if (!r) {
       st.last_error = r.error();
       return false;
     }
-
     st.current = *r;
     st.last_error = {};
     return true;
   }
 
+  // Sets the error flag and records err (first call wins; subsequent calls are
+  // no-ops). After this, current_token() always returns a TokenType::Error token.
+  void report_error(const StateType& st, Error err) const {
+    if (!st.error_flag) {
+      st.last_error = err;
+      st.error_flag = true;
+    }
+  }
+
   [[nodiscard]] auto current_token(const StateType& st) const -> const Token& {
+    if (st.error_flag) return st.error_token;
     return st.current;
   }
 
@@ -407,5 +438,7 @@ struct ReaderTraits<json::SimpleReader> {
   static constexpr Format format = Format::json;
   static constexpr bool is_binary_format = false;
 };
+
+static_assert(ReaderConcept<json::SimpleReader>);
 
 }  // namespace hosq

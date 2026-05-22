@@ -63,7 +63,14 @@ struct JsonFastReaderState {
   std::size_t ctx_size{0};
 
   JsonFastExpect expect{JsonFastExpect::value};
-  Error last_error{};
+  mutable Error last_error{};
+  mutable bool error_flag{false};
+  mutable Token error_token{
+      .offset = 0,
+      .length = 0,
+      .type = TokenType::Error,
+      .context = 0,
+  };
 
   [[nodiscard]] auto checkpoint() const noexcept
       -> JsonFastReaderCheckpoint<MaxDepth> {
@@ -94,6 +101,7 @@ class FastReader {
     st.ctx_size = 0;
     st.expect = JsonFastExpect::value;
     st.last_error = {};
+    st.error_flag = false;
     st.current = {
         .offset = 0,
         .length = 0,
@@ -103,6 +111,7 @@ class FastReader {
   }
 
   auto next_token(state_type& st) const noexcept -> bool {
+    if (st.error_flag) [[unlikely]] return false;
     auto r = read_one(st);
     if (!r) [[unlikely]] {
       st.last_error = r.error();
@@ -113,14 +122,25 @@ class FastReader {
     return true;
   }
 
+  // Sets the error flag and records err (first call wins; subsequent calls are
+  // no-ops). After this, current_token() always returns a TokenType::Error token.
+  void report_error(const state_type& st, Error err) const noexcept {
+    if (!st.error_flag) {
+      st.last_error = err;
+      st.error_flag = true;
+    }
+  }
+
   [[nodiscard]] auto current_token(const state_type& st) const noexcept
       -> const Token& {
+    if (st.error_flag) [[unlikely]] return st.error_token;
     return st.current;
   }
 
   // Mutable overload used by ext::ScanString/ScanLiteral specializations to
   // cache resolved lengths directly into the token.
   [[nodiscard]] auto current_token(state_type& st) const noexcept -> Token& {
+    if (st.error_flag) [[unlikely]] return st.error_token;
     return st.current;
   }
 

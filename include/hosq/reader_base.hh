@@ -17,6 +17,7 @@ enum class TokenType : std::uint8_t {
   ArrayEnd,
   Scalar,
   End,
+  Error,
 };
 
 enum class JsonTokenContext : std::uint8_t {
@@ -36,22 +37,20 @@ struct Token {
 };
 
 template <class T>
-concept CheckpointableStateConcept = requires(T state) {
+concept ReaderStateConcept = requires(T state) {
   { state.rollback(state.checkpoint()) } -> std::same_as<void>;
 };
 
 template <class T>
-concept ReaderStateConcept = std::copyable<T> || CheckpointableStateConcept<T>;
-
-template <class T>
 concept ReaderConcept = requires(T r, const T cr, typename T::state_type state,
                                  const typename T::state_type const_state,
-                                 typename T::input_type input) {
+                                 Error error, typename T::input_type input) {
   typename T::input_type;
   typename T::state_type;
   requires ReaderStateConcept<typename T::state_type>;
   { r.reset(state, input) } -> std::same_as<void>;
   { r.next_token(state) } -> std::same_as<bool>;
+  { cr.report_error(const_state, error) } -> std::same_as<void>;
   { cr.error(const_state) } -> std::same_as<Error>;
   { cr.current_token(const_state) } -> std::same_as<const Token&>;
   { cr.input(const_state) } -> std::same_as<const typename T::input_type&>;
@@ -81,10 +80,10 @@ using reader_traits_t = ReaderTraits<std::remove_cvref_t<R>>;
 /// disabled, making key decoders non-const-invokable so that partial checkpoints
 /// are taken instead of full state copies.
 template <class R>
-struct has_lazy_token_resolution : std::false_type {};
+struct HasLazyTokenResolution : std::false_type {};
 
 template <class R>
 inline constexpr bool has_lazy_token_resolution_v =
-    has_lazy_token_resolution<std::remove_cvref_t<R>>::value;
+    HasLazyTokenResolution<std::remove_cvref_t<R>>::value;
 
 }  // namespace hosq
