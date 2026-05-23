@@ -7,7 +7,6 @@
 
 #include "hosq/error.hh"
 #include "hosq/reader_base.hh"
-#include "hosq/result.hh"
 
 namespace hosq {
 
@@ -91,19 +90,20 @@ class SimpleReader {
   }
 
   auto next_token(StateType& st) -> bool {
-    if (st.error_flag) [[unlikely]] return false;
-    const auto r = next(st);
-    if (!r) {
-      st.last_error = r.error();
+    if (st.error_flag) [[unlikely]]
+      return false;
+    Token tok{};
+    if (!next(st, tok)) {
       return false;
     }
-    st.current = *r;
+    st.current = tok;
     st.last_error = {};
     return true;
   }
 
   // Sets the error flag and records err (first call wins; subsequent calls are
-  // no-ops). After this, current_token() always returns a TokenType::Error token.
+  // no-ops). After this, current_token() always returns a TokenType::Error
+  // token.
   void report_error(const StateType& st, Error err) const {
     if (!st.error_flag) {
       st.last_error = err;
@@ -129,15 +129,6 @@ class SimpleReader {
     return static_cast<std::uint8_t>(c);
   }
 
-  static auto token(Token t) -> Result<Token, Error> {
-    return Result<Token, Error>{t};
-  }
-
-  static auto error(ErrorCode code, std::size_t offset) -> Result<Token, Error> {
-    return Result<Token, Error>{
-        Unexpected{Error{.code = code, .offset = offset}}};
-  }
-
   static auto is_ws(char c) -> bool {
     return c == ' ' || c == '\n' || c == '\r' || c == '\t';
   }
@@ -159,139 +150,153 @@ class SimpleReader {
     return st.input.substr(st.pos, s.size()) == s;
   }
 
-  auto next(StateType& st) const -> Result<Token, Error> {
+  auto next(StateType& st, Token& out) const -> bool {
     skip_ws(st);
 
     if (st.end_done) {
-      return error(ErrorCode::invalid_state, st.pos);
+      st.last_error = Error{.code = ErrorCode::invalid_state, .offset = st.pos};
+      return false;
     }
 
     if (st.stack.empty()) {
       if (!st.root_done) {
         st.root_done = true;
-        return value(st);
+        return value(st, out);
       }
 
       if (st.pos != st.input.size()) {
-        return error(ErrorCode::trailing_data, st.pos);
+        st.last_error = Error{.code = ErrorCode::trailing_data, .offset = st.pos};
+        return false;
       }
 
       st.end_done = true;
-      return token(Token{
+      out = Token{
           .offset = st.pos,
           .length = 0,
           .type = TokenType::End,
           .context = context(JsonTokenContext::none),
-      });
+      };
+      return true;
     }
 
     auto& frame = st.stack.back();
 
     if (frame.kind == StateType::Kind::object) {
-      return object_next(st, frame);
+      return object_next(st, frame, out);
     }
 
-    return array_next(st, frame);
+    return array_next(st, frame, out);
   }
 
-  auto object_next(StateType& st, StateType::Frame& frame) const
-      -> Result<Token, Error> {
+  auto object_next(StateType& st, StateType::Frame& frame, Token& out) const
+      -> bool {
     skip_ws(st);
 
     if (st.pos >= st.input.size()) {
-      return error(ErrorCode::unexpected_eof, st.pos);
+      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = st.pos};
+      return false;
     }
 
     switch (frame.expect) {
       case StateType::Expect::key_or_end:
         if (st.input[st.pos] == '}') {
-          return close(st, TokenType::ObjectEnd);
+          return close(st, TokenType::ObjectEnd, out);
         }
 
         if (st.input[st.pos] != '"') {
-          return error(ErrorCode::unexpected_token, st.pos);
+          st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
+          return false;
         }
 
         frame.expect = StateType::Expect::colon;
-        return string(st);
+        return string(st, out);
 
       case StateType::Expect::colon:
         if (st.input[st.pos] != ':') {
-          return error(ErrorCode::unexpected_token, st.pos);
+          st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
+          return false;
         }
 
         ++st.pos;
         frame.expect = StateType::Expect::value;
-        return next(st);
+        return next(st, out);
 
       case StateType::Expect::value:
         frame.expect = StateType::Expect::comma_or_end;
-        return value(st);
+        return value(st, out);
 
       case StateType::Expect::comma_or_end:
         if (st.input[st.pos] == ',') {
           ++st.pos;
           frame.expect = StateType::Expect::key_or_end;
-          return next(st);
+          return next(st, out);
         }
 
         if (st.input[st.pos] == '}') {
-          return close(st, TokenType::ObjectEnd);
+          return close(st, TokenType::ObjectEnd, out);
         }
 
-        return error(ErrorCode::unexpected_token, st.pos);
+        st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
+        return false;
 
       case StateType::Expect::value_or_end:
-        return error(ErrorCode::invalid_state, st.pos);
+        st.last_error = Error{.code = ErrorCode::invalid_state, .offset = st.pos};
+        return false;
     }
 
-    return error(ErrorCode::invalid_state, st.pos);
+    st.last_error = Error{.code = ErrorCode::invalid_state, .offset = st.pos};
+    return false;
   }
 
-  auto array_next(StateType& st, StateType::Frame& frame) const
-      -> Result<Token, Error> {
+  auto array_next(StateType& st, StateType::Frame& frame, Token& out) const
+      -> bool {
     skip_ws(st);
 
     if (st.pos >= st.input.size()) {
-      return error(ErrorCode::unexpected_eof, st.pos);
+      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = st.pos};
+      return false;
     }
 
     switch (frame.expect) {
       case StateType::Expect::value_or_end:
         if (st.input[st.pos] == ']') {
-          return close(st, TokenType::ArrayEnd);
+          return close(st, TokenType::ArrayEnd, out);
         }
 
         frame.expect = StateType::Expect::comma_or_end;
-        return value(st);
+        return value(st, out);
 
       case StateType::Expect::comma_or_end:
         if (st.input[st.pos] == ',') {
           ++st.pos;
           frame.expect = StateType::Expect::value_or_end;
-          return next(st);
+          return next(st, out);
         }
 
         if (st.input[st.pos] == ']') {
-          return close(st, TokenType::ArrayEnd);
+          return close(st, TokenType::ArrayEnd, out);
         }
 
-        return error(ErrorCode::unexpected_token, st.pos);
+        st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
+        return false;
 
       case StateType::Expect::key_or_end:
       case StateType::Expect::colon:
       case StateType::Expect::value:
-        return error(ErrorCode::invalid_state, st.pos);
+        st.last_error = Error{.code = ErrorCode::invalid_state, .offset = st.pos};
+        return false;
     }
 
-    return error(ErrorCode::invalid_state, st.pos);
+    st.last_error = Error{.code = ErrorCode::invalid_state, .offset = st.pos};
+    return false;
   }
 
-  auto value(StateType& st) const -> Result<Token, Error> {
+  auto value(StateType& st, Token& out) const -> bool {
     skip_ws(st);
 
     if (st.pos >= st.input.size()) {
-      return error(ErrorCode::unexpected_eof, st.pos);
+      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = st.pos};
+      return false;
     }
 
     const auto offset = st.pos;
@@ -303,13 +308,13 @@ class SimpleReader {
           StateType::Kind::object,
           StateType::Expect::key_or_end,
       });
-
-      return token(Token{
+      out = Token{
           .offset = offset,
           .length = 1,
           .type = TokenType::ObjectBegin,
           .context = context(JsonTokenContext::none),
-      });
+      };
+      return true;
     }
 
     if (c == '[') {
@@ -318,71 +323,76 @@ class SimpleReader {
           StateType::Kind::array,
           StateType::Expect::value_or_end,
       });
-
-      return token(Token{
+      out = Token{
           .offset = offset,
           .length = 1,
           .type = TokenType::ArrayBegin,
           .context = context(JsonTokenContext::none),
-      });
+      };
+      return true;
     }
 
     if (c == '"') {
-      return string(st);
+      return string(st, out);
     }
 
     if (c == '-' || is_digit(c)) {
-      return number(st);
+      return number(st, out);
     }
 
     if (starts_with(st, "true")) {
       st.pos += 4;
-      return token(Token{
+      out = Token{
           .offset = offset,
           .length = 4,
           .type = TokenType::Scalar,
           .context = context(JsonTokenContext::literal),
-      });
+      };
+      return true;
     }
 
     if (starts_with(st, "false")) {
       st.pos += 5;
-      return token(Token{
+      out = Token{
           .offset = offset,
           .length = 5,
           .type = TokenType::Scalar,
           .context = context(JsonTokenContext::literal),
-      });
+      };
+      return true;
     }
 
     if (starts_with(st, "null")) {
       st.pos += 4;
-      return token(Token{
+      out = Token{
           .offset = offset,
           .length = 4,
           .type = TokenType::Scalar,
           .context = context(JsonTokenContext::literal),
-      });
+      };
+      return true;
     }
 
-    return error(ErrorCode::unexpected_token, st.pos);
+    st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
+    return false;
   }
 
-  auto close(StateType& st, TokenType type) const -> Result<Token, Error> {
+  auto close(StateType& st, TokenType type, Token& out) const -> bool {
     const auto offset = st.pos;
 
     ++st.pos;
     st.stack.pop_back();
 
-    return token(Token{
+    out = Token{
         .offset = offset,
         .length = 1,
         .type = type,
         .context = context(JsonTokenContext::none),
-    });
+    };
+    return true;
   }
 
-  auto string(StateType& st) const -> Result<Token, Error> {
+  auto string(StateType& st, Token& out) const -> bool {
     const auto quote_offset = st.pos;
 
     ++st.pos;  // opening quote
@@ -395,39 +405,43 @@ class SimpleReader {
       if (c == '"') {
         const auto closing_quote_offset = st.pos - 1;
 
-        return token(Token{
+        out = Token{
             .offset = content_offset,
             .length = closing_quote_offset - content_offset,
             .type = TokenType::Scalar,
             .context = context(JsonTokenContext::string),
-        });
+        };
+        return true;
       }
 
       if (c == '\\') {
         if (st.pos >= st.input.size()) {
-          return error(ErrorCode::unexpected_eof, st.pos);
+          st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = st.pos};
+          return false;
         }
 
         ++st.pos;
       }
     }
 
-    return error(ErrorCode::unexpected_eof, quote_offset);
+    st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = quote_offset};
+    return false;
   }
 
-  auto number(StateType& st) const -> Result<Token, Error> {
+  auto number(StateType& st, Token& out) const -> bool {
     const auto offset = st.pos;
 
     while (st.pos < st.input.size() && is_number_char(st.input[st.pos])) {
       ++st.pos;
     }
 
-    return token(Token{
+    out = Token{
         .offset = offset,
         .length = st.pos - offset,
         .type = TokenType::Scalar,
         .context = context(JsonTokenContext::literal),
-    });
+    };
+    return true;
   }
 };
 

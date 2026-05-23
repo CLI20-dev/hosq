@@ -119,7 +119,7 @@ constexpr auto analyze_pipeline_impl() {
   using after_type = detail::pipeline_after_t<raw_after_type>;
 
   if constexpr (sizeof...(FnTail) == 0) {
-    using terminal_type = std::conditional_t<step_uses_match, bool, after_type>;
+    using terminal_type = std::conditional_t<uses_match, bool, after_type>;
     if constexpr (uses_match) {
       static_assert(
           std::same_as<terminal_type, void> || std::same_as<terminal_type, bool>,
@@ -225,7 +225,7 @@ template <PipelineVerificationMode Mode, class ProbeContext, class Start,
           auto... Fns>
 struct PipelineAnalysis<Mode, ProbeContext, Start, Pipeline<Fns...>> {
   using type = decltype(analyze_pipeline_impl<Mode, ProbeContext, Start,
-                                              NoStorage, Fns...>());
+                                              NoStorage, false, Fns...>());
 };
 
 template <PipelineVerificationMode V, class ProbeContext, class Start, class T>

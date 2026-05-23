@@ -26,49 +26,41 @@ using TT = hosq::TokenType;
 using JTC = hosq::JsonTokenContext;
 
 template <class W>
-auto write_scalar(const W& writer, std::string_view content, JTC context)
-    -> hosq::Result<void, hosq::Error> {
-  auto& mutable_writer = const_cast<W&>(writer);  // NOLINT
-  auto buffer = mutable_writer.write(hosq::WriteRequest{
+auto write_scalar(W& writer, std::string_view content, JTC context) -> bool {
+  auto buffer = writer.write(hosq::WriteRequest{
       .length = content.size(),
       .type = TT::Scalar,
       .context = static_cast<std::uint8_t>(context),
   });
-  if (!buffer) {
-    return hosq::unexpected(buffer.error());
-  }
-  std::copy(content.begin(), content.end(), buffer->data());
-  return mutable_writer.commit(content.size());
+  if (writer.error().has_error()) return false;
+  std::copy(content.begin(), content.end(), buffer.data());
+  return writer.commit(content.size());
 }
 
 struct WriteJsonString {
   template <class Context>
-  auto operator()(std::string_view value, Context& ctx) const
-      -> hosq::Result<void, hosq::Error> {
-    return write_scalar(ctx.writer(), value, JTC::string);
+  auto operator()(std::string_view value, Context& ctx) const -> void {
+    write_scalar(ctx.writer(), value, JTC::string);
   }
 };
 
 struct WriteJsonLiteral {
   template <class Context>
-  auto operator()(std::string_view value, Context& ctx) const
-      -> hosq::Result<void, hosq::Error> {
-    return write_scalar(ctx.writer(), value, JTC::literal);
+  auto operator()(std::string_view value, Context& ctx) const -> void {
+    write_scalar(ctx.writer(), value, JTC::literal);
   }
 
   template <class Context>
-  auto operator()(const std::string& value, Context& ctx) const
-      -> hosq::Result<void, hosq::Error> {
-    return write_scalar(ctx.writer(), value, JTC::literal);
+  auto operator()(const std::string& value, Context& ctx) const -> void {
+    write_scalar(ctx.writer(), value, JTC::literal);
   }
 };
 
 template <hosq::StringLiteral Name>
 struct WriteJsonKey {
   template <class Context>
-  auto operator()(std::monostate, Context& ctx) const
-      -> hosq::Result<void, hosq::Error> {
-    return write_scalar(ctx.writer(), Name.view(), JTC::string);
+  auto operator()(std::monostate, Context& ctx) const -> void {
+    write_scalar(ctx.writer(), Name.view(), JTC::string);
   }
 };
 
@@ -100,9 +92,7 @@ TEST(EncodeJson, EncodesTopLevelElement) {
   std::string output;
   hosq::json::CompactWriter writer{output};
 
-  auto result = hosq::encode_into(value, writer);
-
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(hosq::encode_into(value, writer));
   EXPECT_EQ(output, "42");
 }
 
@@ -115,9 +105,7 @@ TEST(EncodeJson, EncodesObjectSchema) {
   std::string output;
   hosq::json::CompactWriter writer{output};
 
-  auto result = hosq::encode_into(user, writer);
-
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(hosq::encode_into(user, writer));
   EXPECT_EQ(output, R"({"id":7,"name":"Alice","age":30})");
 }
 
@@ -130,15 +118,14 @@ TEST(EncodeJson, CanEncodeIntoExistingWriterStream) {
   std::string output;
   hosq::json::CompactWriter writer{output};
 
-  ASSERT_TRUE(writer.write({.length = 0, .type = TT::ArrayBegin, .context = 0})
-                  .has_value());
+  writer.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
+  ASSERT_FALSE(writer.error().has_error());
   ASSERT_TRUE(
-      hosq::Encoder<hosq::json::CompactWriter<>>::encode_to_writer(user, writer)
-          .has_value());
-  ASSERT_TRUE(writer.write({.length = 0, .type = TT::ArrayEnd, .context = 0})
-                  .has_value());
-  ASSERT_TRUE(
-      writer.write({.length = 0, .type = TT::End, .context = 0}).has_value());
+      hosq::Encoder<hosq::json::CompactWriter<>>::encode_to_writer(user, writer));
+  writer.write({.length = 0, .type = TT::ArrayEnd, .context = 0});
+  ASSERT_FALSE(writer.error().has_error());
+  writer.write({.length = 0, .type = TT::End, .context = 0});
+  ASSERT_FALSE(writer.error().has_error());
 
   EXPECT_EQ(output, R"([{"id":1,"name":"Bob","age":41}])");
 }

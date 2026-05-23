@@ -14,8 +14,7 @@ namespace {
 using ProbeReader = hosq::detail::PipelineProbeReader;
 
 template <class T>
-using ProbeContext =
-    hosq::DecodeContext<T, ProbeReader, hosq::TryPhase::normal>;
+using ProbeContext = hosq::DecodeContext<T, ProbeReader, hosq::TryPhase::normal>;
 
 template <class Step, class View, class... Args>
 concept StepCallable =

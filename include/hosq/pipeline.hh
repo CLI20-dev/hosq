@@ -166,7 +166,8 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
+                           void>) {
             Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
@@ -212,7 +213,8 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
+                           void>) {
             Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
@@ -311,7 +313,8 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
+                           void>) {
             Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
@@ -357,7 +360,8 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
+                           void>) {
             Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
@@ -426,7 +430,7 @@ struct Pipeline {
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
 
-      // 1. Fn(input, ctx) -> void
+      // 1. Fn(ctx) -> void
       if constexpr (  //
           requires(Context& c) {
             { Fn(c) } -> std::same_as<void>;
@@ -438,7 +442,7 @@ struct Pipeline {
           return Fn(ctx), Pipe::invoke(ctx);
         }
       }
-      // 2. Fn(input, ctx) -> MatchResult
+      // 2. Fn(ctx) -> MatchResult
       else if constexpr (  //
           requires(Context& c) {
             { Fn(c) } -> detail::MatchResultT;
@@ -452,7 +456,8 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
+                           void>) {
             Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
@@ -460,7 +465,7 @@ struct Pipeline {
           }
         }
       }
-      // 3. Fn(input, ctx) -> AfterType
+      // 3. Fn(ctx) -> AfterType
       else if constexpr (  //
           requires(Context& c) {
             { Fn(c) };
@@ -472,7 +477,7 @@ struct Pipeline {
           return Pipe::invoke(Fn(ctx), ctx);
         }
       }
-      // 4. Fn(input) -> void
+      // 4. Fn() -> void
       else if constexpr (  //
           requires() {
             { Fn() } -> std::same_as<void>;
@@ -484,7 +489,7 @@ struct Pipeline {
           return Fn(), Pipe::invoke(ctx);
         }
       }
-      // 5. Fn(input) -> MatchResult
+      // 5. Fn() -> MatchResult
       else if constexpr (  //
           requires() {
             { Fn() } -> detail::MatchResultT;
@@ -498,7 +503,8 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
+                           void>) {
             Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
@@ -506,7 +512,7 @@ struct Pipeline {
           }
         }
       }
-      // 6. Fn(input) -> AfterType
+      // 6. Fn() -> AfterType
       else if constexpr (  //
           requires() {
             { Fn() };
@@ -569,7 +575,7 @@ struct Pipeline {
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
 
-      // 1. Fn(input, ctx) -> void
+      // 1. Fn(ctx) -> void
       if constexpr (  //
           requires(const Context& c) {
             { Fn(c) } -> std::same_as<void>;
@@ -581,7 +587,7 @@ struct Pipeline {
           return Fn(ctx), Pipe::invoke(ctx);
         }
       }
-      // 2. Fn(input, ctx) -> MatchResult
+      // 2. Fn(ctx) -> MatchResult
       else if constexpr (  //
           requires(const Context& c) {
             { Fn(c) } -> detail::MatchResultT;
@@ -595,7 +601,8 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
+                           void>) {
             Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
@@ -603,7 +610,7 @@ struct Pipeline {
           }
         }
       }
-      // 3. Fn(input, ctx) -> AfterType
+      // 3. Fn(ctx) -> AfterType
       else if constexpr (  //
           requires(const Context& c) {
             { Fn(c) };
@@ -615,7 +622,7 @@ struct Pipeline {
           return Pipe::invoke(Fn(ctx), ctx);
         }
       }
-      // 4. Fn(input) -> void
+      // 4. Fn() -> void
       else if constexpr (  //
           requires() {
             { Fn() } -> std::same_as<void>;
@@ -627,7 +634,7 @@ struct Pipeline {
           return Fn(), Pipe::invoke(ctx);
         }
       }
-      // 5. Fn(input) -> MatchResult
+      // 5. Fn() -> MatchResult
       else if constexpr (  //
           requires() {
             { Fn() } -> detail::MatchResultT;
@@ -641,7 +648,8 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
+                           void>) {
             Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
@@ -649,7 +657,7 @@ struct Pipeline {
           }
         }
       }
-      // 6. Fn(input) -> AfterType
+      // 6. Fn() -> AfterType
       else if constexpr (  //
           requires() {
             { Fn() };

@@ -1,17 +1,16 @@
 #pragma once
 
+#include <cassert>
 #include <charconv>
 #include <concepts>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <type_traits>
 #include <utility>
 
 #include "hosq/error.hh"
 #include "hosq/pipeline.hh"
-#include "hosq/result.hh"
 
 namespace hosq::encode {
 
@@ -33,28 +32,20 @@ concept Number = (std::integral<std::remove_cvref_t<T>> &&
 
 template <Number T>
 struct NumberImpl {
-  auto operator()(T value) const -> Result<std::string, Error> {
+  auto operator()(T value) const -> std::string {
     char buffer[128]{};
     auto* first = buffer;
     auto* last = buffer + sizeof(buffer);
     const auto result = std::to_chars(first, last, value);
-    if (result.ec == std::errc::value_too_large) {
-      return unexpected(Error{.code = ErrorCode::output_too_large});
-    }
-    if (result.ec != std::errc{}) {
-      return unexpected(Error{.code = ErrorCode::conversion_error});
-    }
+    assert(result.ec == std::errc{});
     return std::string{first, result.ptr};
   }
 
   template <class U>
     requires(OptionalT<U> &&
              std::same_as<typename std::remove_cvref_t<U>::value_type, T>)
-  auto operator()(U&& value) const -> Result<std::string, Error> {
-    if (!value.has_value()) [[unlikely]] {
-      return unexpected(Error{.code = ErrorCode::invalid_state});
-    }
-
+  auto operator()(U&& value) const -> std::string {
+    assert(value.has_value());
     return (*this)(*std::forward<U>(value));
   }
 };
@@ -64,12 +55,8 @@ struct BooleanImpl {
     return value ? std::string_view{"true"} : std::string_view{"false"};
   }
 
-  auto operator()(const std::optional<bool>& value) const
-      -> Result<std::string_view, Error> {
-    if (!value.has_value()) [[unlikely]] {
-      return unexpected(Error{.code = ErrorCode::invalid_state});
-    }
-
+  auto operator()(const std::optional<bool>& value) const -> std::string_view {
+    assert(value.has_value());
     return (*this)(*value);
   }
 };
@@ -78,11 +65,8 @@ struct StringViewImpl {
   auto operator()(std::string_view sv) const -> std::string_view { return sv; }
 
   auto operator()(const std::optional<std::string_view>& value) const
-      -> Result<std::string_view, Error> {
-    if (!value.has_value()) [[unlikely]] {
-      return unexpected(Error{.code = ErrorCode::invalid_state});
-    }
-
+      -> std::string_view {
+    assert(value.has_value());
     return *value;
   }
 };

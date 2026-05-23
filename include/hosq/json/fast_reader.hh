@@ -10,7 +10,6 @@
 #include "hosq/error.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/reader_base.hh"
-#include "hosq/result.hh"
 
 #if defined(__GNUC__) || defined(__clang__)
 #define HOSQ_ALWAYS_INLINE_ATTR __attribute__((always_inline))
@@ -111,19 +110,20 @@ class FastReader {
   }
 
   auto next_token(state_type& st) const noexcept -> bool {
-    if (st.error_flag) [[unlikely]] return false;
-    auto r = read_one(st);
-    if (!r) [[unlikely]] {
-      st.last_error = r.error();
+    if (st.error_flag) [[unlikely]]
+      return false;
+    Token tok{};
+    if (!read_one(st, tok)) [[unlikely]] {
       return false;
     }
-    st.current = *r;
+    st.current = tok;
     st.last_error = {};
     return true;
   }
 
   // Sets the error flag and records err (first call wins; subsequent calls are
-  // no-ops). After this, current_token() always returns a TokenType::Error token.
+  // no-ops). After this, current_token() always returns a TokenType::Error
+  // token.
   void report_error(const state_type& st, Error err) const noexcept {
     if (!st.error_flag) {
       st.last_error = err;
@@ -133,14 +133,16 @@ class FastReader {
 
   [[nodiscard]] auto current_token(const state_type& st) const noexcept
       -> const Token& {
-    if (st.error_flag) [[unlikely]] return st.error_token;
+    if (st.error_flag) [[unlikely]]
+      return st.error_token;
     return st.current;
   }
 
   // Mutable overload used by ext::ScanString/ScanLiteral specializations to
   // cache resolved lengths directly into the token.
   [[nodiscard]] auto current_token(state_type& st) const noexcept -> Token& {
-    if (st.error_flag) [[unlikely]] return st.error_token;
+    if (st.error_flag) [[unlikely]]
+      return st.error_token;
     return st.current;
   }
 
@@ -253,29 +255,30 @@ class FastReader {
     return st.ctx_size > 0 && st.ctx_stack[st.ctx_size - 1] == 1;
   }
 
-  auto read_one(state_type& st) const noexcept -> Result<Token, Error> {
+  auto read_one(state_type& st, Token& out) const noexcept -> bool {
     switch (st.expect)
       [[likely]] {
         case JsonFastExpect::value:
-          return read_value(st);
+          return read_value(st, out);
         case JsonFastExpect::value_or_end:
-          return read_value_or_array_end(st);
+          return read_value_or_array_end(st, out);
         case JsonFastExpect::key_or_end:
-          return read_key(st, true);
+          return read_key(st, true, out);
         case JsonFastExpect::colon_delimiter:
-          return read_colon_then_value(st);
+          return read_colon_then_value(st, out);
         case JsonFastExpect::comma_delimiter:
-          return read_comma_or_close(st);
+          return read_comma_or_close(st, out);
       }
-    return unexpected(Error{.code = ErrorCode::invalid_state});
+    st.last_error = Error{.code = ErrorCode::invalid_state};
+    return false;
   }
 
-  auto read_value(state_type& st) const noexcept -> Result<Token, Error> {
+  auto read_value(state_type& st, Token& out) const noexcept -> bool {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      return unexpected(
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)});
+      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      return false;
     }
 
     const char c = *p;
@@ -284,60 +287,66 @@ class FastReader {
     if (c == '"') {
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p + 1;
-      return lazy_scalar(o + 1, kStrCtx);
+      out = lazy_scalar(o + 1, kStrCtx);
+      return true;
     }
 
     if (c == '{') {
       if (!push_ctx(st, 1, o)) [[unlikely]]
-        return unexpected(st.last_error);
+        return false;
       st.expect = JsonFastExpect::key_or_end;
       st.pos = p + 1;
-      return make_tok(o, 1, TokenType::ObjectBegin, kNoneCtx);
+      out = make_tok(o, 1, TokenType::ObjectBegin, kNoneCtx);
+      return true;
     }
 
     if (c == '[') {
       if (!push_ctx(st, 0, o)) [[unlikely]]
-        return unexpected(st.last_error);
+        return false;
       st.expect = JsonFastExpect::value_or_end;
       st.pos = p + 1;
-      return make_tok(o, 1, TokenType::ArrayBegin, kNoneCtx);
+      out = make_tok(o, 1, TokenType::ArrayBegin, kNoneCtx);
+      return true;
     }
 
     if (is_num_start(c) || c == 't' || c == 'f' || c == 'n') {
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p;
-      return lazy_scalar(o, kLitCtx);
+      out = lazy_scalar(o, kLitCtx);
+      return true;
     }
 
     st.pos = p;
-    return unexpected(Error{.code = ErrorCode::unexpected_token, .offset = o});
+    st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+    return false;
   }
 
-  auto read_value_or_array_end(state_type& st) const noexcept
-      -> Result<Token, Error> {
+  auto read_value_or_array_end(state_type& st, Token& out) const noexcept
+      -> bool {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      return unexpected(
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)});
+      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      return false;
     }
     if (*p == ']') {
       pop_ctx(st);
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p + 1;
-      return make_tok(off(st, p), 1, TokenType::ArrayEnd, kNoneCtx);
+      out = make_tok(off(st, p), 1, TokenType::ArrayEnd, kNoneCtx);
+      return true;
     }
     st.pos = p;
-    return read_value(st);
+    return read_value(st, out);
   }
 
-  auto read_key(state_type& st, bool allow_end) const noexcept
-      -> Result<Token, Error> {
+  auto read_key(state_type& st, bool allow_end, Token& out) const noexcept
+      -> bool {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      return unexpected(
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)});
+      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      return false;
     }
 
     const char c = *p;
@@ -346,59 +355,61 @@ class FastReader {
     if (c == '"') {
       st.expect = JsonFastExpect::colon_delimiter;
       st.pos = p + 1;
-      return lazy_scalar(o + 1, kStrCtx);
+      out = lazy_scalar(o + 1, kStrCtx);
+      return true;
     }
 
     if (allow_end && c == '}') {
       pop_ctx(st);
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p + 1;
-      return make_tok(o, 1, TokenType::ObjectEnd, kNoneCtx);
+      out = make_tok(o, 1, TokenType::ObjectEnd, kNoneCtx);
+      return true;
     }
 
     st.pos = p;
-    return unexpected(Error{.code = ErrorCode::unexpected_token, .offset = o});
+    st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+    return false;
   }
 
   // After a key string token: skip it if unresolved, find ':', then read value.
-  auto read_colon_then_value(state_type& st) const noexcept
-      -> Result<Token, Error> {
+  auto read_colon_then_value(state_type& st, Token& out) const noexcept -> bool {
     if (st.current.length == unresolved_length) {
       if (!resolve_skip(st)) [[unlikely]]
-        return unexpected(st.last_error);
+        return false;
     }
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      return unexpected(
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)});
+      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      return false;
     }
     if (*p != ':') [[unlikely]] {
       st.pos = p;
-      return unexpected(
-          Error{.code = ErrorCode::unexpected_token, .offset = off(st, p)});
+      st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = off(st, p)};
+      return false;
     }
     ++p;
     st.expect = JsonFastExpect::value;
     st.pos = p;
-    return read_value(st);
+    return read_value(st, out);
   }
 
   // After a value token: skip it if unresolved, then find ',' or '}' or ']'.
-  auto read_comma_or_close(state_type& st) const noexcept
-      -> Result<Token, Error> {
+  auto read_comma_or_close(state_type& st, Token& out) const noexcept -> bool {
     if (st.current.length == unresolved_length) {
       if (!resolve_skip(st)) [[unlikely]]
-        return unexpected(st.last_error);
+        return false;
     }
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) {
       st.pos = p;
       if (st.ctx_size == 0) {
-        return make_tok(off(st, p), 0, TokenType::End, kNoneCtx);
+        out = make_tok(off(st, p), 0, TokenType::End, kNoneCtx);
+        return true;
       }
-      return unexpected(
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)});
+      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      return false;
     }
 
     const char c = *p;
@@ -407,38 +418,41 @@ class FastReader {
     if (c == ',') {
       st.pos = p + 1;
       if (in_object(st)) {
-        return read_key(st, false);
+        return read_key(st, false, out);
       } else {
-        return read_value(st);
+        return read_value(st, out);
       }
     }
 
     if (c == '}') {
       if (!in_object(st)) [[unlikely]] {
         st.pos = p;
-        return unexpected(
-            Error{.code = ErrorCode::unexpected_token, .offset = o});
+        st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+        return false;
       }
       pop_ctx(st);
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p + 1;
-      return make_tok(o, 1, TokenType::ObjectEnd, kNoneCtx);
+      out = make_tok(o, 1, TokenType::ObjectEnd, kNoneCtx);
+      return true;
     }
 
     if (c == ']') {
       if (in_object(st)) [[unlikely]] {
         st.pos = p;
-        return unexpected(
-            Error{.code = ErrorCode::unexpected_token, .offset = o});
+        st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+        return false;
       }
       pop_ctx(st);
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p + 1;
-      return make_tok(o, 1, TokenType::ArrayEnd, kNoneCtx);
+      out = make_tok(o, 1, TokenType::ArrayEnd, kNoneCtx);
+      return true;
     }
 
     st.pos = p;
-    return unexpected(Error{.code = ErrorCode::unexpected_token, .offset = o});
+    st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+    return false;
   }
 };
 

@@ -171,9 +171,13 @@ struct ScanArray {
 }  // namespace detail
 
 inline constexpr auto scalar = hosq::step<detail::ScanScalar>;
+
 inline constexpr auto string = hosq::step<detail::ScanString>;
+
 inline constexpr auto literal = hosq::step<detail::ScanLiteral>;
+
 inline constexpr auto object = hosq::step<detail::ScanObject>;
+
 inline constexpr auto array = hosq::step<detail::ScanArray>;
 
 }  // namespace scan

@@ -17,8 +17,7 @@ struct Try<T> : public T {
   using terminal_type = typename std::tuple_element_t<
       2, typename std::remove_cvref_t<T>::decoder_info>::type;
   static_assert(std::same_as<terminal_type, bool>,
-                "Try<T>: Elem decoder terminal type must be "
-                "bool/Result<bool, Error>.");
+                "Try<T>: Elem decoder terminal type must be bool.");
   Try() = default;
 };
 
@@ -30,8 +29,7 @@ struct Try<T> : public T {
   using terminal_type = typename std::tuple_element_t<
       2, typename std::remove_cvref_t<key_type>::decoder_info>::type;
   static_assert(std::same_as<terminal_type, bool>,
-                "Try<T>: Entry key Elem decoder terminal type must be "
-                "bool/Result<bool, Error>.");
+                "Try<T>: Entry key Elem decoder terminal type must be bool.");
   Try() = default;
 };
 

@@ -59,7 +59,7 @@ class Decoder {
   [[nodiscard]]
   auto decode(T& t, input_type input) -> Error {
     reader_.reset(reader_state_, input);
-    return decode_impl(t);
+    return decode_impl(t, reader_, reader_state_);
   }
 
   template <detail::ElemT T, TryPhase Phase = TryPhase::normal>
@@ -69,47 +69,69 @@ class Decoder {
                                                              state};
   }
 
- private:
-  template <detail::ElemT T>
+  template <class T>
+    requires detail::DecoderAcceptableT<T>
   [[nodiscard]]
-  auto decode_impl(T& t) -> Error {
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
-      return reader_.error(reader_state_);
-    }
-    t.decode(make_decode_context(t, reader_, reader_state_));
-    return reader_.error(reader_state_);
+  static auto decode_nested(T& t, reader_type& reader,
+                            reader_state_type& reader_state) -> Error {
+    return decode_impl(t, reader, reader_state);
   }
 
-  template <detail::AsElemTupleT T>
+ private:
+  template <class ReaderT, class StateT>
+  static consteval void verify_reader_state_types() {
+    static_assert(std::same_as<std::remove_cvref_t<ReaderT>, reader_type>,
+                  "Decoder nested decode requires the reader argument to be "
+                  "Decoder::reader_type");
+
+    static_assert(
+        std::same_as<std::remove_cvref_t<StateT>, reader_state_type>,
+        "Decoder nested decode requires the reader_state argument to be "
+        "Decoder::reader_state_type");
+  }
+
+  template <detail::ElemT T, class ReaderT, class StateT>
   [[nodiscard]]
-  auto decode_impl(T& t) -> Error {
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
-      return reader_.error(reader_state_);
+  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
+    verify_reader_state_types<ReaderT, StateT>();
+    if (!reader.next_token(reader_state)) [[unlikely]] {
+      return reader.error(reader_state);
     }
-    if (reader_.current_token(reader_state_).type != TokenType::ArrayBegin)
+    t.decode(make_decode_context(t, reader, reader_state));
+    return reader.error(reader_state);
+  }
+
+  template <detail::AsElemTupleT T, class ReaderT, class StateT>
+  [[nodiscard]]
+  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
+    verify_reader_state_types<ReaderT, StateT>();
+    if (!reader.next_token(reader_state)) [[unlikely]] {
+      return reader.error(reader_state);
+    }
+    if (reader.current_token(reader_state).type != TokenType::ArrayBegin)
         [[unlikely]] {
       return Error{
           .code = ErrorCode::type_mismatch,
-          .offset = reader_.current_token(reader_state_).offset,
+          .offset = reader.current_token(reader_state).offset,
       };
     }
     std::apply(
         [&](auto&... elem) HOSQ_ALWAYS_INLINE_ATTR -> void {
           ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
-            if (!reader_.next_token(reader_state_)) [[unlikely]] {
+            if (!reader.next_token(reader_state)) [[unlikely]] {
               return false;
             }
-            elem.decode(make_decode_context(elem, reader_, reader_state_));
+            elem.decode(make_decode_context(elem, reader, reader_state));
             // If decode puts the reader into an error state, subsequent
             // next_token() is a noop and the error is reported below.
             return true;
           }() && ...);
         },
         detail::as_tuple(t));
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
-      return reader_.error(reader_state_);
+    if (!reader.next_token(reader_state)) [[unlikely]] {
+      return reader.error(reader_state);
     }
-    const auto& tok = reader_.current_token(reader_state_);
+    const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ArrayEnd) [[unlikely]] {
       return Error{
           .code = ErrorCode::size_mismatch,
@@ -119,31 +141,34 @@ class Decoder {
     return Error::ok();
   }
 
-  template <detail::EntryT T>
+  template <detail::EntryT T, class ReaderT, class StateT>
   [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE auto decode_entry(T& t) -> bool {
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+  static HOSQ_FUNCTION_ALWAYS_INLINE auto decode_entry(T& t, ReaderT& reader,
+                                                       StateT& reader_state)
+      -> bool {
+    if (!reader.next_token(reader_state)) [[unlikely]] {
       return false;
     }
-    t.key().decode(make_decode_context(t.key(), reader_, reader_state_));
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+    t.key().decode(make_decode_context(t.key(), reader, reader_state));
+    if (!reader.next_token(reader_state)) [[unlikely]] {
       return false;
     }
-    t.value().decode(make_decode_context(t.value(), reader_, reader_state_));
+    t.value().decode(make_decode_context(t.value(), reader, reader_state));
     return true;
   }
 
-  template <detail::AsEntryTupleT T>
+  template <detail::AsEntryTupleT T, class ReaderT, class StateT>
   [[nodiscard]]
-  auto decode_impl(T& t) -> Error {
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
-      return reader_.error(reader_state_);
+  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
+    verify_reader_state_types<ReaderT, StateT>();
+    if (!reader.next_token(reader_state)) [[unlikely]] {
+      return reader.error(reader_state);
     }
-    if (reader_.current_token(reader_state_).type != TokenType::ObjectBegin)
+    if (reader.current_token(reader_state).type != TokenType::ObjectBegin)
         [[unlikely]] {
       return Error{
           .code = ErrorCode::type_mismatch,
-          .offset = reader_.current_token(reader_state_).offset,
+          .offset = reader.current_token(reader_state).offset,
       };
     }
     std::apply(
@@ -158,26 +183,27 @@ class Decoder {
           }() && ...);
         },
         detail::as_tuple(t));
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
-      return reader_.error(reader_state_);
+    if (!reader.next_token(reader_state)) [[unlikely]] {
+      return reader.error(reader_state);
     }
-    if (reader_.current_token(reader_state_).type != TokenType::ObjectEnd)
+    if (reader.current_token(reader_state).type != TokenType::ObjectEnd)
         [[unlikely]] {
       return Error{
           .code = ErrorCode::size_mismatch,
-          .offset = reader_.current_token(reader_state_).offset,
+          .offset = reader.current_token(reader_state).offset,
       };
     }
     return Error::ok();
   }
 
-  template <detail::AsTryElemTupleT T>
+  template <detail::AsTryElemTupleT T, class ReaderT, class StateT>
   [[nodiscard]]
-  auto decode_impl(T& t) -> Error {
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
-      return reader_.error(reader_state_);
+  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
+    verify_reader_state_types<ReaderT, StateT>();
+    if (!reader.next_token(reader_state)) [[unlikely]] {
+      return reader.error(reader_state);
     }
-    const auto& tok = reader_.current_token(reader_state_);
+    const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
       return Error{
           .code = ErrorCode::type_mismatch,
@@ -189,10 +215,10 @@ class Decoder {
         std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>;
     bool matched = true;
     while (matched) [[likely]] {
-      if (!reader_.next_token(reader_state_)) [[unlikely]] {
-        return reader_.error(reader_state_);
+      if (!reader.next_token(reader_state)) [[unlikely]] {
+        return reader.error(reader_state);
       }
-      const auto& tok = reader_.current_token(reader_state_);
+      const auto& tok = reader.current_token(reader_state);
       if (tok.type == TokenType::ArrayEnd) {
         return Error::ok();
       }
@@ -203,17 +229,17 @@ class Decoder {
           using elem_type = std::remove_cvref_t<decltype(elem)>;
           auto ctx = make_decode_context<elem_type, I == 0 ? TryPhase::first
                                                            : TryPhase::normal>(
-              elem, reader_, reader_state_);
+              elem, reader, reader_state);
           using context_type = decltype(ctx);
           if constexpr (elem_type::template decoder_const_invokable<
                             context_type>) {
             const auto& const_ctx = ctx;
             return elem.decode(const_ctx);
           } else {
-            auto checkpoint = reader_state_.checkpoint();
+            auto checkpoint = reader_state.checkpoint();
             auto ret = elem.decode(ctx);
             if (!ret) {
-              reader_state_.rollback(std::move(checkpoint));
+              reader_state.rollback(std::move(checkpoint));
               return false;
             }
             return true;
@@ -223,7 +249,7 @@ class Decoder {
     }
     return Error{
         .code = ErrorCode::candidate_rejected,
-        .offset = reader_.current_token(reader_state_).offset,
+        .offset = reader.current_token(reader_state).offset,
     };
   }
 
@@ -246,13 +272,14 @@ class Decoder {
   using decode_raw_result_t =
       typename decode_raw_result<IsConst, Elem, Context>::type;
 
-  template <detail::AsTryEntryTupleT T>
+  template <detail::AsTryEntryTupleT T, class ReaderT, class StateT>
   [[nodiscard]]
-  auto decode_impl(T& t) -> Error {
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
-      return reader_.error(reader_state_);
+  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
+    verify_reader_state_types<ReaderT, StateT>();
+    if (!reader.next_token(reader_state)) [[unlikely]] {
+      return reader.error(reader_state);
     }
-    const auto& tok = reader_.current_token(reader_state_);
+    const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
       return Error{
           .code = ErrorCode::type_mismatch,
@@ -264,10 +291,10 @@ class Decoder {
         std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>;
     bool matched = true;
     while (matched) [[likely]] {
-      if (!reader_.next_token(reader_state_)) [[unlikely]] {
-        return reader_.error(reader_state_);
+      if (!reader.next_token(reader_state)) [[unlikely]] {
+        return reader.error(reader_state);
       }
-      const auto& tok = reader_.current_token(reader_state_);
+      const auto& tok = reader.current_token(reader_state);
       if (tok.type == TokenType::ArrayEnd) {
         return Error::ok();
       }
@@ -309,7 +336,7 @@ class Decoder {
           // Try to decode the key first.
           auto& key_elem = entry.key();
           auto key_ctx = make_decode_context<key_elem_type, phase>(
-              key_elem, reader_, reader_state_);
+              key_elem, reader, reader_state);
           if constexpr (key_is_const_decodable) {
             const auto& const_key_ctx = key_ctx;
             if (!key_elem.decode(const_key_ctx)) {
@@ -318,8 +345,8 @@ class Decoder {
 
             if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
               // Save checkpoint before trying to decode the value.
-              auto checkpoint = reader_state_.checkpoint();
-              if (!reader_.next_token(reader_state_)) [[unlikely]] {
+              auto checkpoint = reader_state.checkpoint();
+              if (!reader.next_token(reader_state)) [[unlikely]] {
                 return false;
               }
 
@@ -327,38 +354,38 @@ class Decoder {
               auto& value_elem = entry.value();
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
-                      value_elem, reader_, reader_state_);
+                      value_elem, reader, reader_state);
               auto ret = value_elem.decode(value_ctx);
               if (!ret) {
-                reader_state_.rollback(std::move(checkpoint));
+                reader_state.rollback(std::move(checkpoint));
                 return false;
               }
               return true;
             } else {
-              if (!reader_.next_token(reader_state_)) [[unlikely]] {
+              if (!reader.next_token(reader_state)) [[unlikely]] {
                 return false;
               }
               // Then try to decode the value.
               auto& value_elem = entry.value();
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
-                      value_elem, reader_, reader_state_);
+                      value_elem, reader, reader_state);
               value_elem.decode(value_ctx);
               return true;
             }
 
           } else {
-            auto checkpoint = reader_state_.checkpoint();
+            auto checkpoint = reader_state.checkpoint();
             {
               auto ret = key_elem.decode(key_ctx);
               if (!ret) {
-                reader_state_.rollback(std::move(checkpoint));
+                reader_state.rollback(std::move(checkpoint));
                 return false;
               }
             }
 
             // Read the next token before trying to decode the value
-            if (!reader_.next_token(reader_state_)) [[unlikely]] {
+            if (!reader.next_token(reader_state)) [[unlikely]] {
               return false;
             }
 
@@ -366,12 +393,12 @@ class Decoder {
             auto& value_elem = entry.value();
             auto value_ctx =
                 make_decode_context<value_elem_type, TryPhase::first>(
-                    value_elem, reader_, reader_state_);
+                    value_elem, reader, reader_state);
             {
               if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
                 auto ret = value_elem.decode(value_ctx);
                 if (!ret) {
-                  reader_state_.rollback(std::move(checkpoint));
+                  reader_state.rollback(std::move(checkpoint));
                   return false;
                 }
               } else {
@@ -385,7 +412,7 @@ class Decoder {
     }
     return Error{
         .code = ErrorCode::candidate_rejected,
-        .offset = reader_.current_token(reader_state_).offset,
+        .offset = reader.current_token(reader_state).offset,
     };
   }
 

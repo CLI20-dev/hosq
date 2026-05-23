@@ -6,8 +6,8 @@
 
 #include "hosq/context.hh"
 #include "hosq/decoder.hh"
-#include "hosq/error.hh"
 #include "hosq/entry.hh"
+#include "hosq/error.hh"
 #include "hosq/json/simple_reader.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/match.hh"
@@ -74,10 +74,8 @@ auto invoke_pipeline(Storage& storage, std::string_view input) {
   auto reader = Reader{};
   auto state = Reader::state_type{};
   reader.reset(state, input);
-  auto ctx =
-      hosq::DecodeContext<Storage, Reader, hosq::TryPhase::normal>{storage,
-                                                                    reader,
-                                                                    state};
+  auto ctx = hosq::DecodeContext<Storage, Reader, hosq::TryPhase::normal>{
+      storage, reader, state};
   return std::remove_cvref_t<decltype(Pipeline)>::invoke(ctx);
 }
 
@@ -87,11 +85,10 @@ auto invoke_pipeline(std::string_view input) {
   auto state = Reader::state_type{};
   reader.reset(state, input);
   auto scratch = int{};
-  auto storage_ctx =
-      hosq::DecodeContext<int, Reader, hosq::TryPhase::normal>{scratch, reader,
-                                                                state};
-  auto ctx = hosq::DecodeContext<void, Reader, hosq::TryPhase::normal>{
-      storage_ctx};
+  auto storage_ctx = hosq::DecodeContext<int, Reader, hosq::TryPhase::normal>{
+      scratch, reader, state};
+  auto ctx =
+      hosq::DecodeContext<void, Reader, hosq::TryPhase::normal>{storage_ctx};
   return std::remove_cvref_t<decltype(Pipeline)>::invoke(ctx);
 }
 
@@ -265,12 +262,11 @@ TEST(DecodeObjectCollect, CollectsEmptyObject) {
 TEST(DecodeObjectEach, AggregatesBoolAcrossMembers) {
   constexpr auto pipeline =
       hosq::scan::object |
-      hosq::decode::each<
-          hosq::scan::string | key_push,
-          hosq::scan::literal | hosq::decode::number<int> |
-              hosq::decode::custom<[](int value) constexpr {
-                return value > 0;
-              }>>;
+      hosq::decode::each<hosq::scan::string | key_push,
+                         hosq::scan::literal | hosq::decode::number<int> |
+                             hosq::decode::custom<[](int value) constexpr {
+                               return value > 0;
+                             }>>;
 
   auto keys = std::vector<std::string_view>{};
   const auto result =

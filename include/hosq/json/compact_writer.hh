@@ -9,7 +9,6 @@
 
 #include "hosq/error.hh"
 #include "hosq/reader_base.hh"
-#include "hosq/result.hh"
 #include "hosq/writer_base.hh"
 
 namespace hosq {

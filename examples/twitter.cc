@@ -11,6 +11,7 @@
 #include "hosq/pipeline/match.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/pipeline/store.hh"
+#include "hosq/pipeline_util.hh"
 #include "hosq/string_literal.hh"
 #include "hosq/try.hh"
 
@@ -27,32 +28,32 @@ struct SkipValueImpl {
   template <class Input>
   using storage_type = std::monostate;
 
-  auto operator()(detail::AnyDecodeContext) const -> Result<void, Error>;
+  auto operator()(detail::AnyDecodeContext) const -> void;
 
   template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const
-      -> Result<void, Error> {
+  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const -> void {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
     if constexpr (Phase == TryPhase::normal) {
-      if (!reader.next_token(state)) return unexpected(reader.error(state));
+      if (!reader.next_token(state)) return;
     }
     const auto& tok = reader.current_token(state);
-    if (tok.type == TokenType::Scalar) return {};
+    if (tok.type == TokenType::Scalar) return;
     if (tok.type == TokenType::ObjectBegin ||
         tok.type == TokenType::ArrayBegin) {
       int depth = 1;
       while (depth > 0) {
-        if (!reader.next_token(state)) return unexpected(reader.error(state));
+        if (!reader.next_token(state)) return;
         const auto& t = reader.current_token(state);
         if (t.type == TokenType::ObjectBegin || t.type == TokenType::ArrayBegin)
           ++depth;
         else if (t.type == TokenType::ObjectEnd || t.type == TokenType::ArrayEnd)
           --depth;
       }
-      return {};
+      return;
     }
-    return unexpected(Error{.code = ErrorCode::type_mismatch});
+    reader.report_error(state, Error{.code = ErrorCode::type_mismatch,
+                                     .offset = tok.offset});
   }
 };
 constexpr auto skip_value = step<SkipValueImpl>;

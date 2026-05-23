@@ -39,8 +39,7 @@ using NumberValue = hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
 
 template <class T>
 using NumberOnceValue =
-    hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
-                   hosq::store::once,
+    hosq::Elem<hosq::scan::literal | hosq::decode::number<T> | hosq::store::once,
                hosq::noop_encoder>;
 
 template <class T>
