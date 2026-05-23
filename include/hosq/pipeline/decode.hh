@@ -20,6 +20,71 @@
 #include "hosq/pipeline.hh"
 #include "hosq/view.hh"
 
+namespace hosq::ext {
+
+template <ReaderConcept R>
+struct SkipValue {
+  template <class T, TryPhase Phase>
+  auto operator()(const std::string_view&,
+                  DecodeContext<T, R, Phase>&) const -> void {}
+
+  template <class T, TryPhase Phase>
+  auto operator()(const ObjectView&,
+                  DecodeContext<T, R, Phase>& ctx) const -> void {
+    skip_nested(ctx);
+  }
+
+  template <class T, TryPhase Phase>
+  auto operator()(const ArrayView&,
+                  DecodeContext<T, R, Phase>& ctx) const -> void {
+    skip_nested(ctx);
+  }
+
+  template <class T, TryPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> void {
+    auto& reader = ctx.reader();
+    auto& state = ctx.reader_state();
+    if constexpr (Phase == TryPhase::normal) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return;
+      }
+    }
+
+    const auto& tok = reader.current_token(state);
+    if (tok.type == TokenType::Scalar) {
+      return;
+    }
+    if (tok.type == TokenType::ObjectBegin || tok.type == TokenType::ArrayBegin) {
+      return skip_nested(ctx);
+    }
+    reader.report_error(
+        state, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+  }
+
+ private:
+  template <class T, TryPhase Phase>
+  static auto skip_nested(DecodeContext<T, R, Phase>& ctx) -> void {
+    auto& reader = ctx.reader();
+    auto& state = ctx.reader_state();
+    int depth = 1;
+    while (depth > 0) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return;
+      }
+      const auto& tok = reader.current_token(state);
+      if (tok.type == TokenType::ObjectBegin ||
+          tok.type == TokenType::ArrayBegin) {
+        ++depth;
+      } else if (tok.type == TokenType::ObjectEnd ||
+                 tok.type == TokenType::ArrayEnd) {
+        --depth;
+      }
+    }
+  }
+};
+
+}  // namespace hosq::ext
+
 namespace hosq::decode {
 
 namespace detail {
@@ -521,62 +586,25 @@ struct SkipImpl {
 
   template <class Storage, ReaderConcept R, TryPhase Phase>
   auto operator()(const std::string_view&,
-                  DecodeContext<Storage, R, Phase>&) const -> void {}
-
-  template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(const ObjectView&,
                   DecodeContext<Storage, R, Phase>& ctx) const -> void {
-    skip_nested(ctx);
+    ext::SkipValue<R>{}(std::string_view{}, ctx);
   }
 
   template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(const ArrayView&,
+  auto operator()(const ObjectView& view,
                   DecodeContext<Storage, R, Phase>& ctx) const -> void {
-    skip_nested(ctx);
+    ext::SkipValue<R>{}(view, ctx);
   }
 
   template <class Storage, ReaderConcept R, TryPhase Phase>
-  static auto skip_nested(DecodeContext<Storage, R, Phase>& ctx) -> void {
-    auto& reader = ctx.reader();
-    auto& state = ctx.reader_state();
-    int depth = 1;
-    while (depth > 0) {
-      if (!reader.next_token(state)) [[unlikely]] {
-        return;
-      }
-      const auto& tok = reader.current_token(state);
-      if (tok.type == TokenType::ObjectBegin ||
-          tok.type == TokenType::ArrayBegin) {
-        ++depth;
-      } else if (tok.type == TokenType::ObjectEnd ||
-                 tok.type == TokenType::ArrayEnd) {
-        --depth;
-      }
-    }
+  auto operator()(const ArrayView& view,
+                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
+    ext::SkipValue<R>{}(view, ctx);
   }
 
   template <class Storage, ReaderConcept R, TryPhase Phase>
   auto operator()(DecodeContext<Storage, R, Phase>& ctx) const -> void {
-    auto& reader = ctx.reader();
-    auto& state = ctx.reader_state();
-    if constexpr (Phase == TryPhase::normal) {
-      if (!reader.next_token(state)) [[unlikely]] {
-        return;
-      }
-    }
-
-    const auto& tok = reader.current_token(state);
-    if (tok.type == TokenType::Scalar) {
-      return;
-    }
-    if (tok.type == TokenType::ObjectBegin) {
-      return skip_nested(ctx);
-    }
-    if (tok.type == TokenType::ArrayBegin) {
-      return skip_nested(ctx);
-    }
-    reader.report_error(
-        state, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+    ext::SkipValue<R>{}(ctx);
   }
 };
 

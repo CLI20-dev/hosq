@@ -167,17 +167,17 @@ class FastReader {
     if (st.current.length != unresolved_length) return true;
     if (st.current.context ==
         static_cast<std::uint8_t>(JsonTokenContext::string)) {
-      st.pos = st.begin + st.current.offset;
-      while (st.pos < st.end) {
-        if (*st.pos == '"') {
-          ++st.pos;
+      const char* p = st.begin + st.current.offset;
+      while (p < st.end) {
+        if (*p == '"') {
+          st.pos = p + 1;
           return true;
         }
-        if (*st.pos == '\\') {
-          st.pos += 2;
+        if (*p == '\\') {
+          p += 2;
           continue;
         }
-        ++st.pos;
+        ++p;
       }
       st.last_error = {.code = ErrorCode::unexpected_eof,
                        .offset = static_cast<std::size_t>(st.end - st.begin)};
@@ -507,6 +507,9 @@ static_assert(ReaderConcept<json::FastReader<>>);
 
 namespace hosq::ext {
 
+template <ReaderConcept R>
+struct SkipValue;
+
 // ext::ScanString<FastReader<N>>: mutable-only overload.
 // On first access (length == unresolved_length): scan to find closing '"', cache
 // length. On re-access after rollback (length already set): just re-advance pos.
@@ -588,6 +591,186 @@ struct ScanLiteral<hosq::json::FastReader<MaxDepth>> {
     }
 
     return st.input_view.substr(tok.offset, tok.length);
+  }
+};
+
+template <std::size_t MaxDepth>
+struct SkipValue<hosq::json::FastReader<MaxDepth>> {
+  using Reader = hosq::json::FastReader<MaxDepth>;
+  using State = typename Reader::state_type;
+
+  template <class T, TryPhase Phase>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
+      const std::string_view&, DecodeContext<T, Reader, Phase>&) const -> void {}
+
+  template <class T, TryPhase Phase>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
+      const ObjectView&, DecodeContext<T, Reader, Phase>& ctx) const -> void {
+    skip_container(ctx, TokenType::ObjectBegin, '}');
+  }
+
+  template <class T, TryPhase Phase>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
+      const ArrayView&, DecodeContext<T, Reader, Phase>& ctx) const -> void {
+    skip_container(ctx, TokenType::ArrayBegin, ']');
+  }
+
+  template <class T, TryPhase Phase>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
+      DecodeContext<T, Reader, Phase>& ctx) const -> void {
+    auto& reader = ctx.reader();
+    auto& st = ctx.reader_state();
+    if constexpr (Phase == TryPhase::normal) {
+      if (!reader.next_token(st)) [[unlikely]] {
+        return;
+      }
+    }
+
+    const auto& tok = reader.current_token(st);
+    if (tok.type == TokenType::Scalar) {
+      skip_scalar(reader, st, tok);
+      return;
+    }
+    if (tok.type == TokenType::ObjectBegin) {
+      skip_container(ctx, TokenType::ObjectBegin, '}');
+      return;
+    }
+    if (tok.type == TokenType::ArrayBegin) {
+      skip_container(ctx, TokenType::ArrayBegin, ']');
+      return;
+    }
+    reader.report_error(
+        st, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+  }
+
+ private:
+  static HOSQ_FUNCTION_ALWAYS_INLINE auto skip_scalar(const Reader& reader,
+                                                      State& st,
+                                                      const Token& tok) -> void {
+    if (tok.length == unresolved_length) {
+      (void)reader.resolve_skip(st);
+      return;
+    }
+    if (tok.context == static_cast<std::uint8_t>(JsonTokenContext::string)) {
+      st.pos = st.begin + tok.offset + tok.length + 1;
+      return;
+    }
+    st.pos = st.begin + tok.offset + tok.length;
+  }
+
+  static HOSQ_FUNCTION_ALWAYS_INLINE auto scan_string(State& st, const char*& p)
+      -> bool {
+    while (p < st.end) {
+      if (*p == '"') {
+        ++p;
+        return true;
+      }
+      if (*p == '\\') {
+        p += 2;
+        continue;
+      }
+      ++p;
+    }
+    st.last_error = {
+        .code = ErrorCode::unexpected_eof,
+        .offset = static_cast<std::size_t>(st.end - st.begin),
+    };
+    return false;
+  }
+
+  template <class T, TryPhase Phase>
+  static HOSQ_FUNCTION_ALWAYS_INLINE auto skip_container(
+      DecodeContext<T, Reader, Phase>& ctx, TokenType expected_type,
+      char expected_close) -> void {
+    auto& reader = ctx.reader();
+    auto& st = ctx.reader_state();
+    const auto& tok = reader.current_token(st);
+    if (tok.type != expected_type) [[unlikely]] {
+      reader.report_error(
+          st, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+      return;
+    }
+
+    std::array<char, MaxDepth> close_stack{};
+    close_stack[0] = expected_close;
+    std::size_t depth = 1;
+    const char* p = st.pos;
+
+  scan_value:
+    if (p >= st.end) goto eof;
+
+    switch (*p++) {
+      case '"':
+        goto scan_string_value;
+      case '{':
+        goto push_object;
+      case '[':
+        goto push_array;
+      case '}':
+      case ']':
+        goto pop_container;
+      default:
+        goto scan_value;
+    }
+
+  scan_string_value:
+    if (*p == '"') {
+      ++p;
+      goto scan_value;
+    }
+    if (*p == '\\') {
+      p += 2;
+      if (p <= st.end) goto scan_string_value;
+      goto eof;
+    }
+    ++p;
+    goto scan_string_value;
+
+  push_object:
+    if (depth >= MaxDepth) [[unlikely]] {
+      st.last_error = {
+          .code = ErrorCode::depth_limit_exceeded,
+          .offset = static_cast<std::size_t>((p - 1) - st.begin),
+      };
+      return;
+    }
+    close_stack[depth++] = '}';
+    goto scan_value;
+
+  push_array:
+    if (depth >= MaxDepth) [[unlikely]] {
+      st.last_error = {
+          .code = ErrorCode::depth_limit_exceeded,
+          .offset = static_cast<std::size_t>((p - 1) - st.begin),
+      };
+      return;
+    }
+    close_stack[depth++] = ']';
+    goto scan_value;
+
+  pop_container:
+    if (*(p - 1) != close_stack[depth - 1]) [[unlikely]] {
+      st.last_error = {
+          .code = ErrorCode::unexpected_token,
+          .offset = static_cast<std::size_t>((p - 1) - st.begin),
+      };
+      return;
+    }
+    --depth;
+    if (depth != 0) goto scan_value;
+
+    st.pos = p;
+    st.expect = hosq::json::JsonFastExpect::comma_delimiter;
+    if (st.ctx_size > 0) {
+      --st.ctx_size;
+    }
+    return;
+
+  eof:
+    st.last_error = {
+        .code = ErrorCode::unexpected_eof,
+        .offset = static_cast<std::size_t>(st.end - st.begin),
+    };
   }
 };
 
