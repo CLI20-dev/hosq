@@ -28,10 +28,15 @@ namespace hosq {
  * sequentially.
  *
  * Each step receives the output of the previous step as its input.
- * Steps may return a plain value or `void`.
+ * Steps may return a plain value, a `MatchResult`, or `void`.
  *
  * Plain values are forwarded directly to the next pipeline step.
  * Terminal plain values are preserved as the pipeline result.
+ *
+ * If a step returns a `MatchResult` that is empty (mismatch), the pipeline
+ * short-circuits and returns `false` immediately. If the result holds a value
+ * (match), the inner value is unwrapped and forwarded to the next step.
+ * A terminal `MatchResult` step yields `bool`.
  *
  * Pipelines do not propagate hard errors through return values.
  * Instead, pipeline steps may report hard errors through the decoding
@@ -44,21 +49,20 @@ namespace hosq {
  * Supported step signatures are matched left-to-right:
  *
  * - `Fn(input, ctx) -> void`
+ * - `Fn(input, ctx) -> MatchResult`
  * - `Fn(input, ctx) -> Out`
  * - `Fn(input) -> void`
+ * - `Fn(input) -> MatchResult`
  * - `Fn(input) -> Out`
  *
  * For pipelines without an explicit input value:
  *
  * - `Fn(ctx) -> void`
+ * - `Fn(ctx) -> MatchResult`
  * - `Fn(ctx) -> Out`
  * - `Fn() -> void`
+ * - `Fn() -> MatchResult`
  * - `Fn() -> Out`
- *
- * A terminal `bool` may be used by decoder pipelines as a match/retry result,
- * where `true` means accepted and `false` means candidate rejected. This is
- * just the normal plain-value case; `bool` has no special treatment in
- * `Pipeline` itself.
  *
  * **Decoder role** (validated by `analyze_decoder()`):
  * exactly one step across the pipeline must declare `storage_type<Input>`.
@@ -87,11 +91,11 @@ struct Pipeline {
 
   template <class Input, class Context>
   using info =
-      detail::pipeline_analysis_t<::hosq::detail::PipelineVerificationMode::none,
+      detail::pipeline_analysis_t<detail::PipelineVerificationMode::none,
                                   Context, Input, Pipeline<Fns...>>;
 
   template <class Input, class Context>
-  using final_output_type = typename info<Input, Context>::final_output_type;
+  using final_output_type = detail::pipeline_terminal_t<info<Input, Context>>;
 
   /**
    * @brief Invokes this pipeline from an explicit input value using a mutable
@@ -103,12 +107,16 @@ struct Pipeline {
    *
    * Supported step signatures, tried in priority order:
    * - `Fn(input, ctx) -> void`
+   * - `Fn(input, ctx) -> MatchResult`
    * - `Fn(input, ctx) -> Out`
    * - `Fn(input) -> void`
+   * - `Fn(input) -> MatchResult`
    * - `Fn(input) -> Out`
    *
    * Plain return values are forwarded directly. If a step returns `void`,
-   * the next step is invoked without an explicit input value.
+   * the next step is invoked without an explicit input value. If a step
+   * returns a `MatchResult` that is empty, the pipeline short-circuits and
+   * returns `false`; otherwise the inner value is unwrapped and forwarded.
    *
    * Pipeline invocation does not propagate hard errors through return values.
    * Steps that encounter hard errors should report them through the context
@@ -119,7 +127,8 @@ struct Pipeline {
    * @tparam Context Mutable context type used by context-aware steps.
    * @param input Input value consumed by the first step.
    * @param ctx Mutable pipeline context.
-   * @return The final pipeline result. Terminal plain values are returned as-is.
+   * @return The final pipeline result. Terminal plain values are returned
+   *         as-is; a terminal `MatchResult` step yields `bool`.
    */
   template <class Input, class Context>
   [[nodiscard]]
@@ -157,11 +166,11 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
-            Pipe::invoke(*ret, ctx);
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+            Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
-            return Pipe::invoke(*ret, ctx);
+            return Pipe::invoke(std::move(ret).value(), ctx);
           }
         }
       }
@@ -203,11 +212,11 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
-            Pipe::invoke(*ret, ctx);
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+            Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
-            return Pipe::invoke(*ret, ctx);
+            return Pipe::invoke(std::move(ret).value(), ctx);
           }
         }
       }
@@ -243,12 +252,16 @@ struct Pipeline {
    *
    * Supported step signatures, tried in priority order:
    * - `Fn(input, ctx) -> void`
+   * - `Fn(input, ctx) -> MatchResult`
    * - `Fn(input, ctx) -> Out`
    * - `Fn(input) -> void`
+   * - `Fn(input) -> MatchResult`
    * - `Fn(input) -> Out`
    *
    * Plain return values are forwarded directly. If a step returns `void`,
-   * the next step is invoked without an explicit input value.
+   * the next step is invoked without an explicit input value. If a step
+   * returns a `MatchResult` that is empty, the pipeline short-circuits and
+   * returns `false`; otherwise the inner value is unwrapped and forwarded.
    *
    * Pipeline invocation does not propagate hard errors through return values.
    * Steps that encounter hard errors should report them through the context
@@ -259,7 +272,8 @@ struct Pipeline {
    * @tparam Context Const context type used by context-aware steps.
    * @param input Input value consumed by the first step.
    * @param ctx Const pipeline context.
-   * @return The final pipeline result. Terminal plain values are returned as-is.
+   * @return The final pipeline result. Terminal plain values are returned
+   *         as-is; a terminal `MatchResult` step yields `bool`.
    */
   template <class Input, class Context>
   [[nodiscard]]
@@ -297,11 +311,11 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
-            Pipe::invoke(*ret, ctx);
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+            Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
-            return Pipe::invoke(*ret, ctx);
+            return Pipe::invoke(std::move(ret).value(), ctx);
           }
         }
       }
@@ -343,11 +357,11 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
-            Pipe::invoke(*ret, ctx);
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+            Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
-            return Pipe::invoke(*ret, ctx);
+            return Pipe::invoke(std::move(ret).value(), ctx);
           }
         }
       }
@@ -383,12 +397,16 @@ struct Pipeline {
    *
    * Supported step signatures, tried in priority order:
    * - `Fn(ctx) -> void`
+   * - `Fn(ctx) -> MatchResult`
    * - `Fn(ctx) -> Out`
    * - `Fn() -> void`
+   * - `Fn() -> MatchResult`
    * - `Fn() -> Out`
    *
    * Plain return values are forwarded directly. If a step returns `void`,
-   * the next step is invoked without an explicit input value.
+   * the next step is invoked without an explicit input value. If a step
+   * returns a `MatchResult` that is empty, the pipeline short-circuits and
+   * returns `false`; otherwise the inner value is unwrapped and forwarded.
    *
    * Pipeline invocation does not propagate hard errors through return values.
    * Steps that encounter hard errors should report them through the context
@@ -397,7 +415,8 @@ struct Pipeline {
    *
    * @tparam Context Mutable context type used by context-aware steps.
    * @param ctx Mutable pipeline context.
-   * @return The final pipeline result. Terminal plain values are returned as-is.
+   * @return The final pipeline result. Terminal plain values are returned
+   *         as-is; a terminal `MatchResult` step yields `bool`.
    */
   template <class Context>
   [[nodiscard]]
@@ -433,11 +452,11 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
-            Pipe::invoke(*ret, ctx);
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+            Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
-            return Pipe::invoke(*ret, ctx);
+            return Pipe::invoke(std::move(ret).value(), ctx);
           }
         }
       }
@@ -479,11 +498,11 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
-            Pipe::invoke(*ret, ctx);
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+            Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
-            return Pipe::invoke(*ret, ctx);
+            return Pipe::invoke(std::move(ret).value(), ctx);
           }
         }
       }
@@ -510,31 +529,36 @@ struct Pipeline {
   };
 
   /**
-   * @brief Invokes this pipeline without an explicit input value using a mutable
+   * @brief Invokes this pipeline without an explicit input value using a const
    * context.
    *
    * Used when the pipeline is invoked without an explicit input value.
-   * Steps are matched by their call signature; context-aware forms are tried
-   * before no-argument forms. The return value of each step flows as the input
-   * to the next step.
+   * Steps are matched by their call signature; context-aware forms taking
+   * `const Context&` are tried before no-argument forms. The return value of
+   * each step flows as the input to the next step.
    *
    * Supported step signatures, tried in priority order:
    * - `Fn(ctx) -> void`
+   * - `Fn(ctx) -> MatchResult`
    * - `Fn(ctx) -> Out`
    * - `Fn() -> void`
+   * - `Fn() -> MatchResult`
    * - `Fn() -> Out`
    *
    * Plain return values are forwarded directly. If a step returns `void`,
-   * the next step is invoked without an explicit input value.
+   * the next step is invoked without an explicit input value. If a step
+   * returns a `MatchResult` that is empty, the pipeline short-circuits and
+   * returns `false`; otherwise the inner value is unwrapped and forwarded.
    *
    * Pipeline invocation does not propagate hard errors through return values.
    * Steps that encounter hard errors should report them through the context
    * or reader state. The top-level decoder is responsible for checking the
    * final reader error state after pipeline execution.
    *
-   * @tparam Context Mutable context type used by context-aware steps.
-   * @param ctx Mutable pipeline context.
-   * @return The final pipeline result. Terminal plain values are returned as-is.
+   * @tparam Context Const context type used by context-aware steps.
+   * @param ctx Const pipeline context.
+   * @return The final pipeline result. Terminal plain values are returned
+   *         as-is; a terminal `MatchResult` step yields `bool`.
    */
   template <class Context>
   [[nodiscard]]
@@ -571,11 +595,11 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
-            Pipe::invoke(*ret, ctx);
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+            Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
-            return Pipe::invoke(*ret, ctx);
+            return Pipe::invoke(std::move(ret).value(), ctx);
           }
         }
       }
@@ -617,11 +641,11 @@ struct Pipeline {
             return false;
           }
           if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
-            Pipe::invoke(*ret, ctx);
+              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)), void>) {
+            Pipe::invoke(std::move(ret).value(), ctx);
             return true;
           } else {
-            return Pipe::invoke(*ret, ctx);
+            return Pipe::invoke(std::move(ret).value(), ctx);
           }
         }
       }
