@@ -96,6 +96,13 @@ struct Elem {
     return value_;
   }
 
+  // Internal storage access used by Decoder to build a context even for
+  // no-storage elements such as object keys.
+  [[nodiscard]] auto storage() noexcept -> storage_type& { return value_; }
+  [[nodiscard]] auto storage() const noexcept -> const storage_type& {
+    return value_;
+  }
+
   template <ReaderConcept R, TryPhase Phase>
   HOSQ_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R, Phase>& ctx) {
     using actual_decoder_info = detail::pipeline_analysis_t<

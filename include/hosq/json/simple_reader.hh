@@ -51,7 +51,7 @@ class SimpleReader {
 
     bool root_done{false};
     bool end_done{false};
-    mutable Error last_error{};
+    mutable Error last_error{Error::ok()};
     mutable bool error_flag{false};
     mutable Token error_token{
         .offset = 0,
@@ -87,6 +87,7 @@ class SimpleReader {
   void reset(StateType& st, input_type input) {
     st = {};
     st.input = input;
+    st.last_error = Error::ok();
   }
 
   auto next_token(StateType& st) -> bool {
@@ -97,7 +98,7 @@ class SimpleReader {
       return false;
     }
     st.current = tok;
-    st.last_error = {};
+    st.last_error = Error::ok();
     return true;
   }
 

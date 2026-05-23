@@ -355,9 +355,9 @@ TEST(CompactWriterError, CommitAfterEnd) {
 TEST(CompactWriterError, CommitOverCapacity) {
   std::string out;
   CW w{out};
-  w.write({.length = 3,
-           .type = TT::Scalar,
-           .context = static_cast<uint8_t>(JTC::literal)});
+  (void)w.write({.length = 3,
+                 .type = TT::Scalar,
+                 .context = static_cast<uint8_t>(JTC::literal)});
   ASSERT_FALSE(w.error().has_error());
   ASSERT_FALSE(w.commit(4));  // 4 > 3
   EXPECT_EQ(w.error().code, EC::unexpected_token);
@@ -368,9 +368,9 @@ TEST(CompactWriterError, CommitOverCapacity) {
 TEST(CompactWriterError, WriteWhilePending) {
   std::string out;
   CW w{out};
-  w.write({.length = 3,
-           .type = TT::Scalar,
-           .context = static_cast<uint8_t>(JTC::literal)});
+  (void)w.write({.length = 3,
+                 .type = TT::Scalar,
+                 .context = static_cast<uint8_t>(JTC::literal)});
   ASSERT_FALSE(w.error().has_error());
   // second write without commit
   ASSERT_FALSE(wr_lit(w, "42"));
@@ -382,9 +382,9 @@ TEST(CompactWriterError, ArrayEndWhilePending) {
   CW w{out};
   ASSERT_TRUE(wr_ab(w));
   // ScalarBegin but not yet committed
-  w.write({.length = 3,
-           .type = TT::Scalar,
-           .context = static_cast<uint8_t>(JTC::literal)});
+  (void)w.write({.length = 3,
+                 .type = TT::Scalar,
+                 .context = static_cast<uint8_t>(JTC::literal)});
   ASSERT_FALSE(w.error().has_error());
   ASSERT_FALSE(wr_ae(w));
   EXPECT_EQ(w.error().code, EC::unexpected_token);
@@ -394,9 +394,9 @@ TEST(CompactWriterError, ObjectEndWhilePending) {
   std::string out;
   CW w{out};
   ASSERT_TRUE(wr_ob(w));
-  w.write({.length = 1,
-           .type = TT::Scalar,
-           .context = static_cast<uint8_t>(JTC::string)});
+  (void)w.write({.length = 1,
+                 .type = TT::Scalar,
+                 .context = static_cast<uint8_t>(JTC::string)});
   ASSERT_FALSE(w.error().has_error());
   ASSERT_FALSE(wr_oe(w));  // pending active → error
   EXPECT_EQ(w.error().code, EC::unexpected_token);
@@ -480,9 +480,9 @@ TEST(CompactWriterError, ObjectEndAfterKeyNoValue) {
 TEST(CompactWriterError, ScalarBeginUnresolvedLength) {
   std::string out;
   CW w{out};
-  w.write({.length = hosq::unresolved_length,
-           .type = TT::Scalar,
-           .context = static_cast<uint8_t>(JTC::string)});
+  (void)w.write({.length = hosq::unresolved_length,
+                 .type = TT::Scalar,
+                 .context = static_cast<uint8_t>(JTC::string)});
   ASSERT_TRUE(w.error().has_error());
   EXPECT_EQ(w.error().code, EC::unexpected_token);
 }
@@ -490,9 +490,9 @@ TEST(CompactWriterError, ScalarBeginUnresolvedLength) {
 TEST(CompactWriterError, ScalarBeginContextNone) {
   std::string out;
   CW w{out};
-  w.write({.length = 3,
-           .type = TT::Scalar,
-           .context = static_cast<uint8_t>(JTC::none)});
+  (void)w.write({.length = 3,
+                 .type = TT::Scalar,
+                 .context = static_cast<uint8_t>(JTC::none)});
   ASSERT_TRUE(w.error().has_error());
   EXPECT_EQ(w.error().code, EC::unexpected_token);
 }
@@ -500,7 +500,7 @@ TEST(CompactWriterError, ScalarBeginContextNone) {
 TEST(CompactWriterError, ObjectBeginNonZeroContext) {
   std::string out;
   CW w{out};
-  w.write({.length = 0, .type = TT::ObjectBegin, .context = 1});
+  (void)w.write({.length = 0, .type = TT::ObjectBegin, .context = 1});
   ASSERT_TRUE(w.error().has_error());
   EXPECT_EQ(w.error().code, EC::unexpected_token);
 }
@@ -509,7 +509,7 @@ TEST(CompactWriterError, ObjectEndNonZeroLength) {
   std::string out;
   CW w{out};
   ASSERT_TRUE(wr_ob(w));
-  w.write({.length = 1, .type = TT::ObjectEnd, .context = 0});
+  (void)w.write({.length = 1, .type = TT::ObjectEnd, .context = 0});
   ASSERT_TRUE(w.error().has_error());
   EXPECT_EQ(w.error().code, EC::unexpected_token);
 }
@@ -518,7 +518,7 @@ TEST(CompactWriterError, ArrayEndNonZeroContext) {
   std::string out;
   CW w{out};
   ASSERT_TRUE(wr_ab(w));
-  w.write({.length = 0, .type = TT::ArrayEnd, .context = 1});
+  (void)w.write({.length = 0, .type = TT::ArrayEnd, .context = 1});
   ASSERT_TRUE(w.error().has_error());
   EXPECT_EQ(w.error().code, EC::unexpected_token);
 }
@@ -527,7 +527,7 @@ TEST(CompactWriterError, EndNonZeroLength) {
   std::string out;
   CW w{out};
   ASSERT_TRUE(wr_lit(w, "1"));
-  w.write({.length = 1, .type = TT::End, .context = 0});
+  (void)w.write({.length = 1, .type = TT::End, .context = 0});
   ASSERT_TRUE(w.error().has_error());
   EXPECT_EQ(w.error().code, EC::unexpected_token);
 }
@@ -536,7 +536,7 @@ TEST(CompactWriterError, EndNonZeroContext) {
   std::string out;
   CW w{out};
   ASSERT_TRUE(wr_lit(w, "1"));
-  w.write({.length = 0, .type = TT::End, .context = 1});
+  (void)w.write({.length = 0, .type = TT::End, .context = 1});
   ASSERT_TRUE(w.error().has_error());
   EXPECT_EQ(w.error().code, EC::unexpected_token);
 }
@@ -547,11 +547,11 @@ TEST(CompactWriterError, DepthLimitExceeded) {
   std::string out;
   hosq::json::CompactWriter<2> w{out};
 
-  w.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
+  (void)w.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
   ASSERT_FALSE(w.error().has_error());
-  w.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
+  (void)w.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
   ASSERT_FALSE(w.error().has_error());
-  w.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
+  (void)w.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
   ASSERT_TRUE(w.error().has_error());
   EXPECT_EQ(w.error().code, EC::depth_limit_exceeded);
 }

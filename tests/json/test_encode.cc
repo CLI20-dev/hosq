@@ -118,13 +118,13 @@ TEST(EncodeJson, CanEncodeIntoExistingWriterStream) {
   std::string output;
   hosq::json::CompactWriter writer{output};
 
-  writer.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
+  (void)writer.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
   ASSERT_FALSE(writer.error().has_error());
   ASSERT_TRUE(hosq::Encoder<hosq::json::CompactWriter<>>::encode_to_writer(
       user, writer));
-  writer.write({.length = 0, .type = TT::ArrayEnd, .context = 0});
+  (void)writer.write({.length = 0, .type = TT::ArrayEnd, .context = 0});
   ASSERT_FALSE(writer.error().has_error());
-  writer.write({.length = 0, .type = TT::End, .context = 0});
+  (void)writer.write({.length = 0, .type = TT::End, .context = 0});
   ASSERT_FALSE(writer.error().has_error());
 
   EXPECT_EQ(output, R"([{"id":1,"name":"Bob","age":41}])");

@@ -65,8 +65,8 @@ class Decoder {
   template <detail::ElemT T, TryPhase Phase = TryPhase::normal>
   [[nodiscard]]
   static auto make_decode_context(T& t, R& reader, reader_state_type& state) {
-    return DecodeContext<typename T::storage_type, R, Phase>{t.value(), reader,
-                                                             state};
+    return DecodeContext<typename T::storage_type, R, Phase>{t.storage(),
+                                                             reader, state};
   }
 
   template <class T>
@@ -74,7 +74,11 @@ class Decoder {
   [[nodiscard]]
   static auto decode_nested(T& t, reader_type& reader,
                             reader_state_type& reader_state) -> Error {
-    return decode_impl(t, reader, reader_state);
+    if constexpr (detail::AsTryEntryTupleT<T>) {
+      return decode_try_entry_tuple<true>(t, reader, reader_state);
+    } else {
+      return decode_impl(t, reader, reader_state);
+    }
   }
 
  private:
@@ -97,7 +101,8 @@ class Decoder {
     if (!reader.next_token(reader_state)) [[unlikely]] {
       return reader.error(reader_state);
     }
-    t.decode(make_decode_context(t, reader, reader_state));
+    auto ctx = make_decode_context(t, reader, reader_state);
+    t.decode(ctx);
     return reader.error(reader_state);
   }
 
@@ -121,7 +126,8 @@ class Decoder {
             if (!reader.next_token(reader_state)) [[unlikely]] {
               return false;
             }
-            elem.decode(make_decode_context(elem, reader, reader_state));
+            auto ctx = make_decode_context(elem, reader, reader_state);
+            elem.decode(ctx);
             // If decode puts the reader into an error state, subsequent
             // next_token() is a noop and the error is reported below.
             return true;
@@ -149,11 +155,13 @@ class Decoder {
     if (!reader.next_token(reader_state)) [[unlikely]] {
       return false;
     }
-    t.key().decode(make_decode_context(t.key(), reader, reader_state));
+    auto key_ctx = make_decode_context(t.key(), reader, reader_state);
+    t.key().decode(key_ctx);
     if (!reader.next_token(reader_state)) [[unlikely]] {
       return false;
     }
-    t.value().decode(make_decode_context(t.value(), reader, reader_state));
+    auto value_ctx = make_decode_context(t.value(), reader, reader_state);
+    t.value().decode(value_ctx);
     return true;
   }
 
@@ -248,7 +256,7 @@ class Decoder {
       }(tuple, std::make_index_sequence<tuple_size>{});
     }
     return Error{
-        .code = ErrorCode::candidate_rejected,
+        .code = ErrorCode::unknown_member,
         .offset = reader.current_token(reader_state).offset,
     };
   }
@@ -272,15 +280,19 @@ class Decoder {
   using decode_raw_result_t =
       typename decode_raw_result<IsConst, Elem, Context>::type;
 
-  template <detail::AsTryEntryTupleT T, class ReaderT, class StateT>
+  template <bool StartFromCurrent, detail::AsTryEntryTupleT T, class ReaderT,
+            class StateT>
   [[nodiscard]]
-  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
+  static auto decode_try_entry_tuple(T& t, ReaderT& reader,
+                                     StateT& reader_state) -> Error {
     verify_reader_state_types<ReaderT, StateT>();
-    if (!reader.next_token(reader_state)) [[unlikely]] {
-      return reader.error(reader_state);
+    if constexpr (!StartFromCurrent) {
+      if (!reader.next_token(reader_state)) [[unlikely]] {
+        return reader.error(reader_state);
+      }
     }
     const auto& tok = reader.current_token(reader_state);
-    if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
+    if (tok.type != TokenType::ObjectBegin) [[unlikely]] {
       return Error{
           .code = ErrorCode::type_mismatch,
           .offset = tok.offset,
@@ -295,7 +307,7 @@ class Decoder {
         return reader.error(reader_state);
       }
       const auto& tok = reader.current_token(reader_state);
-      if (tok.type == TokenType::ArrayEnd) {
+      if (tok.type == TokenType::ObjectEnd) {
         return Error::ok();
       }
       matched = [&]<size_t... I>(auto& tuple, std::index_sequence<I...>)
@@ -303,7 +315,6 @@ class Decoder {
         return ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
           auto& entry = std::get<I>(tuple);
 
-          // Some useful type aliases here
           static constexpr TryPhase phase =
               I == 0 ? TryPhase::first : TryPhase::normal;
           using entry_type = std::remove_cvref_t<decltype(entry)>;
@@ -333,7 +344,6 @@ class Decoder {
               decode_raw_result_t<value_is_const_decodable, value_elem_type,
                                   value_elem_context_type>;
 
-          // Try to decode the key first.
           auto& key_elem = entry.key();
           auto key_ctx = make_decode_context<key_elem_type, phase>(
               key_elem, reader, reader_state);
@@ -344,13 +354,11 @@ class Decoder {
             }
 
             if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
-              // Save checkpoint before trying to decode the value.
               auto checkpoint = reader_state.checkpoint();
               if (!reader.next_token(reader_state)) [[unlikely]] {
                 return false;
               }
 
-              // Then try to decode the value.
               auto& value_elem = entry.value();
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
@@ -365,7 +373,6 @@ class Decoder {
               if (!reader.next_token(reader_state)) [[unlikely]] {
                 return false;
               }
-              // Then try to decode the value.
               auto& value_elem = entry.value();
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
@@ -384,12 +391,10 @@ class Decoder {
               }
             }
 
-            // Read the next token before trying to decode the value
             if (!reader.next_token(reader_state)) [[unlikely]] {
               return false;
             }
 
-            // Then try to decode the value.
             auto& value_elem = entry.value();
             auto value_ctx =
                 make_decode_context<value_elem_type, TryPhase::first>(
@@ -411,9 +416,15 @@ class Decoder {
       }(tuple, std::make_index_sequence<tuple_size>{});
     }
     return Error{
-        .code = ErrorCode::candidate_rejected,
+        .code = ErrorCode::unknown_member,
         .offset = reader.current_token(reader_state).offset,
     };
+  }
+
+  template <detail::AsTryEntryTupleT T, class ReaderT, class StateT>
+  [[nodiscard]]
+  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
+    return decode_try_entry_tuple<false>(t, reader, reader_state);
   }
 
  private:

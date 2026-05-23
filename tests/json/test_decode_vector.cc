@@ -9,6 +9,7 @@
 #include "hosq/entry.hh"
 #include "hosq/error.hh"
 #include "hosq/json/simple_reader.hh"
+#include "hosq/map.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/match.hh"
 #include "hosq/pipeline/scan.hh"
@@ -74,6 +75,7 @@ auto invoke_pipeline(Storage& storage, std::string_view input) {
   auto reader = Reader{};
   auto state = Reader::state_type{};
   reader.reset(state, input);
+  (void)reader.next_token(state);
   auto ctx = hosq::DecodeContext<Storage, Reader, hosq::TryPhase::normal>{
       storage, reader, state};
   return std::remove_cvref_t<decltype(Pipeline)>::invoke(ctx);
@@ -84,6 +86,7 @@ auto invoke_pipeline(std::string_view input) {
   auto reader = Reader{};
   auto state = Reader::state_type{};
   reader.reset(state, input);
+  (void)reader.next_token(state);
   auto scratch = int{};
   auto storage_ctx = hosq::DecodeContext<int, Reader, hosq::TryPhase::normal>{
       scratch, reader, state};
@@ -107,7 +110,7 @@ TEST(DecodeArray, CollectsTopLevelArrayValues) {
 
   const auto result = hosq::decode_into<Reader>(ids, "[1,2,3]"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(ids.value().size(), 3U);
   EXPECT_EQ(ids.value()[0], 1);
   EXPECT_EQ(ids.value()[1], 2);
@@ -119,7 +122,7 @@ TEST(DecodeArray, EachStoresTopLevelArrayValues) {
 
   const auto result = hosq::decode_into<Reader>(ids, "[4,5,6]"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(ids.value().size(), 3U);
   EXPECT_EQ(ids.value()[0], 4);
   EXPECT_EQ(ids.value()[1], 5);
@@ -131,7 +134,7 @@ TEST(DecodeArray, DecodesObjectMemberArrayValues) {
 
   const auto result = hosq::decode_into<Reader>(document, R"({"ids":[4,5]})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(document.ids.value().value().size(), 2U);
   EXPECT_EQ(document.ids.value().value()[0], 4);
   EXPECT_EQ(document.ids.value().value()[1], 5);
@@ -153,7 +156,7 @@ TEST(DecodeArray, DecodesObjectMemberArrayValuesWithReorderedKeys) {
   const auto result =
       hosq::decode_into<Reader>(document, R"({"version":2,"ids":[7,8]})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(document.version.value().value(), 2);
   ASSERT_EQ(document.ids.value().value().size(), 2U);
   EXPECT_EQ(document.ids.value().value()[0], 7);
@@ -165,8 +168,8 @@ TEST(DecodeArray, RequiresArrayBegin) {
 
   const auto result = hosq::decode_into<Reader>(ids, "1"sv);
 
-  ASSERT_FALSE(result.has_value());
-  EXPECT_EQ(result.error().code, hosq::ErrorCode::type_mismatch);
+  ASSERT_FALSE(result.is_ok());
+  EXPECT_EQ(result.code, hosq::ErrorCode::type_mismatch);
 }
 
 TEST(DecodeArray, RejectsInvalidElement) {
@@ -174,8 +177,8 @@ TEST(DecodeArray, RejectsInvalidElement) {
 
   const auto result = hosq::decode_into<Reader>(ids, R"([1,"x"])"sv);
 
-  ASSERT_FALSE(result.has_value());
-  EXPECT_EQ(result.error().code, hosq::ErrorCode::type_mismatch);
+  ASSERT_FALSE(result.is_ok());
+  EXPECT_EQ(result.code, hosq::ErrorCode::type_mismatch);
 }
 
 TEST(DecodeArray, CollectsEmptyArrayValues) {
@@ -183,7 +186,7 @@ TEST(DecodeArray, CollectsEmptyArrayValues) {
 
   const auto result = hosq::decode_into<Reader>(ids, "[]"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   EXPECT_TRUE(ids.value().empty());
 }
 
@@ -196,9 +199,8 @@ TEST(DecodeArray, EachAggregatesBoolAcrossElements) {
   auto values = std::vector<int>{};
   const auto result = invoke_pipeline<pipeline>(values, "[2,4,5,8]"sv);
 
-  ASSERT_TRUE(result.has_value());
-  EXPECT_FALSE(*result);
-  EXPECT_EQ(values, (std::vector<int>{2, 4, 5, 8}));
+  EXPECT_FALSE(result);
+  EXPECT_EQ(values, (std::vector<int>{2, 4, 5}));
 }
 
 TEST(DecodeArray, EachBoolReturnsTrueForEmptyArray) {
@@ -210,8 +212,7 @@ TEST(DecodeArray, EachBoolReturnsTrueForEmptyArray) {
   auto values = std::vector<int>{};
   const auto result = invoke_pipeline<pipeline>(values, "[]"sv);
 
-  ASSERT_TRUE(result.has_value());
-  EXPECT_TRUE(*result);
+  EXPECT_TRUE(result);
   EXPECT_TRUE(values.empty());
 }
 
@@ -225,11 +226,10 @@ TEST(DecodeArray, CollectCanReturnBoolValues) {
 
   const auto result = invoke_pipeline<pipeline>("[2,3,4]"sv);
 
-  ASSERT_TRUE(result.has_value());
-  ASSERT_EQ(result->size(), 3U);
-  EXPECT_TRUE((*result)[0]);
-  EXPECT_FALSE((*result)[1]);
-  EXPECT_TRUE((*result)[2]);
+  ASSERT_EQ(result.size(), 3U);
+  EXPECT_TRUE(result[0]);
+  EXPECT_FALSE(result[1]);
+  EXPECT_TRUE(result[2]);
 }
 
 TEST(DecodeObjectCollect, CollectsKeysAndValues) {
@@ -238,15 +238,15 @@ TEST(DecodeObjectCollect, CollectsKeysAndValues) {
   const auto result =
       hosq::decode_into<Reader>(object, R"({"x":1,"y":2,"z":3})"sv);
 
-  ASSERT_TRUE(result.has_value());
-  ASSERT_EQ(object.value().keys.size(), 3U);
-  ASSERT_EQ(object.value().values.size(), 3U);
-  EXPECT_EQ(object.value().keys[0], "x"sv);
-  EXPECT_EQ(object.value().keys[1], "y"sv);
-  EXPECT_EQ(object.value().keys[2], "z"sv);
-  EXPECT_EQ(object.value().values[0], 1);
-  EXPECT_EQ(object.value().values[1], 2);
-  EXPECT_EQ(object.value().values[2], 3);
+  ASSERT_TRUE(result.is_ok());
+  ASSERT_EQ(object.value().keys().size(), 3U);
+  ASSERT_EQ(object.value().values().size(), 3U);
+  EXPECT_EQ(object.value().keys()[0], "x"sv);
+  EXPECT_EQ(object.value().keys()[1], "y"sv);
+  EXPECT_EQ(object.value().keys()[2], "z"sv);
+  EXPECT_EQ(object.value().values()[0], 1);
+  EXPECT_EQ(object.value().values()[1], 2);
+  EXPECT_EQ(object.value().values()[2], 3);
 }
 
 TEST(DecodeObjectCollect, CollectsEmptyObject) {
@@ -254,9 +254,9 @@ TEST(DecodeObjectCollect, CollectsEmptyObject) {
 
   const auto result = hosq::decode_into<Reader>(object, "{}"sv);
 
-  ASSERT_TRUE(result.has_value());
-  EXPECT_TRUE(object.value().keys.empty());
-  EXPECT_TRUE(object.value().values.empty());
+  ASSERT_TRUE(result.is_ok());
+  EXPECT_TRUE(object.value().keys().empty());
+  EXPECT_TRUE(object.value().values().empty());
 }
 
 TEST(DecodeObjectEach, AggregatesBoolAcrossMembers) {
@@ -268,11 +268,11 @@ TEST(DecodeObjectEach, AggregatesBoolAcrossMembers) {
                                return value > 0;
                              }>>;
 
-  auto keys = std::vector<std::string_view>{};
+  auto object_state =
+      hosq::Map<std::vector<std::string_view>, hosq::detail::NoStorage>{};
   const auto result =
-      invoke_pipeline<pipeline>(keys, R"({"x":1,"y":-2,"z":3})"sv);
+      invoke_pipeline<pipeline>(object_state, R"({"x":1,"y":-2,"z":3})"sv);
 
-  ASSERT_TRUE(result.has_value());
-  EXPECT_FALSE(*result);
-  EXPECT_EQ(keys, (std::vector<std::string_view>{"x"sv, "y"sv, "z"sv}));
+  EXPECT_FALSE(result);
+  EXPECT_EQ(object_state.keys(), (std::vector<std::string_view>{"x"sv, "y"sv}));
 }

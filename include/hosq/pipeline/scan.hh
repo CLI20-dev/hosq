@@ -88,9 +88,6 @@ struct ScanObject {
   auto operator()(DecodeContext<T, R, Phase>& ctx) const -> ObjectView {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
-    if (!reader.next_token(state)) [[unlikely]] {
-      return {};
-    }
     const auto& tok = reader.current_token(state);
     if (tok.type != TokenType::ObjectBegin) [[unlikely]] {
       reader.report_error(state, Error{
@@ -108,10 +105,6 @@ struct ScanArray {
   auto operator()(DecodeContext<T, R, Phase>& ctx) const -> ArrayView {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
-
-    if (!reader.next_token(state)) [[unlikely]] {
-      return {};
-    }
     const auto& tok = reader.current_token(state);
 
     if (tok.type != TokenType::ArrayBegin) {
@@ -140,16 +133,14 @@ struct ScanScalar {
 
 struct ScanString {
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view {
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view {
     return ext::ScanString<R>{}(ctx);
   }
 };
 
 struct ScanLiteral {
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view {
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view {
     return ext::ScanLiteral<R>{}(ctx);
   }
 };

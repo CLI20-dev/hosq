@@ -119,7 +119,7 @@ struct MutableActionFn<void, Out, Fn> {
 };
 
 struct NoopDecoder {
-  template <class Input, class Context>
+  template <class Input>
   using storage_type = std::monostate;
 
   template <class Context>

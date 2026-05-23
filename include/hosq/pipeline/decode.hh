@@ -133,7 +133,7 @@ struct EachImpl<Pipeline> {
     auto& state = ctx.reader_state();
 
     if constexpr (std::same_as<terminal_type, bool>) {
-      while (true) [[likely]] {
+      while (true) {
         if (!reader.next_token(state)) [[unlikely]] {
           return false;
         }
@@ -148,7 +148,7 @@ struct EachImpl<Pipeline> {
         }
       }
     } else {
-      while (true) [[likely]] {
+      while (true) {
         if (!reader.next_token(state)) [[unlikely]] {
           return;
         }
@@ -246,7 +246,7 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
 
     if constexpr (std::same_as<actual_key_terminal, void> &&
                   std::same_as<actual_value_terminal, void>) {
-      while (true) [[likely]] {
+      while (true) {
         if (!reader.next_token(state)) [[unlikely]] {
           return;
         }
@@ -255,18 +255,18 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
           return;
         }
         auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-            ctx.elem().key_storage(), reader, state};
+            ctx.elem().keys(), reader, state};
         key_pipeline_type::invoke(key_ctx);
         if (!reader.next_token(state)) [[unlikely]] {
           return;
         }
         auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-            ctx.elem().value_storage(), reader, state};
+            ctx.elem().values(), reader, state};
         value_pipeline_type::invoke(value_ctx);
       }
     } else if constexpr (std::same_as<actual_key_terminal, bool> &&
                          std::same_as<actual_value_terminal, void>) {
-      while (true) [[likely]] {
+      while (true) {
         if (!reader.next_token(state)) [[unlikely]] {
           return false;
         }
@@ -275,7 +275,7 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
           return true;
         }
         auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-            ctx.elem().key_storage(), reader, state};
+            ctx.elem().keys(), reader, state};
         if (!key_pipeline_type::invoke(key_ctx)) {
           return false;
         }
@@ -283,12 +283,12 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
           return false;
         }
         auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-            ctx.elem().value_storage(), reader, state};
+            ctx.elem().values(), reader, state};
         value_pipeline_type::invoke(value_ctx);
       }
     } else if constexpr (std::same_as<actual_key_terminal, void> &&
                          std::same_as<actual_value_terminal, bool>) {
-      while (true) [[likely]] {
+      while (true) {
         if (!reader.next_token(state)) [[unlikely]] {
           return false;
         }
@@ -297,19 +297,19 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
           return true;
         }
         auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-            ctx.elem().key_storage(), reader, state};
+            ctx.elem().keys(), reader, state};
         key_pipeline_type::invoke(key_ctx);
         if (!reader.next_token(state)) [[unlikely]] {
           return false;
         }
         auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-            ctx.elem().value_storage(), reader, state};
+            ctx.elem().values(), reader, state};
         if (!value_pipeline_type::invoke(value_ctx)) {
           return false;
         }
       }
     } else {
-      while (true) [[likely]] {
+      while (true) {
         if (!reader.next_token(state)) [[unlikely]] {
           return false;
         }
@@ -318,7 +318,7 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
           return true;
         }
         auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-            ctx.elem().key_storage(), reader, state};
+            ctx.elem().keys(), reader, state};
         if (!key_pipeline_type::invoke(key_ctx)) {
           return false;
         }
@@ -326,7 +326,7 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
           return false;
         }
         auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-            ctx.elem().value_storage(), reader, state};
+            ctx.elem().values(), reader, state};
         if (!value_pipeline_type::invoke(value_ctx)) {
           return false;
         }
@@ -383,7 +383,7 @@ struct CollectImpl<Pipeline> {
 
     auto ret = std::vector<terminal_type>{};
 
-    while (true) [[likely]] {
+    while (true) {
       if (!reader.next_token(state)) [[unlikely]] {
         return ret;
       }
@@ -470,7 +470,7 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
 
     auto ret = output_type{};
 
-    while (true) [[likely]] {
+    while (true) {
       if (!reader.next_token(state)) [[unlikely]] {
         return ret;
       }
@@ -481,14 +481,14 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
       }
 
       DecodeContext<void, R, TryPhase::first> key_ctx{reader, state};
-      ret.keys.push_back(key_pipeline_type::invoke(key_ctx));
+      ret.keys().push_back(key_pipeline_type::invoke(key_ctx));
 
       if (!reader.next_token(state)) [[unlikely]] {
         return ret;
       }
 
       DecodeContext<void, R, TryPhase::first> value_ctx{reader, state};
-      ret.values.push_back(value_pipeline_type::invoke(value_ctx));
+      ret.values().push_back(value_pipeline_type::invoke(value_ctx));
     }
   }
 };

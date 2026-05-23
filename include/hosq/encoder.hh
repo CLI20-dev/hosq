@@ -41,7 +41,7 @@ class Encoder {
       return false;
     }
 
-    writer().write(WriteRequest{
+    (void)writer().write(WriteRequest{
         .length = 0,
         .type = TokenType::End,
         .context = 0,
@@ -89,7 +89,7 @@ class Encoder {
   [[nodiscard]]
   HOSQ_ENCODER_FUNCTION_ALWAYS_INLINE auto encode_as_entry_tuple(const T& t)
       -> bool {
-    writer().write(WriteRequest{
+    (void)writer().write(WriteRequest{
         .length = 0,
         .type = TokenType::ObjectBegin,
         .context = 0,
@@ -111,7 +111,7 @@ class Encoder {
       return false;
     }
 
-    writer().write(WriteRequest{
+    (void)writer().write(WriteRequest{
         .length = 0,
         .type = TokenType::ObjectEnd,
         .context = 0,

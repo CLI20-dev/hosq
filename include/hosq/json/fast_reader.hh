@@ -62,7 +62,7 @@ struct JsonFastReaderState {
   std::size_t ctx_size{0};
 
   JsonFastExpect expect{JsonFastExpect::value};
-  mutable Error last_error{};
+  mutable Error last_error{Error::ok()};
   mutable bool error_flag{false};
   mutable Token error_token{
       .offset = 0,
@@ -99,7 +99,7 @@ class FastReader {
     st.input_view = input;
     st.ctx_size = 0;
     st.expect = JsonFastExpect::value;
-    st.last_error = {};
+    st.last_error = Error::ok();
     st.error_flag = false;
     st.current = {
         .offset = 0,
@@ -117,7 +117,7 @@ class FastReader {
       return false;
     }
     st.current = tok;
-    st.last_error = {};
+    st.last_error = Error::ok();
     return true;
   }
 

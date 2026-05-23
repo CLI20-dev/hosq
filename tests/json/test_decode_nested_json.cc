@@ -77,7 +77,7 @@ TEST(DecodeNestedJson, DecodesNestedObjectValue) {
       user,
       R"({"id":7,"name":"Alice","address":{"city":"Tokyo","zip":100},"profile":{"display_name":"alice"}})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(user.id.value().value(), 7);
   EXPECT_EQ(user.name.value().value(), "Alice"sv);
   EXPECT_EQ(user.address.value().value().city.value().value(), "Tokyo"sv);
@@ -93,7 +93,7 @@ TEST(DecodeNestedJson, DecodesNestedFieldsInReverseOrder) {
       user,
       R"({"profile":{"display_name":"bob"},"address":{"zip":150,"city":"Osaka"},"name":"Bob","id":8})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(user.id.value().value(), 8);
   EXPECT_EQ(user.name.value().value(), "Bob"sv);
   EXPECT_EQ(user.address.value().value().city.value().value(), "Osaka"sv);
@@ -108,7 +108,7 @@ TEST(DecodeNestedJson, DecodesMultipleNestedObjectLevels) {
       company,
       R"({"name":"Acme","owner":{"id":1,"name":"Carol","address":{"city":"Kyoto","zip":600},"profile":{"display_name":"ceo"}}})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(company.name.value().value(), "Acme"sv);
   EXPECT_EQ(company.owner.value().value().id.value().value(), 1);
   EXPECT_EQ(company.owner.value().value().name.value().value(), "Carol"sv);
@@ -133,8 +133,8 @@ TEST(DecodeNestedJson, RejectsUnknownNestedField) {
   const auto result = hosq::decode_into<Reader>(
       envelope, R"({"address":{"city":"Tokyo","extra":1,"zip":100}})"sv);
 
-  ASSERT_FALSE(result.has_value());
-  EXPECT_EQ(result.error().code, hosq::ErrorCode::unknown_member);
+  ASSERT_FALSE(result.is_ok());
+  EXPECT_EQ(result.code, hosq::ErrorCode::unknown_member);
 }
 
 TEST(DecodeNestedJson, NestedObjectTypeMismatch) {
@@ -144,6 +144,6 @@ TEST(DecodeNestedJson, NestedObjectTypeMismatch) {
       user,
       R"({"id":7,"name":"Alice","address":true,"profile":{"display_name":"alice"}})"sv);
 
-  ASSERT_FALSE(result.has_value());
-  EXPECT_EQ(result.error().code, hosq::ErrorCode::type_mismatch);
+  ASSERT_FALSE(result.is_ok());
+  EXPECT_EQ(result.code, hosq::ErrorCode::type_mismatch);
 }

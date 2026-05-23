@@ -59,6 +59,8 @@ static auto read_all(std::string_view input) -> ReadResult {
       case TT::ObjectEnd:
       case TT::ArrayEnd:
         break;
+      case TT::Error:
+        return r.error(s);
     }
   }
 }

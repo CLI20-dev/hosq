@@ -155,7 +155,7 @@ struct EncodeContextBase {
   }
 
   [[nodiscard]]
-  auto writer() const noexcept -> const W& {
+  auto writer() const noexcept -> W& {
     return writer_.get();
   }
 
