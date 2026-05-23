@@ -123,36 +123,58 @@ namespace scan {
 
 namespace detail {
 
+template <class Ext, class Ctx>
+concept CanScanCtx = requires(const Ext& ext, Ctx&& ctx) {
+  { ext(static_cast<Ctx&&>(ctx)) } -> std::convertible_to<std::string_view>;
+};
+
 struct ScanScalar {
   template <class T, ReaderConcept R, TryPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view
+    requires CanScanCtx<ext::ScanScalar<R>, DecodeContext<T, R, Phase>&>
+  {
+    return ext::ScanScalar<R>{}(ctx);
+  }
+
+  template <class T, ReaderConcept R, TryPhase Phase>
   auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view {
+      -> std::string_view
+    requires CanScanCtx<ext::ScanScalar<R>, const DecodeContext<T, R, Phase>&>
+  {
     return ext::ScanScalar<R>{}(ctx);
   }
 };
 
 struct ScanString {
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view {
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view
+    requires CanScanCtx<ext::ScanString<R>, DecodeContext<T, R, Phase>&>
+  {
     return ext::ScanString<R>{}(ctx);
   }
 
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view {
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
+      -> std::string_view
+    requires CanScanCtx<ext::ScanString<R>, const DecodeContext<T, R, Phase>&>
+  {
     return ext::ScanString<R>{}(ctx);
   }
 };
 
 struct ScanLiteral {
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view {
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view
+    requires CanScanCtx<ext::ScanLiteral<R>, DecodeContext<T, R, Phase>&>
+  {
     return ext::ScanLiteral<R>{}(ctx);
   }
 
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view {
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
+      -> std::string_view
+    requires CanScanCtx<ext::ScanLiteral<R>, const DecodeContext<T, R, Phase>&>
+  {
     return ext::ScanLiteral<R>{}(ctx);
   }
 };

@@ -31,7 +31,7 @@ inline constexpr std::size_t unresolved_length =
 
 struct Token {
   size_t offset;
-  size_t length;
+  mutable size_t length;
   TokenType type;
   std::uint8_t context;
 };

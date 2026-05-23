@@ -45,7 +45,7 @@ struct JsonFastReaderCheckpoint {
 template <std::size_t MaxDepth>
 struct JsonFastReaderState {
   const char* begin{nullptr};
-  const char* pos{nullptr};
+  mutable const char* pos{nullptr};
   const char* end{nullptr};
 
   std::string_view input_view{};
@@ -521,41 +521,6 @@ struct ScanString<hosq::json::FastReader<MaxDepth>> {
   template <class T, TryPhase Phase>
   HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
       const DecodeContext<T, Reader, Phase>& ctx) const -> std::string_view {
-    const auto& st = ctx.reader_state();
-    const auto& tok = ctx.reader().current_token(st);
-
-    if (tok.type != TokenType::Scalar ||
-        tok.context != static_cast<std::uint8_t>(JsonTokenContext::string))
-        [[unlikely]] {
-      st.last_error = {.code = ErrorCode::type_mismatch, .offset = tok.offset};
-      return {};
-    }
-
-    if (tok.length != unresolved_length) {
-      return st.input_view.substr(tok.offset, tok.length);
-    }
-
-    const char* const content = st.begin + tok.offset;
-    const char* p = content;
-    while (p < st.end) {
-      if (*p == '"') {
-        return st.input_view.substr(tok.offset,
-                                    static_cast<std::size_t>(p - content));
-      }
-      if (*p == '\\') {
-        p += 2;
-        continue;
-      }
-      ++p;
-    }
-    st.last_error = {.code = ErrorCode::unexpected_eof,
-                     .offset = static_cast<std::size_t>(st.end - st.begin)};
-    return {};
-  }
-
-  template <class T, TryPhase Phase>
-  HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
-      DecodeContext<T, Reader, Phase>& ctx) const -> std::string_view {
     auto& st = ctx.reader_state();
     auto& tok = ctx.reader().current_token(st);
 
@@ -603,34 +568,6 @@ struct ScanLiteral<hosq::json::FastReader<MaxDepth>> {
       const DecodeContext<T, Reader, Phase>& ctx) const -> std::string_view {
     const auto& st = ctx.reader_state();
     const auto& tok = ctx.reader().current_token(st);
-
-    if (tok.type != TokenType::Scalar ||
-        tok.context != static_cast<std::uint8_t>(JsonTokenContext::literal))
-        [[unlikely]] {
-      st.last_error = {.code = ErrorCode::type_mismatch, .offset = tok.offset};
-      return {};
-    }
-
-    if (tok.length != unresolved_length) {
-      return st.input_view.substr(tok.offset, tok.length);
-    }
-
-    const char* const lit_start = st.begin + tok.offset;
-    const char* p = lit_start;
-    while (p < st.end) {
-      const auto c = static_cast<std::uint8_t>(*p);
-      if (c <= ' ' || c == ',' || c == '}' || c == ']' || c == ':') break;
-      ++p;
-    }
-    return st.input_view.substr(tok.offset,
-                                static_cast<std::size_t>(p - lit_start));
-  }
-
-  template <class T, TryPhase Phase>
-  HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
-      DecodeContext<T, Reader, Phase>& ctx) const -> std::string_view {
-    auto& st = ctx.reader_state();
-    auto& tok = ctx.reader().current_token(st);
 
     if (tok.type != TokenType::Scalar ||
         tok.context != static_cast<std::uint8_t>(JsonTokenContext::literal))
@@ -707,51 +644,11 @@ struct SkipValue<hosq::json::FastReader<MaxDepth>> {
   }
 
  private:
-  static HOSQ_FUNCTION_ALWAYS_INLINE auto skip_lazy_string(State& st) -> void {
-    const char* p = st.pos;
-    while (p < st.end) {
-      const char c = *p++;
-      if (c == '"') {
-        st.pos = p;
-        return;
-      }
-      if (c == '\\') {
-        if (p < st.end) {
-          ++p;
-          continue;
-        }
-        break;
-      }
-    }
-    st.last_error = {
-        .code = ErrorCode::unexpected_eof,
-        .offset = static_cast<std::size_t>(st.end - st.begin),
-    };
-  }
-
-  static HOSQ_FUNCTION_ALWAYS_INLINE auto skip_lazy_literal(State& st) -> void {
-    const char* p = st.pos;
-    while (p < st.end) {
-      const char c = *p;
-      if (c == ',' || c == '}' || c == ']' || c == ' ' || c == '\n' ||
-          c == '\r' || c == '\t') {
-        st.pos = p;
-        return;
-      }
-      ++p;
-    }
-    st.pos = p;
-  }
-
-  static HOSQ_FUNCTION_ALWAYS_INLINE auto skip_scalar(const Reader&,
+  static HOSQ_FUNCTION_ALWAYS_INLINE auto skip_scalar(const Reader& reader,
                                                       State& st,
                                                       const Token& tok) -> void {
     if (tok.length == unresolved_length) {
-      if (tok.context == static_cast<std::uint8_t>(JsonTokenContext::string)) {
-        skip_lazy_string(st);
-      } else {
-        skip_lazy_literal(st);
-      }
+      (void)reader.resolve_skip(st);
       return;
     }
     if (tok.context == static_cast<std::uint8_t>(JsonTokenContext::string)) {
@@ -761,8 +658,8 @@ struct SkipValue<hosq::json::FastReader<MaxDepth>> {
     st.pos = st.begin + tok.offset + tok.length;
   }
 
-  static HOSQ_FUNCTION_ALWAYS_INLINE auto scan_string(State& st, const char*& p)
-      -> bool {
+  static HOSQ_FUNCTION_ALWAYS_INLINE auto scan_string(const State& st,
+                                                      const char*& p) -> bool {
     while (p < st.end) {
       if (*p == '"') {
         ++p;
