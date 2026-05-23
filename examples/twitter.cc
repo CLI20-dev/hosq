@@ -28,8 +28,6 @@ struct SkipValueImpl {
   template <class Input>
   using storage_type = std::monostate;
 
-  auto operator()(detail::AnyDecodeContext) const -> void;
-
   template <class Storage, ReaderConcept R, TryPhase Phase>
   auto operator()(DecodeContext<Storage, R, Phase>& ctx) const -> void {
     auto& reader = ctx.reader();
@@ -52,8 +50,8 @@ struct SkipValueImpl {
       }
       return;
     }
-    reader.report_error(state, Error{.code = ErrorCode::type_mismatch,
-                                     .offset = tok.offset});
+    reader.report_error(
+        state, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
   }
 };
 constexpr auto skip_value = step<SkipValueImpl>;

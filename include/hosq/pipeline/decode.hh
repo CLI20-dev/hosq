@@ -11,8 +11,10 @@
 #include <vector>
 
 #include "hosq/context.hh"
+#include "hosq/decoder.hh"
 #include "hosq/detail/always_false.hh"
 #include "hosq/detail/pipeline_analysis.hh"
+#include "hosq/detail/pipeline_analysis_io.hh"
 #include "hosq/error.hh"
 #include "hosq/map.hh"
 #include "hosq/pipeline.hh"
@@ -29,9 +31,9 @@ concept Number = (std::integral<std::remove_cvref_t<T>> &&
 
 template <Number T>
 struct NumberImpl {
-  template <ReaderConcept R>
-  auto operator()(const std::string_view& input,
-                  DecodeContext<void, R>& ctx) const -> std::remove_cvref_t<T> {
+  template <class Context>
+  auto operator()(const std::string_view& input, const Context& ctx) const
+      -> std::remove_cvref_t<T> {
     using Value = std::remove_cvref_t<T>;
     Value value{};
     const char* first = input.data();
@@ -69,6 +71,7 @@ struct IdentityImpl {
 template <auto F>
 struct CustomImpl {
   template <class T>
+    requires requires(T&& value) { std::invoke(F, std::forward<T>(value)); }
   constexpr auto operator()(T&& value) const -> decltype(auto) {
     return std::invoke(F, std::forward<T>(value));
   }
@@ -92,7 +95,9 @@ struct EachImpl<Pipeline> {
 
   using info = ::hosq::detail::pipeline_analysis_t<
       ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
-      ::hosq::detail::AnyDecodeContext, void, pipeline_type>;
+      DecodeContext<void, ::hosq::detail::PipelineAnalysisReader,
+                    TryPhase::first>,
+      void, pipeline_type>;
 
   using terminal_type = ::hosq::detail::pipeline_terminal_t<info>;
 
@@ -170,10 +175,10 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
 
   using key_info = ::hosq::detail::pipeline_analysis_t<
       ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
-      ::hosq::detail::AnyDecodeContext, void, key_pipeline_type>;
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, key_pipeline_type>;
   using value_info = ::hosq::detail::pipeline_analysis_t<
       ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
-      ::hosq::detail::AnyDecodeContext, void, value_pipeline_type>;
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, value_pipeline_type>;
 
   using key_terminal_type = ::hosq::detail::pipeline_terminal_t<key_info>;
   using value_terminal_type = ::hosq::detail::pipeline_terminal_t<value_info>;
@@ -348,7 +353,7 @@ struct CollectImpl<Pipeline> {
 
   using info = ::hosq::detail::pipeline_analysis_t<
       ::hosq::detail::PipelineVerificationMode::no_storage,
-      ::hosq::detail::AnyDecodeContext, void, pipeline_type>;
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, pipeline_type>;
 
   using terminal_type = ::hosq::detail::pipeline_terminal_t<info>;
 
@@ -406,11 +411,11 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
 
   using key_info = ::hosq::detail::pipeline_analysis_t<
       ::hosq::detail::PipelineVerificationMode::no_storage,
-      ::hosq::detail::AnyDecodeContext, void, key_pipeline_type>;
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, key_pipeline_type>;
 
   using value_info = ::hosq::detail::pipeline_analysis_t<
       ::hosq::detail::PipelineVerificationMode::no_storage,
-      ::hosq::detail::AnyDecodeContext, void, value_pipeline_type>;
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, value_pipeline_type>;
 
   using key_terminal_type = ::hosq::detail::pipeline_terminal_t<key_info>;
   using value_terminal_type = ::hosq::detail::pipeline_terminal_t<value_info>;
@@ -510,6 +515,44 @@ struct StringViewImpl {
   }
 };
 
+template <class T>
+  requires ::hosq::detail::DecoderAcceptableT<T>
+struct ToImpl {
+  template <class Context>
+  auto operator()(const ObjectView&, Context& ctx) const -> T {
+    using context_type = std::remove_cvref_t<Context>;
+    using reader_type = typename context_type::reader_type;
+
+    T value{};
+
+    const auto error = ::hosq::Decoder<reader_type>::decode_nested(
+        value, ctx.reader(), ctx.reader_state());
+
+    if (error.code != ErrorCode::ok) {
+      ctx.reader().report_error(ctx.reader_state(), error);
+    }
+
+    return value;
+  }
+
+  template <class Context>
+  auto operator()(const ArrayView&, Context& ctx) const -> T {
+    using context_type = std::remove_cvref_t<Context>;
+    using reader_type = typename context_type::reader_type;
+
+    T value{};
+
+    const auto error = ::hosq::Decoder<reader_type>::decode_nested(
+        value, ctx.reader(), ctx.reader_state());
+
+    if (error.code != ErrorCode::ok) {
+      ctx.reader().report_error(ctx.reader_state(), error);
+    }
+
+    return value;
+  }
+};
+
 }  // namespace detail
    //
 /// Parses a numeric string_view into arithmetic type T using std::from_chars.
@@ -535,7 +578,7 @@ inline constexpr auto each = step<detail::EachImpl<Pipelines...>>;
 template <auto... Pipelines>
 inline constexpr auto collect = step<detail::CollectImpl<Pipelines...>>;
 
-// template <class T>
-// inline constexpr auto to = step<detail::ToImpl<T>>;
+template <class T>
+inline constexpr auto to = step<detail::ToImpl<T>>;
 
 }  // namespace hosq::decode

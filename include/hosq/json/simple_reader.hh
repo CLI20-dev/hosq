@@ -165,7 +165,8 @@ class SimpleReader {
       }
 
       if (st.pos != st.input.size()) {
-        st.last_error = Error{.code = ErrorCode::trailing_data, .offset = st.pos};
+        st.last_error =
+            Error{.code = ErrorCode::trailing_data, .offset = st.pos};
         return false;
       }
 
@@ -204,7 +205,8 @@ class SimpleReader {
         }
 
         if (st.input[st.pos] != '"') {
-          st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
+          st.last_error =
+              Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
           return false;
         }
 
@@ -213,7 +215,8 @@ class SimpleReader {
 
       case StateType::Expect::colon:
         if (st.input[st.pos] != ':') {
-          st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
+          st.last_error =
+              Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
           return false;
         }
 
@@ -236,11 +239,13 @@ class SimpleReader {
           return close(st, TokenType::ObjectEnd, out);
         }
 
-        st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
+        st.last_error =
+            Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
         return false;
 
       case StateType::Expect::value_or_end:
-        st.last_error = Error{.code = ErrorCode::invalid_state, .offset = st.pos};
+        st.last_error =
+            Error{.code = ErrorCode::invalid_state, .offset = st.pos};
         return false;
     }
 
@@ -277,13 +282,15 @@ class SimpleReader {
           return close(st, TokenType::ArrayEnd, out);
         }
 
-        st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
+        st.last_error =
+            Error{.code = ErrorCode::unexpected_token, .offset = st.pos};
         return false;
 
       case StateType::Expect::key_or_end:
       case StateType::Expect::colon:
       case StateType::Expect::value:
-        st.last_error = Error{.code = ErrorCode::invalid_state, .offset = st.pos};
+        st.last_error =
+            Error{.code = ErrorCode::invalid_state, .offset = st.pos};
         return false;
     }
 
@@ -416,7 +423,8 @@ class SimpleReader {
 
       if (c == '\\') {
         if (st.pos >= st.input.size()) {
-          st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = st.pos};
+          st.last_error =
+              Error{.code = ErrorCode::unexpected_eof, .offset = st.pos};
           return false;
         }
 
@@ -424,7 +432,8 @@ class SimpleReader {
       }
     }
 
-    st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = quote_offset};
+    st.last_error =
+        Error{.code = ErrorCode::unexpected_eof, .offset = quote_offset};
     return false;
   }
 

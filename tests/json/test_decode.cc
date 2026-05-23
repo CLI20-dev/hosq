@@ -94,7 +94,7 @@ TEST(DecodeJson, StringAndIntFields) {
   const auto result =
       hosq::decode_into<Reader>(json, R"({"name":"John","id":123})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(json.name.value().value(), "John"sv);
   EXPECT_EQ(json.id.value().value(), 123);
 }
@@ -105,7 +105,7 @@ TEST(DecodeJson, FieldsInReverseOrder) {
   const auto result =
       hosq::decode_into<Reader>(json, R"({"age":30,"name":"Alice"})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(json.name.value().value(), "Alice"sv);
   EXPECT_EQ(json.age.value().value(), 30);
 }
@@ -116,8 +116,8 @@ TEST(DecodeJson, RejectsUnknownFields) {
   const auto result =
       hosq::decode_into<Reader>(json, R"({"name":"ignored","id":42})"sv);
 
-  ASSERT_FALSE(result.has_value());
-  EXPECT_EQ(result.error().code, hosq::ErrorCode::unknown_member);
+  ASSERT_FALSE(result.is_ok());
+  EXPECT_EQ(result.code, hosq::ErrorCode::unknown_member);
 }
 
 TEST(DecodeJson, WrongTopLevelTypeErrors) {
@@ -125,8 +125,8 @@ TEST(DecodeJson, WrongTopLevelTypeErrors) {
 
   const auto result = hosq::decode_into<Reader>(json, "[1,2,3]"sv);
 
-  ASSERT_FALSE(result.has_value());
-  EXPECT_EQ(result.error().code, hosq::ErrorCode::type_mismatch);
+  ASSERT_FALSE(result.is_ok());
+  EXPECT_EQ(result.code, hosq::ErrorCode::type_mismatch);
 }
 
 TEST(DecodeJson, SingleStringField) {
@@ -135,7 +135,7 @@ TEST(DecodeJson, SingleStringField) {
   const auto result =
       hosq::decode_into<Reader>(json, R"({"msg":"hello world"})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(json.msg.value().value(), "hello world"sv);
 }
 
@@ -144,7 +144,7 @@ TEST(DecodeJson, FloatField) {
 
   const auto result = hosq::decode_into<Reader>(json, R"({"ratio":3.14})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   EXPECT_DOUBLE_EQ(json.ratio.value().value(), 3.14);
 }
 
@@ -153,8 +153,8 @@ TEST(DecodeJson, OnceRejectsDuplicateMembers) {
 
   const auto result = hosq::decode_into<Reader>(json, R"({"id":1,"id":2})"sv);
 
-  ASSERT_FALSE(result.has_value());
-  EXPECT_EQ(result.error().code, hosq::ErrorCode::duplicate_member);
+  ASSERT_FALSE(result.is_ok());
+  EXPECT_EQ(result.code, hosq::ErrorCode::duplicate_member);
   ASSERT_TRUE(json.id.value().value().has_value());
   EXPECT_EQ(*json.id.value().value(), 1);
 }
@@ -164,7 +164,7 @@ TEST(DecodeJson, FirstWinsKeepsFirstDuplicateMember) {
 
   const auto result = hosq::decode_into<Reader>(json, R"({"id":1,"id":2})"sv);
 
-  ASSERT_TRUE(result.has_value());
+  ASSERT_TRUE(result.is_ok());
   ASSERT_TRUE(json.id.value().value().has_value());
   EXPECT_EQ(*json.id.value().value(), 1);
 }

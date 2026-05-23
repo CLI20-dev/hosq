@@ -2,6 +2,7 @@
 
 #include <functional>
 
+#include "hosq/detail/pipeline_analysis_io.hh"
 #include "hosq/reader_base.hh"
 #include "hosq/writer_base.hh"
 
@@ -9,22 +10,11 @@ namespace hosq {
 
 namespace detail {
 
-struct AnyContext {
-  AnyContext() = delete;
-};
-
-struct AnyEncodeContext {
-  AnyEncodeContext() = delete;
-};
-
-struct AnyDecodeContext {
-  AnyDecodeContext() = delete;
-};
-
 template <ReaderConcept R>
 struct DecodeContextBase {
   using reader_state_type = typename R::state_type;
   using input_type = typename R::input_type;
+  using reader_type = R;
 
  protected:
   explicit DecodeContextBase(R& reader, reader_state_type& state) noexcept
@@ -73,6 +63,7 @@ struct DecodeContext : private detail::DecodeContextBase<R> {
   friend struct DecodeContext;
 
   using base_type = detail::DecodeContextBase<R>;
+  using reader_type = typename base_type::reader_type;
   using reader_state_type = typename base_type::reader_state_type;
 
   static constexpr auto scan_phase = Phase;
@@ -94,12 +85,6 @@ struct DecodeContext : private detail::DecodeContextBase<R> {
     requires(Phase == TryPhase::normal && OtherPhase == TryPhase::first)
   /* implicit */ DecodeContext(DecodeContext<T, R, OtherPhase>& other) noexcept
       : base_type(other.reader(), other.reader_state()), elem_(other.elem()) {}
-
-  // Probe-only constructor.
-  // Declared but intentionally not defined.
-  // Used only in unevaluated requires expressions.
-  /* implicit */ DecodeContext(detail::AnyContext);
-  /* implicit */ DecodeContext(detail::AnyDecodeContext);
 
   [[nodiscard]]
   auto elem() noexcept -> T& {
@@ -131,6 +116,7 @@ struct DecodeContext<void, R, Phase> : private detail::DecodeContextBase<R> {
   friend struct DecodeContext;
 
   using base_type = detail::DecodeContextBase<R>;
+  using reader_type = typename base_type::reader_type;
   using reader_state_type = typename base_type::reader_state_type;
 
   static constexpr auto scan_phase = Phase;
@@ -153,12 +139,6 @@ struct DecodeContext<void, R, Phase> : private detail::DecodeContextBase<R> {
   /* implicit */ DecodeContext(
       DecodeContext<void, R, OtherPhase>& other) noexcept
       : base_type(other.reader(), other.reader_state()) {}
-
-  // Probe-only constructor.
-  // Declared but intentionally not defined.
-  // Used only in unevaluated requires expressions.
-  /* implicit */ DecodeContext(detail::AnyContext);
-  /* implicit */ DecodeContext(detail::AnyDecodeContext);
 };
 
 namespace detail {
@@ -196,12 +176,6 @@ struct EncodeContext : private detail::EncodeContextBase<W> {
 
   using base_type::writer;
 
-  // Probe-only constructor.
-  // Declared but intentionally not defined.
-  // Used only in unevaluated requires expressions.
-  /* implicit */ EncodeContext(detail::AnyContext);
-  /* implicit */ EncodeContext(detail::AnyEncodeContext);
-
   [[nodiscard]]
   auto arg() noexcept -> T& {
     return arg_.get();
@@ -231,12 +205,6 @@ struct EncodeContext<void, W> : private detail::EncodeContextBase<W> {
     requires(!std::same_as<T, void>)
   /* implicit */ EncodeContext(EncodeContext<T, W>& other) noexcept
       : base_type(other.writer()) {}
-
-  // Probe-only constructor.
-  // Declared but intentionally not defined.
-  // Used only in unevaluated requires expressions.
-  /* implicit */ EncodeContext(detail::AnyContext);
-  /* implicit */ EncodeContext(detail::AnyEncodeContext);
 };
 
 namespace detail {
@@ -249,6 +217,13 @@ auto make_decode_context_from_const(
 
   return DecodeContext<T, R, Phase>{value, mutable_other};
 }
+
+using PipelineDecodeAnalysisContext =
+    DecodeContext<PipelineAnalysisStorage, PipelineAnalysisReader,
+                  TryPhase::first>;
+
+using PipelineEncodeAnalysisContext =
+    EncodeContext<PipelineAnalysisStorage, PipelineAnalysisWriter>;
 
 }  // namespace detail
 

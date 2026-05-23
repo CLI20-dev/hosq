@@ -38,7 +38,7 @@ struct Elem {
 
   using decoder_info = detail::pipeline_analysis_t<
       detail::PipelineVerificationMode::at_most_one_storage,
-      detail::AnyDecodeContext, void, decoder_type>;
+      detail::PipelineDecodeAnalysisContext, void, decoder_type>;
   using storage_type = detail::pipeline_storage_t<decoder_info>;
   using decoder_terminal = detail::pipeline_terminal_t<decoder_info>;
 
@@ -50,8 +50,8 @@ struct Elem {
 
   using encoder_info =
       detail::pipeline_analysis_t<detail::PipelineVerificationMode::no_storage,
-                                  detail::AnyEncodeContext, storage_type,
-                                  encoder_type>;
+                                  detail::PipelineEncodeAnalysisContext,
+                                  storage_type, encoder_type>;
   using encoder_terminal = detail::pipeline_terminal_t<encoder_info>;
 
   static_assert(std::same_as<encoder_terminal, void>,

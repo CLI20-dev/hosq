@@ -277,7 +277,8 @@ class FastReader {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error =
+          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
       return false;
     }
 
@@ -326,7 +327,8 @@ class FastReader {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error =
+          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
       return false;
     }
     if (*p == ']') {
@@ -345,7 +347,8 @@ class FastReader {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error =
+          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
       return false;
     }
 
@@ -381,12 +384,14 @@ class FastReader {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error =
+          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
       return false;
     }
     if (*p != ':') [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = off(st, p)};
+      st.last_error =
+          Error{.code = ErrorCode::unexpected_token, .offset = off(st, p)};
       return false;
     }
     ++p;
@@ -408,7 +413,8 @@ class FastReader {
         out = make_tok(off(st, p), 0, TokenType::End, kNoneCtx);
         return true;
       }
-      st.last_error = Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error =
+          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
       return false;
     }
 
@@ -464,11 +470,7 @@ struct ReaderTraits<json::FastReader<MaxDepth>> {
   static constexpr bool is_binary_format = false;
 };
 
-template <std::size_t MaxDepth>
-struct has_lazy_token_resolution<json::FastReader<MaxDepth>> : std::true_type {};
-
 static_assert(ReaderConcept<json::FastReader<>>);
-static_assert(CheckpointableStateConcept<json::JsonFastReaderState<128>>);
 
 }  // namespace hosq
 

@@ -84,8 +84,8 @@ struct ScanLiteral {
 
 template <ReaderConcept R>
 struct ScanObject {
-  template <class T>
-  auto operator()(DecodeContext<T, R>& ctx) const -> ObjectView {
+  template <class T, TryPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> ObjectView {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
     if (!reader.next_token(state)) [[unlikely]] {
@@ -104,8 +104,8 @@ struct ScanObject {
 
 template <ReaderConcept R>
 struct ScanArray {
-  template <class T>
-  auto operator()(DecodeContext<T, R>& ctx) const -> ArrayView {
+  template <class T, TryPhase Phase>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> ArrayView {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
 

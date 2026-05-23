@@ -12,12 +12,25 @@ struct ScanObject;
 template <ReaderConcept R>
 struct ScanArray;
 
-};  // namespace ext
+}  // namespace ext
+
+namespace scan::detail {
+
+struct ScanObject;
+
+struct ScanArray;
+
+}  // namespace scan::detail
+
+template <auto... Fns>
+  requires(sizeof...(Fns) > 0)
+struct Pipeline;
 
 struct ObjectView final {
+  ~ObjectView() = default;
+
  protected:
   ObjectView() = default;
-  ~ObjectView() = default;
 
   ObjectView(const ObjectView&) = default;
   ObjectView(ObjectView&&) = default;
@@ -26,6 +39,11 @@ struct ObjectView final {
 
   template <ReaderConcept R>
   friend struct ::hosq::ext::ScanObject;
+  friend struct ::hosq::scan::detail::ScanObject;
+
+  template <auto... Fns>
+    requires(sizeof...(Fns) > 0)
+  friend struct Pipeline;
 };
 
 struct ArrayView final {
@@ -41,6 +59,11 @@ struct ArrayView final {
 
   template <ReaderConcept R>
   friend struct ::hosq::ext::ScanArray;
+  friend struct ::hosq::scan::detail::ScanArray;
+
+  template <auto... Fns>
+    requires(sizeof...(Fns) > 0)
+  friend struct Pipeline;
 };
 
 }  // namespace hosq

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cassert>
 #include <charconv>
 #include <concepts>
@@ -9,7 +10,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "hosq/error.hh"
 #include "hosq/pipeline.hh"
 
 namespace hosq::encode {
@@ -33,12 +33,16 @@ concept Number = (std::integral<std::remove_cvref_t<T>> &&
 template <Number T>
 struct NumberImpl {
   auto operator()(T value) const -> std::string {
-    char buffer[128]{};
-    auto* first = buffer;
-    auto* last = buffer + sizeof(buffer);
-    const auto result = std::to_chars(first, last, value);
+    // std::to_chars for integral and floating-point types writes into a
+    // caller-provided contiguous character buffer.
+    std::array<char, 128> buffer{};
+
+    const auto result =
+        std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+
     assert(result.ec == std::errc{});
-    return std::string{first, result.ptr};
+
+    return std::string{buffer.data(), result.ptr};
   }
 
   template <class U>
