@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(CXX_HOSQ_ENABLE_TEST "Enable building tests" OFF)
 option(CXX_HOSQ_ENABLE_MODULE "Enable the HOSQ module" OFF)
+option(CXX_HOSQ_ENABLE_ASSEMBLY "Enable assembly output targets" ON)
 
 option(CXX_HOSQ_ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
 if(CXX_HOSQ_ENABLE_CLANG_TIDY)
@@ -106,6 +107,10 @@ else()
 endif()
 
 add_subdirectory(examples)
+
+if(CXX_HOSQ_ENABLE_ASSEMBLY AND TARGET twitter_asm)
+  add_custom_target(hosq_asm DEPENDS twitter_asm)
+endif()
 
 if(CXX_HOSQ_ENABLE_TEST)
   enable_testing()

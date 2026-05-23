@@ -519,6 +519,7 @@ struct ScanString<hosq::json::FastReader<MaxDepth>> {
   using Reader = hosq::json::FastReader<MaxDepth>;
 
   template <class T, TryPhase Phase>
+    requires(Phase == TryPhase::first)
   HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
       const DecodeContext<T, Reader, Phase>& ctx) const -> std::string_view {
     auto& st = ctx.reader_state();
@@ -531,28 +532,40 @@ struct ScanString<hosq::json::FastReader<MaxDepth>> {
       return {};
     }
 
-    if (tok.length == unresolved_length) {
-      const char* const content = st.begin + tok.offset;
-      const char* p = content;
-      while (p < st.end) {
-        if (*p == '"') {
-          tok.length = static_cast<std::size_t>(p - content);
-          st.pos = p + 1;
-          return st.input_view.substr(tok.offset, tok.length);
-        }
-        if (*p == '\\') {
-          p += 2;
-          continue;
-        }
-        ++p;
+    const char* const content = st.begin + tok.offset;
+    const char* p = content;
+    while (p < st.end) {
+      if (*p == '"') {
+        tok.length = static_cast<std::size_t>(p - content);
+        st.pos = p + 1;
+        return std::string_view{st.begin + tok.offset, tok.length};
       }
-      st.last_error = {.code = ErrorCode::unexpected_eof,
-                       .offset = static_cast<std::size_t>(st.end - st.begin)};
+      if (*p == '\\') {
+        p += 2;
+        continue;
+      }
+      ++p;
+    }
+    st.last_error = {.code = ErrorCode::unexpected_eof,
+                     .offset = static_cast<std::size_t>(st.end - st.begin)};
+    return {};
+  }
+
+  template <class T>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
+      const DecodeContext<T, Reader, TryPhase::normal>& ctx) const
+      -> std::string_view {
+    auto& st = ctx.reader_state();
+    auto& tok = ctx.reader().current_token(st);
+
+    if (tok.type != TokenType::Scalar ||
+        tok.context != static_cast<std::uint8_t>(JsonTokenContext::string))
+        [[unlikely]] {
+      st.last_error = {.code = ErrorCode::type_mismatch, .offset = tok.offset};
       return {};
     }
-
     st.pos = st.begin + tok.offset + tok.length + 1;
-    return st.input_view.substr(tok.offset, tok.length);
+    return std::string_view{st.begin + tok.offset, tok.length};
   }
 };
 
@@ -564,6 +577,7 @@ struct ScanLiteral<hosq::json::FastReader<MaxDepth>> {
   using Reader = hosq::json::FastReader<MaxDepth>;
 
   template <class T, TryPhase Phase>
+    requires(Phase == TryPhase::first)
   HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
       const DecodeContext<T, Reader, Phase>& ctx) const -> std::string_view {
     const auto& st = ctx.reader_state();
@@ -576,21 +590,33 @@ struct ScanLiteral<hosq::json::FastReader<MaxDepth>> {
       return {};
     }
 
-    if (tok.length == unresolved_length) {
-      const char* const lit_start = st.begin + tok.offset;
-      const char* p = lit_start;
-      while (p < st.end) {
-        const auto c = static_cast<std::uint8_t>(*p);
-        if (c <= ' ' || c == ',' || c == '}' || c == ']' || c == ':') break;
-        ++p;
-      }
-      tok.length = static_cast<std::size_t>(p - lit_start);
-      st.pos = p;
-    } else {
-      st.pos = st.begin + tok.offset + tok.length;
+    const char* const lit_start = st.begin + tok.offset;
+    const char* p = lit_start;
+    while (p < st.end) {
+      const auto c = static_cast<std::uint8_t>(*p);
+      if (c <= ' ' || c == ',' || c == '}' || c == ']' || c == ':') break;
+      ++p;
     }
+    tok.length = static_cast<std::size_t>(p - lit_start);
+    st.pos = p;
+    return std::string_view{st.begin + tok.offset, tok.length};
+  }
 
-    return st.input_view.substr(tok.offset, tok.length);
+  template <class T>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
+      const DecodeContext<T, Reader, TryPhase::normal>& ctx) const
+      -> std::string_view {
+    const auto& st = ctx.reader_state();
+    const auto& tok = ctx.reader().current_token(st);
+
+    if (tok.type != TokenType::Scalar ||
+        tok.context != static_cast<std::uint8_t>(JsonTokenContext::literal))
+        [[unlikely]] {
+      st.last_error = {.code = ErrorCode::type_mismatch, .offset = tok.offset};
+      return {};
+    }
+    st.pos = st.begin + tok.offset + tok.length;
+    return std::string_view{st.begin + tok.offset, tok.length};
   }
 };
 

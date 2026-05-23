@@ -36,7 +36,7 @@ if(TARGET twitter)
   target_compile_definitions(twitter PRIVATE
       TWITTER_JSON_PATH="${TWITTER_JSON}")
 
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  if(CXX_HOSQ_ENABLE_ASSEMBLY AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     set(TWITTER_ASM_DIR "${CMAKE_CURRENT_BINARY_DIR}/asm")
     set(TWITTER_ASM_FILE "${TWITTER_ASM_DIR}/twitter.s")
     file(MAKE_DIRECTORY "${TWITTER_ASM_DIR}")
@@ -50,7 +50,7 @@ if(TARGET twitter)
               -DTWITTER_JSON_PATH="${TWITTER_JSON}"
               ${CMAKE_CURRENT_SOURCE_DIR}/twitter.cc
               -o ${TWITTER_ASM_FILE}
-      DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/twitter.cc" hosq
+      DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/twitter.cc" ${HOSQ_PUBLIC_HEADERS} hosq
       COMMENT "Generating assembly for twitter example"
       VERBATIM
     )

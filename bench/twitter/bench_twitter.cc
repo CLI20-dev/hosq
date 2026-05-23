@@ -63,7 +63,7 @@ using NumberField =
 
 struct UserSchema {
   Try<Entry<Key<"id"_literal>, NumberField<uint64_t>>> id;
-  SkipEntry _skip;
+  SkipEntry skip;
 };
 
 using UserField =
@@ -74,7 +74,7 @@ struct StatusSchema {
   Try<Entry<Key<"retweet_count"_literal>, NumberField<int>>> retweet_count;
   Try<Entry<Key<"favorite_count"_literal>, NumberField<int>>> favorite_count;
   Try<Entry<Key<"user"_literal>, UserField>> user;
-  SkipEntry _skip;
+  SkipEntry skip;
 };
 
 using StatusesField =
@@ -84,15 +84,15 @@ using StatusesField =
 
 struct TwitterSchema {
   Try<Entry<Key<"statuses"_literal>, StatusesField>> statuses;
-  SkipEntry _skip;
+  SkipEntry skip;
 };
 
 // ─── Shared JSON data ─────────────────────────────────────────────────────────
 
-std::string g_json;
+std::string g_json;  // NOLINT
 
 void load_json() {
-  std::ifstream f(TWITTER_JSON_PATH);
+  std::ifstream f(TWITTER_JSON_PATH);  // NOLINT
   g_json.assign(std::istreambuf_iterator<char>(f), {});
 }
 
@@ -105,7 +105,7 @@ struct Sums {
   int favorite{0};
 };
 
-Sums collect_hosq() {
+auto collect_hosq() -> Sums {
   TwitterSchema schema;
   const auto result = decode_into<Reader>(schema, std::string_view{g_json});
   if (!result.is_ok()) {
@@ -126,14 +126,13 @@ Sums collect_hosq() {
   return s;
 }
 
-Sums collect_hosq_fast() {
+auto collect_hosq_fast() -> Sums {
   using FastReader = hosq::json::FastReader<>;
   TwitterSchema schema;
   const auto result = decode_into<FastReader>(schema, std::string_view{g_json});
   if (!result.is_ok()) {
-    std::cerr << "hosq fast parse error: code="
-              << static_cast<int>(result.code) << " offset=" << result.offset
-              << "\n";
+    std::cerr << "hosq fast parse error: code=" << static_cast<int>(result.code)
+              << " offset=" << result.offset << "\n";
     return {};
   }
   Sums s;
@@ -146,7 +145,7 @@ Sums collect_hosq_fast() {
   return s;
 }
 
-Sums collect_yyjson() {
+auto collect_yyjson() -> Sums {
   yyjson_doc* doc = yyjson_read(g_json.data(), g_json.size(), 0);
   if (!doc) {
     std::cerr << "yyjson parse failed\n";
@@ -155,8 +154,8 @@ Sums collect_yyjson() {
   Sums s;
   yyjson_val* root = yyjson_doc_get_root(doc);
   yyjson_val* arr = yyjson_obj_get(root, "statuses");
-  size_t idx, max;
-  yyjson_val* st;
+  size_t idx = 0, max = 0;
+  yyjson_val* st = nullptr;
   yyjson_arr_foreach(arr, idx, max, st) {
     s.status_id += yyjson_get_uint(yyjson_obj_get(st, "id"));
     s.user_id +=
@@ -174,7 +173,7 @@ Sums collect_yyjson() {
 
 // ─── Benchmarks ───────────────────────────────────────────────────────────────
 
-static void BM_hosq_twitter(benchmark::State& state) {
+static void bm_hosq_twitter(benchmark::State& state) {
   for (auto _ : state) {
     TwitterSchema schema;
     const auto result = decode_into<Reader>(schema, std::string_view{g_json});
@@ -188,11 +187,12 @@ static void BM_hosq_twitter(benchmark::State& state) {
                           static_cast<int64_t>(g_json.size()));
 }
 
-static void BM_hosq_twitter_fast(benchmark::State& state) {
+static void bm_hosq_twitter_fast(benchmark::State& state) {
   using FastReader = hosq::json::FastReader<>;
   for (auto _ : state) {
     TwitterSchema schema;
-    const auto result = decode_into<FastReader>(schema, std::string_view{g_json});
+    const auto result =
+        decode_into<FastReader>(schema, std::string_view{g_json});
     benchmark::DoNotOptimize(schema);
     if (!result.is_ok()) {
       state.SkipWithError("hosq fast parse failed");
@@ -203,7 +203,7 @@ static void BM_hosq_twitter_fast(benchmark::State& state) {
                           static_cast<int64_t>(g_json.size()));
 }
 
-static void BM_yyjson_twitter(benchmark::State& state) {
+static void bm_yyjson_twitter(benchmark::State& state) {
   for (auto _ : state) {
     Sums s;
     yyjson_doc* doc = yyjson_read(g_json.data(), g_json.size(), 0);
@@ -213,13 +213,13 @@ static void BM_yyjson_twitter(benchmark::State& state) {
     }
     yyjson_val* root = yyjson_doc_get_root(doc);
     yyjson_val* arr = yyjson_obj_get(root, "statuses");
-    size_t idx, max;
-    yyjson_val* st;
+    size_t idx = 0, max = 0;
+    yyjson_val* st = nullptr;
     yyjson_arr_foreach(arr, idx, max, st) {
       bool has_id = false, has_retweet = false, has_favorite = false,
            has_user = false;
-      yyjson_val* key;
-      yyjson_val* val;
+      yyjson_val* key = nullptr;
+      yyjson_val* val = nullptr;
       yyjson_obj_iter iter;
       yyjson_obj_iter_init(st, &iter);
       while ((key = yyjson_obj_iter_next(&iter))) {
@@ -247,11 +247,11 @@ static void BM_yyjson_twitter(benchmark::State& state) {
                           static_cast<int64_t>(g_json.size()));
 }
 
-BENCHMARK(BM_yyjson_twitter);
-BENCHMARK(BM_hosq_twitter);
-BENCHMARK(BM_hosq_twitter_fast);
+BENCHMARK(bm_yyjson_twitter);
+BENCHMARK(bm_hosq_twitter);
+BENCHMARK(bm_hosq_twitter_fast);
 
-int main(int argc, char** argv) {
+auto main(int argc, char** argv) -> int {
   load_json();
 
   auto s1 = collect_hosq();
