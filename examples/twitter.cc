@@ -25,38 +25,6 @@ struct AnyBoolImpl {
 };
 constexpr auto any_bool = step<AnyBoolImpl>;
 
-struct SkipValueImpl {
-  template <class Input>
-  using storage_type = std::monostate;
-
-  template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const -> void {
-    auto& reader = ctx.reader();
-    auto& state = ctx.reader_state();
-    if constexpr (Phase == TryPhase::normal) {
-      if (!reader.next_token(state)) return;
-    }
-    const auto& tok = reader.current_token(state);
-    if (tok.type == TokenType::Scalar) return;
-    if (tok.type == TokenType::ObjectBegin ||
-        tok.type == TokenType::ArrayBegin) {
-      int depth = 1;
-      while (depth > 0) {
-        if (!reader.next_token(state)) return;
-        const auto& t = reader.current_token(state);
-        if (t.type == TokenType::ObjectBegin || t.type == TokenType::ArrayBegin)
-          ++depth;
-        else if (t.type == TokenType::ObjectEnd || t.type == TokenType::ArrayEnd)
-          --depth;
-      }
-      return;
-    }
-    reader.report_error(
-        state, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
-  }
-};
-constexpr auto skip_value = step<SkipValueImpl>;
-
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 struct UserSchema {
@@ -65,7 +33,7 @@ struct UserSchema {
                  noop_encoder>>>
       id;
   Try<Entry<Elem<scan::string | any_bool, noop_encoder>,
-            Elem<skip_value, noop_encoder>>>
+            Elem<decode::skip, noop_encoder>>>
       skip;
 };
 
@@ -88,7 +56,7 @@ struct StatusSchema {
       Elem<scan::object | decode::to<UserSchema> | store::assign, noop_encoder>>>
       user;
   Try<Entry<Elem<scan::string | any_bool, noop_encoder>,
-            Elem<skip_value, noop_encoder>>>
+            Elem<decode::skip, noop_encoder>>>
       _skip;
 };
 
@@ -101,7 +69,7 @@ struct TwitterSchema {
            noop_encoder>>>
       statuses;
   Try<Entry<Elem<scan::string | any_bool, noop_encoder>,
-            Elem<skip_value, noop_encoder>>>
+            Elem<decode::skip, noop_encoder>>>
       _skip;
 };
 
@@ -111,7 +79,7 @@ auto main(int argc, char** argv) -> int {
   using Reader = hosq::json::FastReader<>;
 
   const char* json_path = TWITTER_JSON_PATH;
-  int iterations = 1;
+  int iterations = 1000;
   if (argc >= 2) json_path = argv[1];
   if (argc >= 3) iterations = std::stoi(argv[2]);
 
@@ -123,11 +91,8 @@ auto main(int argc, char** argv) -> int {
     TwitterSchema s;
     const auto err = decode_into<Reader>(s, std::string_view{json});
     if (!err.is_ok()) {
-      std::cerr << "decode failed: code=" << static_cast<int>(err.code)
-                << " offset=" << err.offset << '\n';
       return 1;
     }
-    std::cout << "Parsed " << s.statuses.value().value().size() << " statuses\n";
   }
   return 0;
 }

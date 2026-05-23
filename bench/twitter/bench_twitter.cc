@@ -45,44 +45,6 @@ struct AnyBoolImpl {
 
 constexpr auto any_bool = step<AnyBoolImpl>;
 
-// Consumes any JSON value (scalar, object, or array) without storing it.
-struct SkipValueImpl {
-  template <class Input>
-  using storage_type = std::monostate;
-
-  template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const -> void {
-    auto& reader = ctx.reader();
-    auto& state = ctx.reader_state();
-
-    if constexpr (Phase == TryPhase::normal) {
-      if (!reader.next_token(state)) return;
-    }
-
-    const auto& tok = reader.current_token(state);
-    if (tok.type == TokenType::Scalar) {
-      return;
-    }
-    if (tok.type == TokenType::ObjectBegin ||
-        tok.type == TokenType::ArrayBegin) {
-      int depth = 1;
-      while (depth > 0) {
-        if (!reader.next_token(state)) return;
-        const auto& t = reader.current_token(state);
-        if (t.type == TokenType::ObjectBegin || t.type == TokenType::ArrayBegin)
-          ++depth;
-        else if (t.type == TokenType::ObjectEnd || t.type == TokenType::ArrayEnd)
-          --depth;
-      }
-      return;
-    }
-    reader.report_error(
-        state, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
-  }
-};
-
-constexpr auto skip_value = step<SkipValueImpl>;
-
 // ─── Schema aliases ───────────────────────────────────────────────────────────
 
 template <StringLiteral Name>
@@ -90,7 +52,7 @@ using Key = Elem<scan::string | match::literal<Name>, noop_encoder>;
 
 // Catch-all entry: matches any key, skips the associated value.
 using SkipKey = Elem<scan::string | any_bool, noop_encoder>;
-using SkipVal = Elem<skip_value, noop_encoder>;
+using SkipVal = Elem<decode::skip, noop_encoder>;
 using SkipEntry = Try<Entry<SkipKey, SkipVal>>;
 
 template <class T>

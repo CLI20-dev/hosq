@@ -515,6 +515,71 @@ struct StringViewImpl {
   }
 };
 
+struct SkipImpl {
+  template <class Input>
+  using storage_type = std::monostate;
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const std::string_view&,
+                  DecodeContext<Storage, R, Phase>&) const -> void {}
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ObjectView&,
+                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
+    skip_nested(ctx);
+  }
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ArrayView&,
+                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
+    skip_nested(ctx);
+  }
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  static auto skip_nested(DecodeContext<Storage, R, Phase>& ctx) -> void {
+    auto& reader = ctx.reader();
+    auto& state = ctx.reader_state();
+    int depth = 1;
+    while (depth > 0) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return;
+      }
+      const auto& tok = reader.current_token(state);
+      if (tok.type == TokenType::ObjectBegin ||
+          tok.type == TokenType::ArrayBegin) {
+        ++depth;
+      } else if (tok.type == TokenType::ObjectEnd ||
+                 tok.type == TokenType::ArrayEnd) {
+        --depth;
+      }
+    }
+  }
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const -> void {
+    auto& reader = ctx.reader();
+    auto& state = ctx.reader_state();
+    if constexpr (Phase == TryPhase::normal) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return;
+      }
+    }
+
+    const auto& tok = reader.current_token(state);
+    if (tok.type == TokenType::Scalar) {
+      return;
+    }
+    if (tok.type == TokenType::ObjectBegin) {
+      return skip_nested(ctx);
+    }
+    if (tok.type == TokenType::ArrayBegin) {
+      return skip_nested(ctx);
+    }
+    reader.report_error(
+        state, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+  }
+};
+
 template <class T>
   requires ::hosq::detail::DecoderAcceptableT<T>
 struct ToImpl {
@@ -565,6 +630,9 @@ inline constexpr auto boolean = step<detail::BooleanImpl>;
 /// Passes string_view through unchanged; escape resolution is left to the
 /// caller.
 inline constexpr auto string_view = step<detail::StringViewImpl>;
+
+/// Consumes the current JSON value without storing it.
+inline constexpr auto skip = step<detail::SkipImpl>;
 
 /// Passes any value through unchanged.
 inline constexpr auto identity = step<detail::IdentityImpl>;

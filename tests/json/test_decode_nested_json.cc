@@ -68,6 +68,18 @@ struct AddressEnvelope {
   hosq::Try<hosq::Entry<Key<"address">, AddressValue>> address;
 };
 
+struct UserWithSkip {
+  hosq::Try<hosq::Entry<Key<"id">, NumberValue<int>>> id;
+  hosq::Try<hosq::Entry<Key<"name">, StringValue>> name;
+  hosq::Try<hosq::Entry<hosq::Elem<hosq::scan::string | hosq::decode::custom<
+                                                      [](std::string_view) {
+                                                        return true;
+                                                      }>,
+                                   hosq::noop_encoder>,
+                        hosq::Elem<hosq::decode::skip, hosq::noop_encoder>>>
+      skip;
+};
+
 }  // namespace
 
 TEST(DecodeNestedJson, DecodesNestedObjectValue) {
@@ -146,4 +158,16 @@ TEST(DecodeNestedJson, NestedObjectTypeMismatch) {
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, hosq::ErrorCode::type_mismatch);
+}
+
+TEST(DecodeNestedJson, SkipIgnoresUnknownScalarObjectAndArrayValues) {
+  auto user = UserWithSkip{};
+
+  const auto result = hosq::decode_into<Reader>(
+      user,
+      R"({"ignored_scalar":1,"name":"Alice","ignored_object":{"a":[1,2,3]},"id":7,"ignored_array":[{"x":1},2,3]})"sv);
+
+  ASSERT_TRUE(result.is_ok());
+  EXPECT_EQ(user.id.value().value(), 7);
+  EXPECT_EQ(user.name.value().value(), "Alice"sv);
 }

@@ -3,7 +3,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <string_view>
 
 #include "hosq/context.hh"
@@ -92,7 +91,9 @@ class FastReader {
 
   FastReader() = default;
 
-  auto reset(state_type& st, input_type input) const noexcept -> void {
+  HOSQ_FUNCTION_ALWAYS_INLINE auto reset(state_type& st,
+                                         input_type input) const noexcept
+      -> void {
     st.begin = input.data();
     st.pos = input.data();
     st.end = input.data() + input.size();
@@ -109,7 +110,8 @@ class FastReader {
     };
   }
 
-  auto next_token(state_type& st) const noexcept -> bool {
+  HOSQ_FUNCTION_ALWAYS_INLINE auto next_token(state_type& st) const noexcept
+      -> bool {
     if (st.error_flag) [[unlikely]]
       return false;
     Token tok{};
@@ -131,8 +133,8 @@ class FastReader {
     }
   }
 
-  [[nodiscard]] auto current_token(const state_type& st) const noexcept
-      -> const Token& {
+  [[nodiscard]] HOSQ_FUNCTION_ALWAYS_INLINE auto current_token(
+      const state_type& st) const noexcept -> const Token& {
     if (st.error_flag) [[unlikely]]
       return st.error_token;
     return st.current;
@@ -140,25 +142,28 @@ class FastReader {
 
   // Mutable overload used by ext::ScanString/ScanLiteral specializations to
   // cache resolved lengths directly into the token.
-  [[nodiscard]] auto current_token(state_type& st) const noexcept -> Token& {
+  [[nodiscard]] HOSQ_FUNCTION_ALWAYS_INLINE auto current_token(
+      state_type& st) const noexcept -> Token& {
     if (st.error_flag) [[unlikely]]
       return st.error_token;
     return st.current;
   }
 
-  [[nodiscard]] auto error(const state_type& st) const noexcept -> Error {
+  [[nodiscard]] HOSQ_FUNCTION_ALWAYS_INLINE auto error(
+      const state_type& st) const noexcept -> Error {
     return st.last_error;
   }
 
-  [[nodiscard]] auto input(const state_type& st) const noexcept
-      -> const input_type& {
+  [[nodiscard]] HOSQ_FUNCTION_ALWAYS_INLINE auto input(
+      const state_type& st) const noexcept -> const input_type& {
     return st.input_view;
   }
 
   // Advances st.pos past the current scalar token without caching its length.
   // Called by the state machine when a Scalar was never scanned by an ext::
   // step.
-  auto resolve_skip(state_type& st) const noexcept -> bool {
+  HOSQ_FUNCTION_ALWAYS_INLINE auto resolve_skip(state_type& st) const noexcept
+      -> bool {
     if (st.current.length != unresolved_length) return true;
     if (st.current.context ==
         static_cast<std::uint8_t>(JsonTokenContext::string)) {
@@ -250,6 +255,7 @@ class FastReader {
     if (st.ctx_size > 0) --st.ctx_size;
   }
 
+  [[nodiscard]]
   HOSQ_FUNCTION_ALWAYS_INLINE auto in_object(const state_type& st) const noexcept
       -> bool {
     return st.ctx_size > 0 && st.ctx_stack[st.ctx_size - 1] == 1;
@@ -275,6 +281,7 @@ class FastReader {
 
   auto read_value(state_type& st, Token& out) const noexcept -> bool {
     const char* p = st.pos;
+
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
       st.last_error =
@@ -283,40 +290,62 @@ class FastReader {
     }
 
     const char c = *p;
-    const std::size_t o = off(st, p);
 
     if (c == '"') {
+      const auto o = off(st, p);
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p + 1;
-      out = lazy_scalar(o + 1, kStrCtx);
-      return true;
-    }
 
-    if (c == '{') {
-      if (!push_ctx(st, 1, o)) [[unlikely]]
-        return false;
-      st.expect = JsonFastExpect::key_or_end;
-      st.pos = p + 1;
-      out = make_tok(o, 1, TokenType::ObjectBegin, kNoneCtx);
-      return true;
-    }
-
-    if (c == '[') {
-      if (!push_ctx(st, 0, o)) [[unlikely]]
-        return false;
-      st.expect = JsonFastExpect::value_or_end;
-      st.pos = p + 1;
-      out = make_tok(o, 1, TokenType::ArrayBegin, kNoneCtx);
+      out.offset = o + 1;
+      out.length = unresolved_length;
+      out.type = TokenType::Scalar;
+      out.context = kStrCtx;
       return true;
     }
 
     if (is_num_start(c) || c == 't' || c == 'f' || c == 'n') {
+      const auto o = off(st, p);
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p;
-      out = lazy_scalar(o, kLitCtx);
+
+      out.offset = o;
+      out.length = unresolved_length;
+      out.type = TokenType::Scalar;
+      out.context = kLitCtx;
       return true;
     }
 
+    if (c == '{') {
+      const auto o = off(st, p);
+      if (!push_ctx(st, 1, o)) [[unlikely]] {
+        return false;
+      }
+      st.expect = JsonFastExpect::key_or_end;
+      st.pos = p + 1;
+
+      out.offset = o;
+      out.length = 1;
+      out.type = TokenType::ObjectBegin;
+      out.context = kNoneCtx;
+      return true;
+    }
+
+    if (c == '[') {
+      const auto o = off(st, p);
+      if (!push_ctx(st, 0, o)) [[unlikely]] {
+        return false;
+      }
+      st.expect = JsonFastExpect::value_or_end;
+      st.pos = p + 1;
+
+      out.offset = o;
+      out.length = 1;
+      out.type = TokenType::ArrayBegin;
+      out.context = kNoneCtx;
+      return true;
+    }
+
+    const auto o = off(st, p);
     st.pos = p;
     st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
     return false;
