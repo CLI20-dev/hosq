@@ -46,43 +46,38 @@ struct AnyBoolImpl {
 constexpr auto any_bool = step<AnyBoolImpl>;
 
 // Consumes any JSON value (scalar, object, or array) without storing it.
-// When Phase::first the caller has already advanced the reader to the value
-// token; when Phase::normal this step advances the reader itself first.
 struct SkipValueImpl {
   template <class Input>
   using storage_type = std::monostate;
 
-  // Probe overload used only for compile-time type deduction — never called.
-  auto operator()(detail::AnyDecodeContext) const -> Result<void, Error>;
-
-  template <class Storage, ReaderConcept R, ScanPhase Phase>
-  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const
-      -> Result<void, Error> {
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const -> void {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
 
-    if constexpr (Phase == ScanPhase::normal) {
-      if (!reader.next_token(state)) return unexpected(reader.error(state));
+    if constexpr (Phase == TryPhase::normal) {
+      if (!reader.next_token(state)) return;
     }
 
     const auto& tok = reader.current_token(state);
     if (tok.type == TokenType::Scalar) {
-      return {};
+      return;
     }
     if (tok.type == TokenType::ObjectBegin ||
         tok.type == TokenType::ArrayBegin) {
       int depth = 1;
       while (depth > 0) {
-        if (!reader.next_token(state)) return unexpected(reader.error(state));
+        if (!reader.next_token(state)) return;
         const auto& t = reader.current_token(state);
         if (t.type == TokenType::ObjectBegin || t.type == TokenType::ArrayBegin)
           ++depth;
         else if (t.type == TokenType::ObjectEnd || t.type == TokenType::ArrayEnd)
           --depth;
       }
-      return {};
+      return;
     }
-    return unexpected(Error{.code = ErrorCode::type_mismatch});
+    reader.report_error(
+        state, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
   }
 };
 
@@ -150,11 +145,10 @@ struct Sums {
 
 Sums collect_hosq() {
   TwitterSchema schema;
-  auto result = decode_into<Reader>(schema, std::string_view{g_json});
-  if (!result) {
-    std::cerr << "hosq parse error: code="
-              << static_cast<int>(result.error().code)
-              << " offset=" << result.error().offset << "\n";
+  const auto result = decode_into<Reader>(schema, std::string_view{g_json});
+  if (!result.is_ok()) {
+    std::cerr << "hosq parse error: code=" << static_cast<int>(result.code)
+              << " offset=" << result.offset << "\n";
     return {};
   }
   Sums s;
@@ -173,11 +167,11 @@ Sums collect_hosq() {
 Sums collect_hosq_fast() {
   using FastReader = hosq::json::FastReader<>;
   TwitterSchema schema;
-  auto result = decode_into<FastReader>(schema, std::string_view{g_json});
-  if (!result) {
+  const auto result = decode_into<FastReader>(schema, std::string_view{g_json});
+  if (!result.is_ok()) {
     std::cerr << "hosq fast parse error: code="
-              << static_cast<int>(result.error().code)
-              << " offset=" << result.error().offset << "\n";
+              << static_cast<int>(result.code) << " offset=" << result.offset
+              << "\n";
     return {};
   }
   Sums s;
@@ -221,9 +215,9 @@ Sums collect_yyjson() {
 static void BM_hosq_twitter(benchmark::State& state) {
   for (auto _ : state) {
     TwitterSchema schema;
-    auto result = decode_into<Reader>(schema, std::string_view{g_json});
+    const auto result = decode_into<Reader>(schema, std::string_view{g_json});
     benchmark::DoNotOptimize(schema);
-    if (!result) {
+    if (!result.is_ok()) {
       state.SkipWithError("hosq parse failed");
       break;
     }
@@ -236,9 +230,9 @@ static void BM_hosq_twitter_fast(benchmark::State& state) {
   using FastReader = hosq::json::FastReader<>;
   for (auto _ : state) {
     TwitterSchema schema;
-    auto result = decode_into<FastReader>(schema, std::string_view{g_json});
+    const auto result = decode_into<FastReader>(schema, std::string_view{g_json});
     benchmark::DoNotOptimize(schema);
-    if (!result) {
+    if (!result.is_ok()) {
       state.SkipWithError("hosq fast parse failed");
       break;
     }

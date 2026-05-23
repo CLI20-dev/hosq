@@ -121,7 +121,12 @@ auto main(int argc, char** argv) -> int {
 
   for (int i = 0; i < iterations; ++i) {
     TwitterSchema s;
-    if (!decode_into<Reader>(s, std::string_view{json})) return 1;
+    const auto err = decode_into<Reader>(s, std::string_view{json});
+    if (!err.is_ok()) {
+      std::cerr << "decode failed: code=" << static_cast<int>(err.code)
+                << " offset=" << err.offset << '\n';
+      return 1;
+    }
     std::cout << "Parsed " << s.statuses.value().value().size() << " statuses\n";
   }
   return 0;
