@@ -36,6 +36,27 @@ if(TARGET twitter)
   target_compile_definitions(twitter PRIVATE
       TWITTER_JSON_PATH="${TWITTER_JSON}")
 
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    set(TWITTER_ASM_DIR "${CMAKE_CURRENT_BINARY_DIR}/asm")
+    set(TWITTER_ASM_FILE "${TWITTER_ASM_DIR}/twitter.s")
+    file(MAKE_DIRECTORY "${TWITTER_ASM_DIR}")
+    add_custom_command(
+      OUTPUT "${TWITTER_ASM_FILE}"
+      COMMAND "${CMAKE_CXX_COMPILER}"
+              -S
+              -O2
+              -std=gnu++20
+              -I${CMAKE_CURRENT_SOURCE_DIR}/../include
+              -DTWITTER_JSON_PATH="${TWITTER_JSON}"
+              ${CMAKE_CURRENT_SOURCE_DIR}/twitter.cc
+              -o ${TWITTER_ASM_FILE}
+      DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/twitter.cc" hosq
+      COMMENT "Generating assembly for twitter example"
+      VERBATIM
+    )
+    add_custom_target(twitter_asm DEPENDS "${TWITTER_ASM_FILE}")
+  endif()
+
   # PGO instrumentation: build a separate instrumented variant when requested.
   option(HOSQ_EXAMPLES_PGO_INSTRUMENT
       "Build twitter_pgo_instr with -fprofile-instr-generate" OFF)

@@ -133,12 +133,24 @@ struct ScanScalar {
 
 struct ScanString {
   template <class T, ReaderConcept R, TryPhase Phase>
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
+      -> std::string_view {
+    return ext::ScanString<R>{}(ctx);
+  }
+
+  template <class T, ReaderConcept R, TryPhase Phase>
   auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view {
     return ext::ScanString<R>{}(ctx);
   }
 };
 
 struct ScanLiteral {
+  template <class T, ReaderConcept R, TryPhase Phase>
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
+      -> std::string_view {
+    return ext::ScanLiteral<R>{}(ctx);
+  }
+
   template <class T, ReaderConcept R, TryPhase Phase>
   auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view {
     return ext::ScanLiteral<R>{}(ctx);
