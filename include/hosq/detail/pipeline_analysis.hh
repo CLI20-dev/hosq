@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "hosq/detail/always_false.hh"
+#include "hosq/match_result.hh"
 
 namespace hosq {
 
@@ -47,12 +48,25 @@ struct NextStorage<Head, Input, Storage, true> {
 
 enum class PipelineVerificationMode : std::uint8_t {
   none,
-  exactly_one_storage,
+  at_most_one_storage,
   no_storage,
 };
 
+template <class T>
+struct PipelineAfter {
+  using type = std::remove_cvref_t<T>;
+};
+
+template <class T>
+struct PipelineAfter<::hosq::MatchResult<T>> {
+  using type = typename ::hosq::MatchResult<T>::value_type;
+};
+
+template <class T>
+using pipeline_after_t = typename PipelineAfter<std::remove_cvref_t<T>>::type;
+
 template <PipelineVerificationMode Mode, class ProbeContext, class Input,
-          class Storage, auto FnHead, auto... FnTail>
+          class Storage, bool UsesMatch, auto FnHead, auto... FnTail>
 constexpr auto analyze_pipeline_impl() {
   using Head = std::remove_cvref_t<decltype(FnHead)>;
   using Context = ProbeContext;
@@ -69,13 +83,13 @@ constexpr auto analyze_pipeline_impl() {
     static_assert(sizeof(detail::UnexpectedStorageType<Head, In>) == 0,
                   "Pipeline step must not define storage_type<Input>");
   }
-  if constexpr (Mode == PipelineVerificationMode::exactly_one_storage &&
+  if constexpr (Mode == PipelineVerificationMode::at_most_one_storage &&
                 (has_storage && !std::same_as<Storage, detail::NoStorage>)) {
     static_assert(sizeof(detail::DuplicateStorageType<Storage, Head, In>) == 0,
                   "Pipeline defines storage_type<Input> more than once");
   }
 
-  using after_type = typename decltype([]() -> auto {
+  using raw_after_type = typename decltype([]() -> auto {
     if constexpr (std::same_as<In, void> &&
                   requires(Context& ctx) { FnHead(ctx); }) {
       return std::type_identity<
@@ -99,17 +113,23 @@ constexpr auto analyze_pipeline_impl() {
           "when input is non-void.");
     }
   }())::type;
+  using clean_after_type = std::remove_cvref_t<raw_after_type>;
+  constexpr bool step_uses_match = detail::MatchResultT<clean_after_type>;
+  constexpr bool uses_match = UsesMatch || step_uses_match;
+  using after_type = detail::pipeline_after_t<raw_after_type>;
 
   if constexpr (sizeof...(FnTail) == 0) {
-    if constexpr (Mode == PipelineVerificationMode::exactly_one_storage) {
-      static_assert(!std::same_as<NextStorage, detail::NoStorage>,
-                    "Pipeline must define exactly one storage_type<Input>");
+    using terminal_type = std::conditional_t<step_uses_match, bool, after_type>;
+    if constexpr (uses_match) {
+      static_assert(
+          std::same_as<terminal_type, void> || std::same_as<terminal_type, bool>,
+          "Pipeline using MatchResult may only have void or bool terminal");
     }
     return std::make_tuple(true, std::type_identity<NextStorage>{},
-                           std::type_identity<after_type>{});
+                           std::type_identity<terminal_type>{});
   } else {
     return analyze_pipeline_impl<Mode, ProbeContext, after_type, NextStorage,
-                                 FnTail...>();
+                                 uses_match, FnTail...>();
   }
 }
 

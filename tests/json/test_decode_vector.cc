@@ -75,7 +75,7 @@ auto invoke_pipeline(Storage& storage, std::string_view input) {
   auto state = Reader::state_type{};
   reader.reset(state, input);
   auto ctx =
-      hosq::DecodeContext<Storage, Reader, hosq::ScanPhase::normal>{storage,
+      hosq::DecodeContext<Storage, Reader, hosq::TryPhase::normal>{storage,
                                                                     reader,
                                                                     state};
   return std::remove_cvref_t<decltype(Pipeline)>::invoke(ctx);
@@ -88,9 +88,9 @@ auto invoke_pipeline(std::string_view input) {
   reader.reset(state, input);
   auto scratch = int{};
   auto storage_ctx =
-      hosq::DecodeContext<int, Reader, hosq::ScanPhase::normal>{scratch, reader,
+      hosq::DecodeContext<int, Reader, hosq::TryPhase::normal>{scratch, reader,
                                                                 state};
-  auto ctx = hosq::DecodeContext<void, Reader, hosq::ScanPhase::normal>{
+  auto ctx = hosq::DecodeContext<void, Reader, hosq::TryPhase::normal>{
       storage_ctx};
   return std::remove_cvref_t<decltype(Pipeline)>::invoke(ctx);
 }

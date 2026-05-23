@@ -15,7 +15,7 @@ using ProbeReader = hosq::detail::PipelineProbeReader;
 
 template <class T>
 using ProbeContext =
-    hosq::DecodeContext<T, ProbeReader, hosq::ScanPhase::normal>;
+    hosq::DecodeContext<T, ProbeReader, hosq::TryPhase::normal>;
 
 template <class Step, class View, class... Args>
 concept StepCallable =
@@ -72,10 +72,10 @@ using ObjectCollectStep = hosq::decode::detail::CollectImpl<
 
 static_assert(
     !StepCallable<ArrayEachStep,
-                  hosq::ObjectView<ProbeReader, hosq::ScanPhase::normal>,
+                  hosq::ObjectView<ProbeReader, hosq::TryPhase::normal>,
                   ProbeContext<std::vector<int>>&>);
 static_assert(
     !StepCallable<ObjectCollectStep,
-                  hosq::ArrayView<ProbeReader, hosq::ScanPhase::normal>>);
+                  hosq::ArrayView<ProbeReader, hosq::TryPhase::normal>>);
 
 }  // namespace

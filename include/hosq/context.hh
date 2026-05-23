@@ -62,14 +62,14 @@ struct DecodeContextBase {
 
 }  // namespace detail
 
-enum class ScanPhase {
+enum class TryPhase {
   normal,
   first,
 };
 
-template <class T, ReaderConcept R, ScanPhase Phase = ScanPhase::normal>
+template <class T, ReaderConcept R, TryPhase Phase = TryPhase::normal>
 struct DecodeContext : private detail::DecodeContextBase<R> {
-  template <class, ReaderConcept, ScanPhase>
+  template <class, ReaderConcept, TryPhase>
   friend struct DecodeContext;
 
   using base_type = detail::DecodeContextBase<R>;
@@ -84,14 +84,14 @@ struct DecodeContext : private detail::DecodeContextBase<R> {
   explicit DecodeContext(T& value, R& reader, reader_state_type& state) noexcept
       : base_type(reader, state), elem_(value) {}
 
-  template <ScanPhase OtherPhase>
+  template <TryPhase OtherPhase>
     requires(Phase == OtherPhase)
   explicit DecodeContext(T& value,
                          DecodeContext<void, R, OtherPhase>& other) noexcept
       : base_type(other.reader(), other.reader_state()), elem_(value) {}
 
-  template <ScanPhase OtherPhase>
-    requires(Phase == ScanPhase::normal && OtherPhase == ScanPhase::first)
+  template <TryPhase OtherPhase>
+    requires(Phase == TryPhase::normal && OtherPhase == TryPhase::first)
   /* implicit */ DecodeContext(DecodeContext<T, R, OtherPhase>& other) noexcept
       : base_type(other.reader(), other.reader_state()), elem_(other.elem()) {}
 
@@ -125,9 +125,9 @@ struct DecodeContext : private detail::DecodeContextBase<R> {
   std::reference_wrapper<T> elem_;
 };
 
-template <ReaderConcept R, ScanPhase Phase>
+template <ReaderConcept R, TryPhase Phase>
 struct DecodeContext<void, R, Phase> : private detail::DecodeContextBase<R> {
-  template <class, ReaderConcept, ScanPhase>
+  template <class, ReaderConcept, TryPhase>
   friend struct DecodeContext;
 
   using base_type = detail::DecodeContextBase<R>;
@@ -139,14 +139,17 @@ struct DecodeContext<void, R, Phase> : private detail::DecodeContextBase<R> {
   using base_type::reader;
   using base_type::reader_state;
 
-  template <class T, ScanPhase OtherPhase>
+  explicit DecodeContext(R& reader, reader_state_type& state) noexcept
+      : base_type(reader, state) {}
+
+  template <class T, TryPhase OtherPhase>
     requires(!std::same_as<T, void> &&
-             (Phase == ScanPhase::normal || OtherPhase == ScanPhase::first))
+             (Phase == TryPhase::normal || OtherPhase == TryPhase::first))
   /* implicit */ DecodeContext(DecodeContext<T, R, OtherPhase>& other) noexcept
       : base_type(other.reader(), other.reader_state()) {}
 
-  template <ScanPhase OtherPhase>
-    requires(Phase == ScanPhase::normal && OtherPhase == ScanPhase::first)
+  template <TryPhase OtherPhase>
+    requires(Phase == TryPhase::normal && OtherPhase == TryPhase::first)
   /* implicit */ DecodeContext(
       DecodeContext<void, R, OtherPhase>& other) noexcept
       : base_type(other.reader(), other.reader_state()) {}
@@ -238,7 +241,7 @@ struct EncodeContext<void, W> : private detail::EncodeContextBase<W> {
 
 namespace detail {
 
-template <class T, ReaderConcept R, ScanPhase Phase>
+template <class T, ReaderConcept R, TryPhase Phase>
 auto make_decode_context_from_const(
     T& value, const DecodeContext<void, R, Phase>& other) noexcept {
   auto& mutable_other =

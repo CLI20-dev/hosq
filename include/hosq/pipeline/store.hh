@@ -7,12 +7,8 @@
 
 #include "hosq/error.hh"
 #include "hosq/pipeline.hh"
-#include "hosq/result.hh"
 
 namespace hosq::store {
-
-/// Marker type representing a deliberately ignored (not stored) decoder output.
-struct ignored {};
 
 namespace detail {
 
@@ -21,8 +17,8 @@ struct AssignImpl {
   using storage_type = std::remove_cvref_t<Input>;
 
   template <class Input, class Context>
-  auto operator()(Input value, Context& ctx) const -> void {
-    ctx.value() = std::move(value);
+  auto operator()(Input&& value, Context& ctx) const -> void {
+    ctx.value() = std::forward<Input>(value);
   }
 };
 
@@ -31,27 +27,17 @@ struct PushImpl {
   using storage_type = std::vector<std::remove_cvref_t<Input>>;
 
   template <class Input, class Context>
-  auto operator()(Input value, Context& ctx) const -> void {
-    ctx.value().push_back(std::move(value));
-  }
-};
-
-struct EmplaceImpl {
-  template <class Input>
-  using storage_type = std::vector<std::remove_cvref_t<Input>>;
-
-  template <class Input, class Context>
-  auto operator()(Input value, Context& ctx) const -> void {
-    ctx.value().emplace_back(std::move(value));
+  auto operator()(Input&& value, Context& ctx) const -> void {
+    ctx.value().push_back(std::forward<Input>(value));
   }
 };
 
 struct IgnoreImpl {
   template <class Input>
-  using storage_type = ignored;
+  using storage_type = std::monostate;
 
   template <class T>
-  auto operator()(T) const -> void {}
+  auto operator()(const T&) const -> void {}
 };
 
 struct OnceImpl {
@@ -59,12 +45,17 @@ struct OnceImpl {
   using storage_type = std::optional<std::remove_cvref_t<Input>>;
 
   template <class Input, class Context>
-  auto operator()(Input value, Context& ctx) const -> Result<void, Error> {
+  auto operator()(Input&& value, Context& ctx) const -> void {
     if (ctx.value().has_value()) [[unlikely]] {
-      return unexpected(Error{.code = ErrorCode::duplicate_member});
+      ctx.reader().report_error(
+          ctx.reader_state(),
+          Error{
+              .code = ErrorCode::duplicate_member,
+              .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+          });
+      return;
     }
-    ctx.value() = std::move(value);
-    return {};
+    ctx.value() = std::forward<Input>(value);
   }
 };
 
@@ -73,22 +64,11 @@ struct FirstWinsImpl {
   using storage_type = std::optional<std::remove_cvref_t<Input>>;
 
   template <class Input, class Context>
-  auto operator()(Input value, Context& ctx) const -> void {
+  auto operator()(Input&& value, Context& ctx) const -> void {
     if (ctx.value().has_value()) {
       return;
     }
-
-    ctx.value() = std::move(value);
-  }
-};
-
-struct OverwriteImpl {
-  template <class Input>
-  using storage_type = std::remove_cvref_t<Input>;
-
-  template <class Input, class Context>
-  auto operator()(Input value, Context& ctx) const -> void {
-    ctx.value() = std::move(value);
+    ctx.value() = std::forward<Input>(value);
   }
 };
 
@@ -100,9 +80,6 @@ inline constexpr auto assign = step<detail::AssignImpl>;
 /// Appends the decoded value via push_back; storage_type<T> = std::vector<T>.
 inline constexpr auto push = step<detail::PushImpl>;
 
-/// Appends the decoded value via emplace_back; storage_type<T> = std::vector<T>.
-inline constexpr auto emplace = step<detail::EmplaceImpl>;
-
 /// Discards the decoded value; storage_type<T> = ignored.
 inline constexpr auto ignore = step<detail::IgnoreImpl>;
 
@@ -112,9 +89,5 @@ inline constexpr auto once = step<detail::OnceImpl>;
 
 /// Stores the decoded value once; later occurrences are consumed and ignored.
 inline constexpr auto first_wins = step<detail::FirstWinsImpl>;
-
-/// Stores the decoded value, allowing later occurrences to overwrite earlier
-/// ones.
-inline constexpr auto overwrite = step<detail::OverwriteImpl>;
 
 }  // namespace hosq::store

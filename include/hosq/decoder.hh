@@ -62,7 +62,7 @@ class Decoder {
     return decode_impl(t);
   }
 
-  template <detail::ElemT T, ScanPhase Phase = ScanPhase::normal>
+  template <detail::ElemT T, TryPhase Phase = TryPhase::normal>
   [[nodiscard]]
   static auto make_decode_context(T& t, R& reader, reader_state_type& state) {
     return DecodeContext<typename T::storage_type, R, Phase>{t.value(), reader,
@@ -201,8 +201,8 @@ class Decoder {
         return ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
           auto& elem = std::get<I>(tuple);
           using elem_type = std::remove_cvref_t<decltype(elem)>;
-          auto ctx = make_decode_context<elem_type, I == 0 ? ScanPhase::first
-                                                           : ScanPhase::normal>(
+          auto ctx = make_decode_context<elem_type, I == 0 ? TryPhase::first
+                                                           : TryPhase::normal>(
               elem, reader_, reader_state_);
           using context_type = decltype(ctx);
           if constexpr (elem_type::template decoder_const_invokable<
@@ -277,8 +277,8 @@ class Decoder {
           auto& entry = std::get<I>(tuple);
 
           // Some useful type aliases here
-          static constexpr ScanPhase phase =
-              I == 0 ? ScanPhase::first : ScanPhase::normal;
+          static constexpr TryPhase phase =
+              I == 0 ? TryPhase::first : TryPhase::normal;
           using entry_type = std::remove_cvref_t<decltype(entry)>;
 
           using key_elem_type = entry_type::key_type;
@@ -298,7 +298,7 @@ class Decoder {
           using value_elem_type = entry_type::value_type;
           using value_elem_value_type = typename value_elem_type::storage_type;
           using value_elem_context_type =
-              DecodeContext<value_elem_value_type, R, ScanPhase::first>;
+              DecodeContext<value_elem_value_type, R, TryPhase::first>;
           static constexpr bool value_is_const_decodable =
               value_elem_type::template decoder_const_invokable<
                   value_elem_context_type>;
@@ -326,7 +326,7 @@ class Decoder {
               // Then try to decode the value.
               auto& value_elem = entry.value();
               auto value_ctx =
-                  make_decode_context<value_elem_type, ScanPhase::first>(
+                  make_decode_context<value_elem_type, TryPhase::first>(
                       value_elem, reader_, reader_state_);
               auto ret = value_elem.decode(value_ctx);
               if (!ret) {
@@ -341,7 +341,7 @@ class Decoder {
               // Then try to decode the value.
               auto& value_elem = entry.value();
               auto value_ctx =
-                  make_decode_context<value_elem_type, ScanPhase::first>(
+                  make_decode_context<value_elem_type, TryPhase::first>(
                       value_elem, reader_, reader_state_);
               value_elem.decode(value_ctx);
               return true;
@@ -365,7 +365,7 @@ class Decoder {
             // Then try to decode the value.
             auto& value_elem = entry.value();
             auto value_ctx =
-                make_decode_context<value_elem_type, ScanPhase::first>(
+                make_decode_context<value_elem_type, TryPhase::first>(
                     value_elem, reader_, reader_state_);
             {
               if constexpr (std::same_as<value_elem_raw_result_type, bool>) {

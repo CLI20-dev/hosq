@@ -85,6 +85,14 @@ struct Pipeline {
                                                             Input>;
   }
 
+  template <class Input, class Context>
+  using info =
+      detail::pipeline_analysis_t<::hosq::detail::PipelineVerificationMode::none,
+                                  Context, Input, Pipeline<Fns...>>;
+
+  template <class Input, class Context>
+  using final_output_type = typename info<Input, Context>::final_output_type;
+
   /**
    * @brief Invokes this pipeline from an explicit input value using a mutable
    * context.
@@ -131,7 +139,30 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(std::move(input), ctx);
         } else {
-          return Fn(std::move(input), ctx), Pipeline<FnTail...>::invoke(ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Fn(std::move(input), ctx), Pipe::invoke(ctx);
+        }
+      }
+      // 2. Fn(input, ctx) -> MatchResult
+      else if constexpr (  //
+          requires(Input i, Context& c) {
+            { Fn(std::move(i), c) } -> detail::MatchResultT;
+          }) {
+        if constexpr (last_function) {
+          return bool(Fn(std::move(input), ctx));
+        } else {
+          using Pipe = Pipeline<FnTail...>;
+          auto ret = Fn(std::move(input), ctx);
+          if (!ret) {
+            return false;
+          }
+          if constexpr (  //
+              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
+            Pipe::invoke(*ret, ctx);
+            return true;
+          } else {
+            return Pipe::invoke(*ret, ctx);
+          }
         }
       }
       // 3. Fn(input, ctx) -> AfterType
@@ -142,10 +173,11 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(std::move(input), ctx);
         } else {
-          return Pipeline<FnTail...>::invoke(Fn(std::move(input), ctx), ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Pipe::invoke(Fn(std::move(input), ctx), ctx);
         }
       }
-      // 3. Fn(input) -> void
+      // 4. Fn(input) -> void
       else if constexpr (  //
           requires(Input i) {
             { Fn(std::move(i)) } -> std::same_as<void>;
@@ -153,7 +185,30 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(std::move(input));
         } else {
-          return Fn(std::move(input)), Pipeline<FnTail...>::invoke(ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Fn(std::move(input)), Pipe::invoke(ctx);
+        }
+      }
+      // 5. Fn(input) -> MatchResult
+      else if constexpr (  //
+          requires(Input i) {
+            { Fn(std::move(i)) } -> detail::MatchResultT;
+          }) {
+        if constexpr (last_function) {
+          return bool(Fn(std::move(input)));
+        } else {
+          using Pipe = Pipeline<FnTail...>;
+          auto ret = Fn(std::move(input));
+          if (!ret) {
+            return false;
+          }
+          if constexpr (  //
+              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
+            Pipe::invoke(*ret, ctx);
+            return true;
+          } else {
+            return Pipe::invoke(*ret, ctx);
+          }
         }
       }
       // 6. Fn(input) -> AfterType
@@ -164,7 +219,8 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(std::move(input));
         } else {
-          return Pipeline<FnTail...>::invoke(Fn(std::move(input)), ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Pipe::invoke(Fn(std::move(input)), ctx);
         }
       } else {
         static_assert(
@@ -223,7 +279,30 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(std::move(input), ctx);
         } else {
-          return Fn(std::move(input), ctx), Pipeline<FnTail...>::invoke(ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Fn(std::move(input), ctx), Pipe::invoke(ctx);
+        }
+      }
+      // 2. Fn(input, ctx) -> MatchResult
+      else if constexpr (  //
+          requires(Input i, const Context& c) {
+            { Fn(std::move(i), c) } -> detail::MatchResultT;
+          }) {
+        if constexpr (last_function) {
+          return bool(Fn(std::move(input), ctx));
+        } else {
+          using Pipe = Pipeline<FnTail...>;
+          auto ret = Fn(std::move(input), ctx);
+          if (!ret) {
+            return false;
+          }
+          if constexpr (  //
+              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
+            Pipe::invoke(*ret, ctx);
+            return true;
+          } else {
+            return Pipe::invoke(*ret, ctx);
+          }
         }
       }
       // 3. Fn(input, ctx) -> AfterType
@@ -234,7 +313,8 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(std::move(input), ctx);
         } else {
-          return Pipeline<FnTail...>::invoke(Fn(std::move(input), ctx), ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Pipe::invoke(Fn(std::move(input), ctx), ctx);
         }
       }
       // 4. Fn(input) -> void
@@ -245,7 +325,30 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(std::move(input));
         } else {
-          return Fn(std::move(input)), Pipeline<FnTail...>::invoke(ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Fn(std::move(input)), Pipe::invoke(ctx);
+        }
+      }
+      // 5. Fn(input) -> MatchResult
+      else if constexpr (  //
+          requires(Input i) {
+            { Fn(std::move(i)) } -> detail::MatchResultT;
+          }) {
+        if constexpr (last_function) {
+          return bool(Fn(std::move(input)));
+        } else {
+          using Pipe = Pipeline<FnTail...>;
+          auto ret = Fn(std::move(input));
+          if (!ret) {
+            return false;
+          }
+          if constexpr (  //
+              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
+            Pipe::invoke(*ret, ctx);
+            return true;
+          } else {
+            return Pipe::invoke(*ret, ctx);
+          }
         }
       }
       // 6. Fn(input) -> AfterType
@@ -256,7 +359,8 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(std::move(input));
         } else {
-          return Pipeline<FnTail...>::invoke(Fn(std::move(input)), ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Pipe::invoke(Fn(std::move(input)), ctx);
         }
       } else {
         static_assert(
@@ -303,7 +407,7 @@ struct Pipeline {
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
 
-      // 1. Fn(ctx) -> void
+      // 1. Fn(input, ctx) -> void
       if constexpr (  //
           requires(Context& c) {
             { Fn(c) } -> std::same_as<void>;
@@ -311,10 +415,33 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(ctx);
         } else {
-          return Fn(ctx), Pipeline<FnTail...>::invoke(ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Fn(ctx), Pipe::invoke(ctx);
         }
       }
-      // 3. Fn(ctx) -> AfterType
+      // 2. Fn(input, ctx) -> MatchResult
+      else if constexpr (  //
+          requires(Context& c) {
+            { Fn(c) } -> detail::MatchResultT;
+          }) {
+        if constexpr (last_function) {
+          return bool(Fn(ctx));
+        } else {
+          using Pipe = Pipeline<FnTail...>;
+          auto ret = Fn(ctx);
+          if (!ret) {
+            return false;
+          }
+          if constexpr (  //
+              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
+            Pipe::invoke(*ret, ctx);
+            return true;
+          } else {
+            return Pipe::invoke(*ret, ctx);
+          }
+        }
+      }
+      // 3. Fn(input, ctx) -> AfterType
       else if constexpr (  //
           requires(Context& c) {
             { Fn(c) };
@@ -322,10 +449,11 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(ctx);
         } else {
-          return Pipeline<FnTail...>::invoke(Fn(ctx), ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Pipe::invoke(Fn(ctx), ctx);
         }
       }
-      // 4. Fn() -> void
+      // 4. Fn(input) -> void
       else if constexpr (  //
           requires() {
             { Fn() } -> std::same_as<void>;
@@ -333,10 +461,33 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn();
         } else {
-          return Fn(), Pipeline<FnTail...>::invoke(ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Fn(), Pipe::invoke(ctx);
         }
       }
-      // 6. Fn() -> AfterType
+      // 5. Fn(input) -> MatchResult
+      else if constexpr (  //
+          requires() {
+            { Fn() } -> detail::MatchResultT;
+          }) {
+        if constexpr (last_function) {
+          return bool(Fn());
+        } else {
+          using Pipe = Pipeline<FnTail...>;
+          auto ret = Fn();
+          if (!ret) {
+            return false;
+          }
+          if constexpr (  //
+              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
+            Pipe::invoke(*ret, ctx);
+            return true;
+          } else {
+            return Pipe::invoke(*ret, ctx);
+          }
+        }
+      }
+      // 6. Fn(input) -> AfterType
       else if constexpr (  //
           requires() {
             { Fn() };
@@ -344,15 +495,16 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn();
         } else {
-          return Pipeline<FnTail...>::invoke(Fn(), ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Pipe::invoke(Fn(), ctx);
         }
       } else {
         static_assert(
             detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<void> is non-void, "
+            "Pipeline step return type mismatch: after_type<Input> is non-void, "
             "so the step must be callable as one of: "
-            "Fn(ctx) -> after_type<void>, "
-            "Fn() -> after_type<void>, ");
+            "Fn(input, ctx) -> after_type<Input>, "
+            "Fn(input) -> after_type<Input>, ");
       }
     }.template operator()<Fns...>(ctx);
   };
@@ -388,12 +540,12 @@ struct Pipeline {
   [[nodiscard]]
   HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(const Context& ctx) {
     return []<auto FnHead, auto... FnTail>(
-               const Context& ctx) HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+               const Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
 
-      // 1. Fn(ctx) -> void
+      // 1. Fn(input, ctx) -> void
       if constexpr (  //
           requires(const Context& c) {
             { Fn(c) } -> std::same_as<void>;
@@ -401,10 +553,33 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(ctx);
         } else {
-          return Fn(ctx), Pipeline<FnTail...>::invoke(ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Fn(ctx), Pipe::invoke(ctx);
         }
       }
-      // 3. Fn(ctx) -> AfterType
+      // 2. Fn(input, ctx) -> MatchResult
+      else if constexpr (  //
+          requires(const Context& c) {
+            { Fn(c) } -> detail::MatchResultT;
+          }) {
+        if constexpr (last_function) {
+          return bool(Fn(ctx));
+        } else {
+          using Pipe = Pipeline<FnTail...>;
+          auto ret = Fn(ctx);
+          if (!ret) {
+            return false;
+          }
+          if constexpr (  //
+              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
+            Pipe::invoke(*ret, ctx);
+            return true;
+          } else {
+            return Pipe::invoke(*ret, ctx);
+          }
+        }
+      }
+      // 3. Fn(input, ctx) -> AfterType
       else if constexpr (  //
           requires(const Context& c) {
             { Fn(c) };
@@ -412,10 +587,11 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn(ctx);
         } else {
-          return Pipeline<FnTail...>::invoke(Fn(ctx), ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Pipe::invoke(Fn(ctx), ctx);
         }
       }
-      // 4. Fn() -> void
+      // 4. Fn(input) -> void
       else if constexpr (  //
           requires() {
             { Fn() } -> std::same_as<void>;
@@ -423,10 +599,33 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn();
         } else {
-          return Fn(), Pipeline<FnTail...>::invoke(ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Fn(), Pipe::invoke(ctx);
         }
       }
-      // 6. Fn() -> AfterType
+      // 5. Fn(input) -> MatchResult
+      else if constexpr (  //
+          requires() {
+            { Fn() } -> detail::MatchResultT;
+          }) {
+        if constexpr (last_function) {
+          return bool(Fn());
+        } else {
+          using Pipe = Pipeline<FnTail...>;
+          auto ret = Fn();
+          if (!ret) {
+            return false;
+          }
+          if constexpr (  //
+              std::same_as<decltype(Pipe::invoke(*ret, ctx)), void>) {
+            Pipe::invoke(*ret, ctx);
+            return true;
+          } else {
+            return Pipe::invoke(*ret, ctx);
+          }
+        }
+      }
+      // 6. Fn(input) -> AfterType
       else if constexpr (  //
           requires() {
             { Fn() };
@@ -434,15 +633,16 @@ struct Pipeline {
         if constexpr (last_function) {
           return Fn();
         } else {
-          return Pipeline<FnTail...>::invoke(Fn(), ctx);
+          using Pipe = Pipeline<FnTail...>;
+          return Pipe::invoke(Fn(), ctx);
         }
       } else {
         static_assert(
             detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<void> is non-void, "
+            "Pipeline step return type mismatch: after_type<Input> is non-void, "
             "so the step must be callable as one of: "
-            "Fn(ctx) -> after_type<void>, "
-            "Fn() -> after_type<void>, ");
+            "Fn(input, ctx) -> after_type<Input>, "
+            "Fn(input) -> after_type<Input>, ");
       }
     }.template operator()<Fns...>(ctx);
   };

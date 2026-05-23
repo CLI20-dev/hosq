@@ -18,12 +18,12 @@ struct Entry {
   using value_type = Value;
   using key_type = Key;
 
-  template <class R, ScanPhase Phase>
+  template <class R, TryPhase Phase>
   static constexpr bool key_decoder_const_invokable =
       Key::template decoder_const_invokable<
           DecodeContext<typename Key::storage_type, R, Phase>>;
 
-  template <class R, ScanPhase Phase>
+  template <class R, TryPhase Phase>
   static constexpr bool value_decoder_const_invokable =
       Value::template decoder_const_invokable<
           DecodeContext<typename Value::storage_type, R, Phase>>;

@@ -73,17 +73,4 @@ struct ReaderTraits {
 template <class R>
 using reader_traits_t = ReaderTraits<std::remove_cvref_t<R>>;
 
-/// Opt-in trait for readers that emit scalar tokens with `length =
-/// unresolved_length`. Specialize to `std::true_type` for readers that resolve
-/// lengths lazily via mutable `ext::ScanString` / `ext::ScanLiteral` overloads.
-/// When true, the const overloads of `scan::string` and `scan::literal` are
-/// disabled, making key decoders non-const-invokable so that partial checkpoints
-/// are taken instead of full state copies.
-template <class R>
-struct HasLazyTokenResolution : std::false_type {};
-
-template <class R>
-inline constexpr bool has_lazy_token_resolution_v =
-    HasLazyTokenResolution<std::remove_cvref_t<R>>::value;
-
 }  // namespace hosq

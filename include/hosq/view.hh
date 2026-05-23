@@ -1,93 +1,46 @@
 #pragma once
 
-#include <functional>
-#include <string_view>
-
-#include "hosq/context.hh"
+#include "hosq/reader_base.hh"
 
 namespace hosq {
 
-namespace detail {
+namespace ext {
 
-struct PipelineProbeReader {
-  using input_type = std::string_view;
+template <ReaderConcept R>
+struct ScanObject;
 
-  struct state_type {};
+template <ReaderConcept R>
+struct ScanArray;
 
-  auto reset(state_type&, input_type) -> void {}
+};  // namespace ext
 
-  auto next_token(state_type&) -> bool { return false; }
+struct ObjectView final {
+ protected:
+  ObjectView() = default;
+  ~ObjectView() = default;
 
-  auto error(const state_type&) const -> Error { return {}; }
+  ObjectView(const ObjectView&) = default;
+  ObjectView(ObjectView&&) = default;
+  auto operator=(const ObjectView&) -> ObjectView& = default;
+  auto operator=(ObjectView&&) -> ObjectView& = default;
 
-  auto current_token(const state_type&) const -> const Token& {
-    static constexpr auto token =
-        Token{.offset = 0, .length = 0, .type = TokenType::End, .context = 0};
-    return token;
-  }
-
-  auto input(const state_type&) const -> const input_type& {
-    static constexpr auto empty = std::string_view{};
-    return empty;
-  }
+  template <ReaderConcept R>
+  friend struct ::hosq::ext::ScanObject;
 };
 
-static_assert(ReaderConcept<PipelineProbeReader>);
+struct ArrayView final {
+  ~ArrayView() = default;
 
-}  // namespace detail
+ protected:
+  ArrayView() = default;
 
-template <ReaderConcept R, ScanPhase Phase>
-struct ObjectView {
-  using reader_type = R;
-  using reader_state_type = typename R::state_type;
+  ArrayView(const ArrayView&) = default;
+  ArrayView(ArrayView&&) = default;
+  auto operator=(const ArrayView&) -> ArrayView& = default;
+  auto operator=(ArrayView&&) -> ArrayView& = default;
 
-  static constexpr auto scan_phase = Phase;
-
-  explicit ObjectView(R& reader, reader_state_type& state) noexcept
-      : reader_(reader), reader_state_(state) {}
-
-  [[nodiscard]] auto reader() noexcept -> R& { return reader_.get(); }
-  [[nodiscard]] auto reader() const noexcept -> const R& {
-    return reader_.get();
-  }
-
-  [[nodiscard]] auto reader_state() noexcept -> reader_state_type& {
-    return reader_state_.get();
-  }
-  [[nodiscard]] auto reader_state() const noexcept -> const reader_state_type& {
-    return reader_state_.get();
-  }
-
- private:
-  std::reference_wrapper<R> reader_;
-  std::reference_wrapper<reader_state_type> reader_state_;
-};
-
-template <ReaderConcept R, ScanPhase Phase>
-struct ArrayView {
-  using reader_type = R;
-  using reader_state_type = typename R::state_type;
-
-  static constexpr auto scan_phase = Phase;
-
-  explicit ArrayView(R& reader, reader_state_type& state) noexcept
-      : reader_(reader), reader_state_(state) {}
-
-  [[nodiscard]] auto reader() noexcept -> R& { return reader_.get(); }
-  [[nodiscard]] auto reader() const noexcept -> const R& {
-    return reader_.get();
-  }
-
-  [[nodiscard]] auto reader_state() noexcept -> reader_state_type& {
-    return reader_state_.get();
-  }
-  [[nodiscard]] auto reader_state() const noexcept -> const reader_state_type& {
-    return reader_state_.get();
-  }
-
- private:
-  std::reference_wrapper<R> reader_;
-  std::reference_wrapper<reader_state_type> reader_state_;
+  template <ReaderConcept R>
+  friend struct ::hosq::ext::ScanArray;
 };
 
 }  // namespace hosq

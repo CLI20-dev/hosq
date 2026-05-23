@@ -29,12 +29,12 @@ struct SkipValueImpl {
 
   auto operator()(detail::AnyDecodeContext) const -> Result<void, Error>;
 
-  template <class Storage, ReaderConcept R, ScanPhase Phase>
+  template <class Storage, ReaderConcept R, TryPhase Phase>
   auto operator()(DecodeContext<Storage, R, Phase>& ctx) const
       -> Result<void, Error> {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
-    if constexpr (Phase == ScanPhase::normal) {
+    if constexpr (Phase == TryPhase::normal) {
       if (!reader.next_token(state)) return unexpected(reader.error(state));
     }
     const auto& tok = reader.current_token(state);

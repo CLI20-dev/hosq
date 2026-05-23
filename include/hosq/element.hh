@@ -37,10 +37,16 @@ struct Elem {
   using encoder_type = std::remove_cvref_t<decltype(Encoder)>;
 
   using decoder_info = detail::pipeline_analysis_t<
-      detail::PipelineVerificationMode::exactly_one_storage,
+      detail::PipelineVerificationMode::at_most_one_storage,
       detail::AnyDecodeContext, void, decoder_type>;
   using storage_type = detail::pipeline_storage_t<decoder_info>;
   using decoder_terminal = detail::pipeline_terminal_t<decoder_info>;
+
+  static_assert(
+      !(std::same_as<decoder_terminal, void> &&
+        std::same_as<storage_type, detail::NoStorage>),
+      "Decoder pipeline with void terminal must declare a storage_type<Input>; "
+      "a no-storage decoder pipeline must have bool terminal");
 
   using encoder_info =
       detail::pipeline_analysis_t<detail::PipelineVerificationMode::no_storage,
@@ -68,14 +74,40 @@ struct Elem {
 
   Elem() = default;
 
-  [[nodiscard]] auto value() const -> const storage_type& { return value_; }
-  [[nodiscard]] auto value() -> storage_type& { return value_; }
+  [[nodiscard]] auto value() const -> const storage_type& {
+    static_assert(!std::same_as<storage_type, detail::NoStorage>,
+                  "Elem without storage cannot be dereferenced");
+    return value_;
+  }
+  [[nodiscard]] auto value() -> storage_type& {
+    static_assert(!std::same_as<storage_type, detail::NoStorage>,
+                  "Elem without storage cannot be dereferenced");
+    return value_;
+  }
 
-  [[nodiscard]] auto operator*() -> storage_type& { return value_; }
-  [[nodiscard]] auto operator*() const -> const storage_type& { return value_; }
+  [[nodiscard]] auto operator*() -> storage_type& {
+    static_assert(!std::same_as<storage_type, detail::NoStorage>,
+                  "Elem without storage cannot be dereferenced");
+    return value_;
+  }
+  [[nodiscard]] auto operator*() const -> const storage_type& {
+    static_assert(!std::same_as<storage_type, detail::NoStorage>,
+                  "Elem without storage cannot be dereferenced");
+    return value_;
+  }
 
-  template <ReaderConcept R, ScanPhase Phase>
+  template <ReaderConcept R, TryPhase Phase>
   HOSQ_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R, Phase>& ctx) {
+    using actual_decoder_info = detail::pipeline_analysis_t<
+        detail::PipelineVerificationMode::at_most_one_storage,
+        DecodeContext<storage_type, R, Phase>, void, decoder_type>;
+
+    using actual_decoder_terminal =
+        detail::pipeline_terminal_t<actual_decoder_info>;
+    static_assert(std::same_as<actual_decoder_terminal, void> ||
+                      std::same_as<actual_decoder_terminal, bool>,
+                  "Decoder pipeline must have a terminal type of void or bool "
+                  "for this Reader/Context");
     if constexpr (decoder_const_invokable<
                       DecodeContext<storage_type, R, Phase>>) {
       const auto& cctx = ctx;
@@ -85,7 +117,7 @@ struct Elem {
     }
   }
 
-  template <ReaderConcept R, ScanPhase Phase>
+  template <ReaderConcept R, TryPhase Phase>
     requires(decoder_const_invokable<DecodeContext<storage_type, R, Phase>>)
   HOSQ_ALWAYS_INLINE auto decode(
       const DecodeContext<storage_type, R, Phase>& ctx) {
@@ -106,7 +138,7 @@ struct Elem {
   }
 
  private:
-  storage_type value_{};
+  [[no_unique_address]] storage_type value_{};
 };
 
 namespace detail {

@@ -470,7 +470,7 @@ template <std::size_t MaxDepth>
 struct ScanString<hosq::json::FastReader<MaxDepth>> {
   using Reader = hosq::json::FastReader<MaxDepth>;
 
-  template <class T, ScanPhase Phase>
+  template <class T, TryPhase Phase>
   HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
       DecodeContext<T, Reader, Phase>& ctx) const -> std::string_view {
     auto& st = ctx.reader_state();
@@ -515,7 +515,7 @@ template <std::size_t MaxDepth>
 struct ScanLiteral<hosq::json::FastReader<MaxDepth>> {
   using Reader = hosq::json::FastReader<MaxDepth>;
 
-  template <class T, ScanPhase Phase>
+  template <class T, TryPhase Phase>
   HOSQ_FUNCTION_ALWAYS_INLINE auto operator()(
       DecodeContext<T, Reader, Phase>& ctx) const -> std::string_view {
     auto& st = ctx.reader_state();

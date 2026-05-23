@@ -9,6 +9,7 @@
 
 #include "hosq/error.hh"
 #include "hosq/reader_base.hh"
+#include "hosq/result.hh"
 #include "hosq/writer_base.hh"
 
 namespace hosq {
@@ -33,68 +34,53 @@ class CompactWriter {
 
   [[nodiscard]]
   auto write(const WriteRequest& request) -> buffer_type {
-    if (finished_ || pending_.active) {
-      return 
-        ;
+    if (error_.has_error() || finished_ || pending_.active) [[unlikely]] {
+      return fail(ErrorCode::unexpected_token);
     }
-
     switch (request.type) {
       case TokenType::ObjectBegin:
         return begin_container(request, FrameKind::object, '{');
-
       case TokenType::ObjectEnd:
         return end_container(request, FrameKind::object, '}');
-
       case TokenType::ArrayBegin:
         return begin_container(request, FrameKind::array, '[');
-
       case TokenType::ArrayEnd:
         return end_container(request, FrameKind::array, ']');
-
       case TokenType::Scalar:
         return begin_scalar(request);
-
       case TokenType::End:
         return end_document(request);
+      default:
+        break;
     }
-
-    return unexpected(Error{
-        .code = ErrorCode::unexpected_token,
-        .offset = output_.size(),
-    });
+    return fail(ErrorCode::unexpected_token);
   }
 
   [[nodiscard]]
-  auto commit(std::size_t written) -> Result<void, Error> {
-    if (finished_ || !pending_.active) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+  auto commit(std::size_t written) -> bool {
+    if (error_.has_error() || finished_ || !pending_.active) [[unlikely]] {
+      return fail_bool(ErrorCode::unexpected_token);
     }
-
-    if (written > pending_.capacity) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+    if (written > pending_.capacity) [[unlikely]] {
+      return fail_bool(ErrorCode::unexpected_token);
     }
-
     output_.resize(pending_.begin + written);
-
     if (pending_.quoted) {
       output_.push_back('"');
     }
-
     if (pending_.role == PendingRole::key) {
       output_.push_back(':');
       frame().expecting_key = false;
     } else {
       after_value();
     }
-
     pending_ = {};
-    return {};
+    return true;
+  }
+
+  [[nodiscard]]
+  auto error() const noexcept -> Error {
+    return error_;
   }
 
   [[nodiscard]]
@@ -138,54 +124,51 @@ class CompactWriter {
     return stack_[depth_ - 1];
   }
 
-  [[nodiscard]]
-  auto before_value() -> Result<void, Error> {
-    if (depth_ == 0) {
-      if (root_written_) {
-        return unexpected(Error{
-            .code = ErrorCode::unexpected_token,
-            .offset = output_.size(),
-        });
-      }
-
-      return {};
+  auto fail(ErrorCode code) noexcept -> buffer_type {
+    if (!error_.has_error()) {
+      error_ = Error{.code = code, .offset = output_.size()};
     }
+    return {};
+  }
 
+  auto fail_bool(ErrorCode code) noexcept -> bool {
+    if (!error_.has_error()) {
+      error_ = Error{.code = code, .offset = output_.size()};
+    }
+    return false;
+  }
+
+  [[nodiscard]]
+  auto before_value() -> bool {
+    if (depth_ == 0) {
+      if (root_written_) [[unlikely]] {
+        return fail_bool(ErrorCode::unexpected_token);
+      }
+      return true;
+    }
     auto& current = frame();
-
     if (current.kind == FrameKind::array) {
       if (current.count != 0) {
         output_.push_back(',');
       }
-
-      return {};
+      return true;
     }
-
-    if (current.expecting_key) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+    if (current.expecting_key) [[unlikely]] {
+      return fail_bool(ErrorCode::unexpected_token);
     }
-
-    return {};
+    return true;
   }
 
   [[nodiscard]]
-  auto before_key() -> Result<void, Error> {
+  auto before_key() -> bool {
     if (depth_ == 0 || frame().kind != FrameKind::object ||
-        !frame().expecting_key) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+        !frame().expecting_key) [[unlikely]] {
+      return fail_bool(ErrorCode::unexpected_token);
     }
-
     if (frame().count != 0) {
       output_.push_back(',');
     }
-
-    return {};
+    return true;
   }
 
   auto after_value() noexcept -> void {
@@ -193,133 +176,84 @@ class CompactWriter {
       root_written_ = true;
       return;
     }
-
     auto& current = frame();
-
     if (current.kind == FrameKind::array) {
       ++current.count;
       return;
     }
-
     current.expecting_key = true;
     ++current.count;
   }
 
   [[nodiscard]]
   auto begin_container(const WriteRequest& request, FrameKind kind, char open)
-      -> Result<buffer_type, Error> {
-    if (request.context != 0) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+      -> buffer_type {
+    if (request.context != 0) [[unlikely]] {
+      return fail(ErrorCode::unexpected_token);
     }
-
-    if (depth_ >= MaxDepth) {
-      return unexpected(Error{
-          .code = ErrorCode::depth_limit_exceeded,
-          .offset = output_.size(),
-      });
+    if (depth_ >= MaxDepth) [[unlikely]] {
+      return fail(ErrorCode::depth_limit_exceeded);
     }
-
-    auto prepared = before_value();
-    if (!prepared) {
-      return unexpected(prepared.error());
+    if (!before_value()) [[unlikely]] {
+      return {};
     }
-
     output_.push_back(open);
-
     stack_[depth_++] = Frame{
         .kind = kind,
         .count = 0,
         .expecting_key = kind == FrameKind::object,
     };
-
-    static_cast<void>(request.length);
-
-    return buffer_type{};
+    return {};
   }
 
   [[nodiscard]]
   auto end_container(const WriteRequest& request, FrameKind kind, char close)
-      -> Result<buffer_type, Error> {
-    if (request.length != 0 || request.context != 0) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+      -> buffer_type {
+    if (request.length != 0 || request.context != 0) [[unlikely]] {
+      return fail(ErrorCode::unexpected_token);
     }
-
-    if (depth_ == 0 || frame().kind != kind) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+    if (depth_ == 0 || frame().kind != kind) [[unlikely]] {
+      return fail(ErrorCode::unexpected_token);
     }
-
-    if (kind == FrameKind::object && !frame().expecting_key) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+    if (kind == FrameKind::object && !frame().expecting_key) [[unlikely]] {
+      return fail(ErrorCode::unexpected_token);
     }
-
     output_.push_back(close);
     --depth_;
     after_value();
-
-    return buffer_type{};
+    return {};
   }
 
   [[nodiscard]]
-  auto begin_scalar(const WriteRequest& request) -> Result<buffer_type, Error> {
-    if (request.length == unresolved_length) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+  auto begin_scalar(const WriteRequest& request) -> buffer_type {
+    if (request.length == unresolved_length) [[unlikely]] {
+      return fail(ErrorCode::unexpected_token);
     }
-
     const auto context = static_cast<JsonTokenContext>(request.context);
-
     if (context != JsonTokenContext::string &&
-        context != JsonTokenContext::literal) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+        context != JsonTokenContext::literal) [[unlikely]] {
+      return fail(ErrorCode::unexpected_token);
     }
-
     const bool is_string = context == JsonTokenContext::string;
     const bool is_key = depth_ != 0 && frame().kind == FrameKind::object &&
                         frame().expecting_key;
-
     if (is_key) {
-      if (!is_string) {
-        return unexpected(Error{
-            .code = ErrorCode::unexpected_token,
-            .offset = output_.size(),
-        });
+      if (!is_string) [[unlikely]] {
+        return fail(ErrorCode::unexpected_token);
       }
-
-      auto prepared = before_key();
-      if (!prepared) {
-        return unexpected(prepared.error());
+      if (!before_key()) [[unlikely]] {
+        return {};
       }
     } else {
-      auto prepared = before_value();
-      if (!prepared) {
-        return unexpected(prepared.error());
+      if (!before_value()) [[unlikely]] {
+        return {};
       }
     }
-
     if (is_string) {
       output_.push_back('"');
     }
-
     const std::size_t begin = output_.size();
     output_.resize(begin + request.length);
-
     pending_ = Pending{
         .active = true,
         .quoted = is_string,
@@ -327,28 +261,19 @@ class CompactWriter {
         .begin = begin,
         .capacity = request.length,
     };
-
     return buffer_type{output_.data() + begin, request.length};
   }
 
   [[nodiscard]]
-  auto end_document(const WriteRequest& request) -> Result<buffer_type, Error> {
-    if (request.length != 0 || request.context != 0) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_token,
-          .offset = output_.size(),
-      });
+  auto end_document(const WriteRequest& request) -> buffer_type {
+    if (request.length != 0 || request.context != 0) [[unlikely]] {
+      return fail(ErrorCode::unexpected_token);
     }
-
-    if (depth_ != 0 || !root_written_) {
-      return unexpected(Error{
-          .code = ErrorCode::unexpected_eof,
-          .offset = output_.size(),
-      });
+    if (depth_ != 0 || !root_written_) [[unlikely]] {
+      return fail(ErrorCode::unexpected_eof);
     }
-
     finished_ = true;
-    return buffer_type{};
+    return {};
   }
 
  private:
@@ -361,6 +286,7 @@ class CompactWriter {
   bool finished_{false};
 
   Pending pending_{};
+  Error error_{Error::ok()};
 };
 
 static_assert(WriterConcept<CompactWriter<>>);
