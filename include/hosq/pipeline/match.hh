@@ -22,13 +22,6 @@ struct LiteralMatchImpl {
 template <StringLiteral Str>
 struct LiteralMatchImpl<Str> {
   auto operator()(std::string_view input) const {
-#if defined(__clang__) || defined(__GNUC__)
-#if defined(__aarch64__) || defined(__arm64__)
-    __asm__("// String Match");
-#else
-    __asm__("# String Match");
-#endif
-#endif
     return MatchResult{input == Str.view(), input};
   }
 };

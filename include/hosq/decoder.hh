@@ -9,6 +9,8 @@
 #include "hosq/detail/as_tuple.hh"
 #include "hosq/element.hh"
 #include "hosq/entry.hh"
+#include "hosq/meta_match.hh"
+#include "hosq/pipeline/scan.hh"
 #include "hosq/reader_base.hh"
 #include "hosq/try.hh"
 
@@ -59,14 +61,17 @@ class Decoder {
   [[nodiscard]]
   auto decode(T& t, input_type input) -> Error {
     reader_.reset(reader_state_, input);
+    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+      return reader_.error(reader_state_);
+    }
     return decode_impl(t, reader_, reader_state_);
   }
 
   template <detail::ElemT T, TryPhase Phase = TryPhase::normal>
   [[nodiscard]]
   static auto make_decode_context(T& t, R& reader, reader_state_type& state) {
-    return DecodeContext<typename T::storage_type, R, Phase>{t.storage(),
-                                                             reader, state};
+    return DecodeContext<typename T::storage_type, R, Phase>{t.storage(), reader,
+                                                             state};
   }
 
   template <class T>
@@ -74,45 +79,23 @@ class Decoder {
   [[nodiscard]]
   static auto decode_nested(T& t, reader_type& reader,
                             reader_state_type& reader_state) -> Error {
-    if constexpr (detail::AsTryEntryTupleT<T>) {
-      return decode_try_entry_tuple<true>(t, reader, reader_state);
-    } else {
-      return decode_impl(t, reader, reader_state);
-    }
+    return decode_impl(t, reader, reader_state);
   }
 
  private:
-  template <class ReaderT, class StateT>
-  static consteval void verify_reader_state_types() {
-    static_assert(std::same_as<std::remove_cvref_t<ReaderT>, reader_type>,
-                  "Decoder nested decode requires the reader argument to be "
-                  "Decoder::reader_type");
-
-    static_assert(
-        std::same_as<std::remove_cvref_t<StateT>, reader_state_type>,
-        "Decoder nested decode requires the reader_state argument to be "
-        "Decoder::reader_state_type");
-  }
-
-  template <detail::ElemT T, class ReaderT, class StateT>
+  template <detail::ElemT T>
   [[nodiscard]]
-  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
-    verify_reader_state_types<ReaderT, StateT>();
-    if (!reader.next_token(reader_state)) [[unlikely]] {
-      return reader.error(reader_state);
-    }
+  static auto decode_impl(T& t, reader_type& reader,
+                          reader_state_type& reader_state) -> Error {
     auto ctx = make_decode_context(t, reader, reader_state);
     t.decode(ctx);
     return reader.error(reader_state);
   }
 
-  template <detail::AsElemTupleT T, class ReaderT, class StateT>
+  template <detail::AsElemTupleT T>
   [[nodiscard]]
-  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
-    verify_reader_state_types<ReaderT, StateT>();
-    if (!reader.next_token(reader_state)) [[unlikely]] {
-      return reader.error(reader_state);
-    }
+  static auto decode_impl(T& t, reader_type& reader,
+                          reader_state_type& reader_state) -> Error {
     if (reader.current_token(reader_state).type != TokenType::ArrayBegin)
         [[unlikely]] {
       return Error{
@@ -165,13 +148,10 @@ class Decoder {
     return true;
   }
 
-  template <detail::AsEntryTupleT T, class ReaderT, class StateT>
+  template <detail::AsEntryTupleT T>
   [[nodiscard]]
-  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
-    verify_reader_state_types<ReaderT, StateT>();
-    if (!reader.next_token(reader_state)) [[unlikely]] {
-      return reader.error(reader_state);
-    }
+  static auto decode_impl(T& t, reader_type& reader,
+                          reader_state_type& reader_state) -> Error {
     if (reader.current_token(reader_state).type != TokenType::ObjectBegin)
         [[unlikely]] {
       return Error{
@@ -204,13 +184,10 @@ class Decoder {
     return Error::ok();
   }
 
-  template <detail::AsTryElemTupleT T, class ReaderT, class StateT>
+  template <detail::AsTryElemTupleT T>
   [[nodiscard]]
-  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
-    verify_reader_state_types<ReaderT, StateT>();
-    if (!reader.next_token(reader_state)) [[unlikely]] {
-      return reader.error(reader_state);
-    }
+  static auto decode_impl(T& t, reader_type& reader,
+                          reader_state_type& reader_state) -> Error {
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
       return Error{
@@ -280,17 +257,232 @@ class Decoder {
   using decode_raw_result_t =
       typename decode_raw_result<IsConst, Elem, Context>::type;
 
-  template <bool StartFromCurrent, detail::AsTryEntryTupleT T, class ReaderT,
-            class StateT>
-  [[nodiscard]]
-  static auto decode_try_entry_tuple(T& t, ReaderT& reader,
-                                     StateT& reader_state) -> Error {
-    verify_reader_state_types<ReaderT, StateT>();
-    if constexpr (!StartFromCurrent) {
-      if (!reader.next_token(reader_state)) [[unlikely]] {
-        return reader.error(reader_state);
-      }
+  template <class... U>
+  static auto decompose_const_key_entry_tuple_and_entry_tuple(
+      std::tuple<U&...> tuple) {
+    auto const_key_entries =
+        [&]<std::size_t... I>(std::index_sequence<I...>) -> auto {
+      return std::tuple_cat([&]() -> auto {
+        using try_type = std::tuple_element_t<I, std::tuple<U...>>;
+        using entry_type = detail::try_base_t<try_type>;
+
+        if constexpr (detail::ConstKeyEntryT<entry_type>) {
+          return std::forward_as_tuple(std::get<I>(tuple));
+        } else {
+          return std::tuple<>{};
+        }
+      }()...);
+    }(std::index_sequence_for<U...>{});
+
+    auto entries = [&]<std::size_t... I>(std::index_sequence<I...>) -> auto {
+      return std::tuple_cat([&]() -> auto {
+        using try_type = std::tuple_element_t<I, std::tuple<U...>>;
+        using entry_type = detail::try_base_t<try_type>;
+
+        if constexpr (detail::EntryT<entry_type> &&
+                      !detail::ConstKeyEntryT<entry_type>) {
+          return std::forward_as_tuple(std::get<I>(tuple));
+        } else {
+          return std::tuple<>{};
+        }
+      }()...);
+    }(std::index_sequence_for<U...>{});
+
+    return std::pair{const_key_entries, entries};
+  }
+
+  template <std::size_t... I>
+  static auto match_try_constkey_entry_tuple(auto& tuple, reader_type& reader,
+                                             reader_state_type& reader_state,
+                                             std::index_sequence<I...>) -> bool {
+    const auto key_ctx =
+        DecodeContext<void, reader_type, TryPhase::first>{reader, reader_state};
+
+    std::string_view key_view = (::hosq::scan::string).invoke(key_ctx);
+
+    bool decoded = false;
+    auto handlers = std::tuple{hosq::meta::make_handler<detail::try_base_t<
+        std::remove_cvref_t<decltype(std::get<I>(tuple))>>::key()>(
+        [&]() HOSQ_ALWAYS_INLINE_ATTR -> void {
+          auto& entry = std::get<I>(tuple);
+
+          using try_entry_type = std::remove_cvref_t<decltype(entry)>;
+          using entry_type = typename try_entry_type::base_type;
+          using value_type = typename entry_type::value_type;
+          using value_storage_type = typename value_type::storage_type;
+          using value_context_type =
+              DecodeContext<value_storage_type, R, TryPhase::first>;
+
+          static constexpr bool value_is_const_decodable =
+              value_type::template decoder_const_invokable<value_context_type>;
+
+          using value_raw_result_type =
+              decode_raw_result_t<value_is_const_decodable, value_type,
+                                  value_context_type>;
+
+          if constexpr (std::same_as<value_raw_result_type, bool>) {
+            auto checkpoint = reader_state.checkpoint();
+
+            if (!reader.next_token(reader_state)) [[unlikely]] {
+              decoded = false;
+              return;
+            }
+
+            auto& value = entry.value();
+            auto value_ctx = make_decode_context<value_type, TryPhase::first>(
+                value, reader, reader_state);
+
+            bool ret = false;
+            if constexpr (value_is_const_decodable) {
+              const auto& const_value_ctx = value_ctx;
+              ret = value.decode(const_value_ctx);
+            } else {
+              ret = value.decode(value_ctx);
+            }
+
+            if (!ret) {
+              reader_state.rollback(std::move(checkpoint));
+              decoded = false;
+              return;
+            }
+
+            decoded = true;
+            return;
+          } else {
+            if (!reader.next_token(reader_state)) [[unlikely]] {
+              decoded = false;
+              return;
+            }
+
+            auto& value = entry.value();
+            auto value_ctx = make_decode_context<value_type, TryPhase::first>(
+                value, reader, reader_state);
+
+            if constexpr (value_is_const_decodable) {
+              const auto& const_value_ctx = value_ctx;
+              value.decode(const_value_ctx);
+            } else {
+              value.decode(value_ctx);
+            }
+
+            decoded = true;
+            return;
+          }
+        })...};
+
+    if (!hosq::meta::match(key_view, handlers)) {
+      return false;
     }
+
+    return decoded;
+  }
+
+  template <size_t... I>
+  static auto match_try_entry_tuple(auto& tuple, reader_type& reader,
+                                    reader_state_type& reader_state,
+                                    std::index_sequence<I...>) -> bool {
+    return ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
+      auto& entry = std::get<I>(tuple);
+
+      static constexpr TryPhase phase =
+          I == 0 ? TryPhase::first : TryPhase::normal;
+      using entry_type = std::remove_cvref_t<decltype(entry)>;
+
+      using key_elem_type = entry_type::key_type;
+      using key_elem_value_type = typename key_elem_type::storage_type;
+      using key_elem_context_type = DecodeContext<key_elem_value_type, R, phase>;
+      static constexpr bool key_is_const_decodable =
+          key_elem_type::template decoder_const_invokable<key_elem_context_type>;
+      using key_elem_raw_result_type =
+          decode_raw_result_t<key_is_const_decodable, key_elem_type,
+                              key_elem_context_type>;
+
+      static_assert(std::same_as<key_elem_raw_result_type, bool>,
+                    "Try<Entry> key decoder must return bool");
+
+      using value_elem_type = entry_type::value_type;
+      using value_elem_value_type = typename value_elem_type::storage_type;
+      using value_elem_context_type =
+          DecodeContext<value_elem_value_type, R, TryPhase::first>;
+      static constexpr bool value_is_const_decodable =
+          value_elem_type::template decoder_const_invokable<
+              value_elem_context_type>;
+      using value_elem_raw_result_type =
+          decode_raw_result_t<value_is_const_decodable, value_elem_type,
+                              value_elem_context_type>;
+
+      auto& key_elem = entry.key();
+      auto key_ctx = make_decode_context<key_elem_type, phase>(key_elem, reader,
+                                                               reader_state);
+      if constexpr (key_is_const_decodable) {
+        const auto& const_key_ctx = key_ctx;
+        if (!key_elem.decode(const_key_ctx)) {
+          return false;
+        }
+
+        if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
+          auto checkpoint = reader_state.checkpoint();
+          if (!reader.next_token(reader_state)) [[unlikely]] {
+            return false;
+          }
+
+          auto& value_elem = entry.value();
+          auto value_ctx = make_decode_context<value_elem_type, TryPhase::first>(
+              value_elem, reader, reader_state);
+          auto ret = value_elem.decode(value_ctx);
+          if (!ret) {
+            reader_state.rollback(std::move(checkpoint));
+            return false;
+          }
+          return true;
+        } else {
+          if (!reader.next_token(reader_state)) [[unlikely]] {
+            return false;
+          }
+          auto& value_elem = entry.value();
+          auto value_ctx = make_decode_context<value_elem_type, TryPhase::first>(
+              value_elem, reader, reader_state);
+          value_elem.decode(value_ctx);
+          return true;
+        }
+
+      } else {
+        auto checkpoint = reader_state.checkpoint();
+        {
+          auto ret = key_elem.decode(key_ctx);
+          if (!ret) {
+            reader_state.rollback(std::move(checkpoint));
+            return false;
+          }
+        }
+
+        if (!reader.next_token(reader_state)) [[unlikely]] {
+          return false;
+        }
+
+        auto& value_elem = entry.value();
+        auto value_ctx = make_decode_context<value_elem_type, TryPhase::first>(
+            value_elem, reader, reader_state);
+        {
+          if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
+            auto ret = value_elem.decode(value_ctx);
+            if (!ret) {
+              reader_state.rollback(std::move(checkpoint));
+              return false;
+            }
+          } else {
+            value_elem.decode(value_ctx);
+          }
+        }
+        return true;
+      }
+    }() || ...);
+  }
+
+  template <detail::AsTryEntryTupleT T>
+  [[nodiscard]]
+  static auto decode_impl(T& t, reader_type& reader,
+                          reader_state_type& reader_state) -> Error {
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ObjectBegin) [[unlikely]] {
       return Error{
@@ -298,133 +490,51 @@ class Decoder {
           .offset = tok.offset,
       };
     }
+
     auto tuple = detail::as_tuple(t);
-    constexpr auto tuple_size =
-        std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>;
+
+    auto [const_key_entries, entries] =
+        decompose_const_key_entry_tuple_and_entry_tuple(tuple);
+
+    constexpr auto const_key_tuple_size =
+        std::tuple_size_v<std::remove_cvref_t<decltype(const_key_entries)>>;
+
+    constexpr auto entry_tuple_size =
+        std::tuple_size_v<std::remove_cvref_t<decltype(entries)>>;
+
     bool matched = true;
+
     while (matched) [[likely]] {
       if (!reader.next_token(reader_state)) [[unlikely]] {
         return reader.error(reader_state);
       }
+
       const auto& tok = reader.current_token(reader_state);
       if (tok.type == TokenType::ObjectEnd) {
         return Error::ok();
       }
-      matched = [&]<size_t... I>(auto& tuple, std::index_sequence<I...>)
-                    HOSQ_ALWAYS_INLINE_ATTR -> bool {
-        return ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
-          auto& entry = std::get<I>(tuple);
 
-          static constexpr TryPhase phase =
-              I == 0 ? TryPhase::first : TryPhase::normal;
-          using entry_type = std::remove_cvref_t<decltype(entry)>;
+      matched = false;
 
-          using key_elem_type = entry_type::key_type;
-          using key_elem_value_type = typename key_elem_type::storage_type;
-          using key_elem_context_type =
-              DecodeContext<key_elem_value_type, R, phase>;
-          static constexpr bool key_is_const_decodable =
-              key_elem_type::template decoder_const_invokable<
-                  key_elem_context_type>;
-          using key_elem_raw_result_type =
-              decode_raw_result_t<key_is_const_decodable, key_elem_type,
-                                  key_elem_context_type>;
+      if constexpr (const_key_tuple_size > 0) {
+        matched = match_try_constkey_entry_tuple(
+            const_key_entries, reader, reader_state,
+            std::make_index_sequence<const_key_tuple_size>{});
+      }
 
-          static_assert(std::same_as<key_elem_raw_result_type, bool>,
-                        "Try<Entry> key decoder must return bool");
-
-          using value_elem_type = entry_type::value_type;
-          using value_elem_value_type = typename value_elem_type::storage_type;
-          using value_elem_context_type =
-              DecodeContext<value_elem_value_type, R, TryPhase::first>;
-          static constexpr bool value_is_const_decodable =
-              value_elem_type::template decoder_const_invokable<
-                  value_elem_context_type>;
-          using value_elem_raw_result_type =
-              decode_raw_result_t<value_is_const_decodable, value_elem_type,
-                                  value_elem_context_type>;
-
-          auto& key_elem = entry.key();
-          auto key_ctx = make_decode_context<key_elem_type, phase>(
-              key_elem, reader, reader_state);
-          if constexpr (key_is_const_decodable) {
-            const auto& const_key_ctx = key_ctx;
-            if (!key_elem.decode(const_key_ctx)) {
-              return false;
-            }
-
-            if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
-              auto checkpoint = reader_state.checkpoint();
-              if (!reader.next_token(reader_state)) [[unlikely]] {
-                return false;
-              }
-
-              auto& value_elem = entry.value();
-              auto value_ctx =
-                  make_decode_context<value_elem_type, TryPhase::first>(
-                      value_elem, reader, reader_state);
-              auto ret = value_elem.decode(value_ctx);
-              if (!ret) {
-                reader_state.rollback(std::move(checkpoint));
-                return false;
-              }
-              return true;
-            } else {
-              if (!reader.next_token(reader_state)) [[unlikely]] {
-                return false;
-              }
-              auto& value_elem = entry.value();
-              auto value_ctx =
-                  make_decode_context<value_elem_type, TryPhase::first>(
-                      value_elem, reader, reader_state);
-              value_elem.decode(value_ctx);
-              return true;
-            }
-
-          } else {
-            auto checkpoint = reader_state.checkpoint();
-            {
-              auto ret = key_elem.decode(key_ctx);
-              if (!ret) {
-                reader_state.rollback(std::move(checkpoint));
-                return false;
-              }
-            }
-
-            if (!reader.next_token(reader_state)) [[unlikely]] {
-              return false;
-            }
-
-            auto& value_elem = entry.value();
-            auto value_ctx =
-                make_decode_context<value_elem_type, TryPhase::first>(
-                    value_elem, reader, reader_state);
-            {
-              if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
-                auto ret = value_elem.decode(value_ctx);
-                if (!ret) {
-                  reader_state.rollback(std::move(checkpoint));
-                  return false;
-                }
-              } else {
-                value_elem.decode(value_ctx);
-              }
-            }
-            return true;
-          }
-        }() || ...);
-      }(tuple, std::make_index_sequence<tuple_size>{});
+      if (!matched) {
+        if constexpr (entry_tuple_size > 0) {
+          matched = match_try_entry_tuple(
+              entries, reader, reader_state,
+              std::make_index_sequence<entry_tuple_size>{});
+        }
+      }
     }
+
     return Error{
         .code = ErrorCode::unknown_member,
         .offset = reader.current_token(reader_state).offset,
     };
-  }
-
-  template <detail::AsTryEntryTupleT T, class ReaderT, class StateT>
-  [[nodiscard]]
-  static auto decode_impl(T& t, ReaderT& reader, StateT& reader_state) -> Error {
-    return decode_try_entry_tuple<false>(t, reader, reader_state);
   }
 
  private:

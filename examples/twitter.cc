@@ -28,7 +28,7 @@ constexpr auto any_bool = step<AnyBoolImpl>;
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 struct UserSchema {
-  Try<Entry<Elem<scan::string | match::literal<"id"_literal>, noop_encoder>,
+  Try<Entry<Key<"id">,
             Elem<scan::literal | decode::number<uint64_t> | store::assign,
                  noop_encoder>>>
       id;
@@ -38,39 +38,37 @@ struct UserSchema {
 };
 
 struct StatusSchema {
-  Try<Entry<Elem<scan::string | match::literal<"id"_literal>, noop_encoder>,
+  Try<Entry<Key<"id">,
             Elem<scan::literal | decode::number<uint64_t> | store::assign,
                  noop_encoder>>>
       id;
   Try<Entry<
-      Elem<scan::string | match::literal<"retweet_count"_literal>, noop_encoder>,
+      Key<"retweet_count">,
       Elem<scan::literal | decode::number<int> | store::assign, noop_encoder>>>
       retweet_count;
   Try<Entry<
-      Elem<scan::string | match::literal<"favorite_count"_literal>,
-           noop_encoder>,
+      Key<"favorite_count">,
       Elem<scan::literal | decode::number<int> | store::assign, noop_encoder>>>
       favorite_count;
   Try<Entry<
-      Elem<scan::string | match::literal<"user"_literal>, noop_encoder>,
+      Key<"user"_literal>,
       Elem<scan::object | decode::to<UserSchema> | store::assign, noop_encoder>>>
       user;
   Try<Entry<Elem<scan::string | any_bool, noop_encoder>,
             Elem<decode::skip, noop_encoder>>>
-      _skip;
+      skip;
 };
 
 struct TwitterSchema {
-  Try<Entry<
-      Elem<scan::string | match::literal<"statuses"_literal>, noop_encoder>,
-      Elem<scan::array |
-               decode::collect<scan::object | decode::to<StatusSchema>> |
-               store::assign,
-           noop_encoder>>>
+  Try<Entry<Key<"statuses"_literal>,
+            Elem<scan::array |
+                     decode::collect<scan::object | decode::to<StatusSchema>> |
+                     store::assign,
+                 noop_encoder>>>
       statuses;
   Try<Entry<Elem<scan::string | any_bool, noop_encoder>,
             Elem<decode::skip, noop_encoder>>>
-      _skip;
+      skip;
 };
 
 // ─── Main ─────────────────────────────────────────────────────────────────────

@@ -1,12 +1,17 @@
 #pragma once
 
 #include <tuple>
+#include <type_traits>
 
 #include "hosq/context.hh"
 #include "hosq/detail/as_tuple.hh"
 #include "hosq/element.hh"
+#include "hosq/string_literal.hh"
 
 namespace hosq {
+
+template <class Key, class Value>
+struct Entry;
 
 /// A key–value pair where both Key and Value are Elem types.
 ///
@@ -14,9 +19,10 @@ namespace hosq {
 /// underlying Elem's flags and gate the const/mutable overloads of decode_key /
 /// decode_value / encode_key / encode_value at compile time.
 template <detail::ElemT Key, detail::ElemT Value>
-struct Entry {
+struct Entry<Key, Value> {
   using value_type = Value;
   using key_type = Key;
+  static constexpr bool is_const_key = false;
 
   template <class R, TryPhase Phase>
   static constexpr bool key_decoder_const_invokable =
@@ -54,12 +60,51 @@ struct Entry {
   value_type value_{};  // NOLINT
 };
 
+template <StringLiteral Key, detail::ElemT Value>
+struct Entry<std::integral_constant<decltype(Key), Key>, Value> {
+  using value_type = Value;
+  using key_type = decltype(Key);
+  static constexpr bool is_const_key = true;
+
+  template <class R, TryPhase Phase>
+  static constexpr bool key_decoder_const_invokable = true;
+
+  template <class R, TryPhase Phase>
+  static constexpr bool value_decoder_const_invokable =
+      Value::template decoder_const_invokable<
+          DecodeContext<typename Value::storage_type, R, Phase>>;
+
+  template <class W>
+  static constexpr bool key_encoder_const_invokable = true;
+
+  template <class W>
+  static constexpr bool value_encoder_const_invokable =
+      Value::template encoder_const_invokable<
+          EncodeContext<typename Value::storage_type, W>>;
+
+  Entry() = default;
+
+  [[nodiscard]] static constexpr auto key() -> key_type { return Key; }
+
+  [[nodiscard]] auto value() const -> const value_type& { return value_; }
+  [[nodiscard]] auto value() -> value_type& { return value_; }
+
+  [[nodiscard]] auto operator*() -> value_type& { return value_; }
+  [[nodiscard]] auto operator*() const -> const value_type& { return value_; }
+
+ private:
+  value_type value_{};  // NOLINT
+};
+
+template <StringLiteral K>
+using Key = std::integral_constant<decltype(K), K>;
+
 namespace detail {
 
 template <class T>
 struct IsEntry : std::false_type {};
 
-template <ElemT Key, ElemT Value>
+template <class Key, class Value>
 struct IsEntry<::hosq::Entry<Key, Value>> : std::true_type {};
 
 template <class T>
@@ -67,6 +112,15 @@ concept EntryT = IsEntry<std::remove_cvref_t<T>>::value;
 
 template <class Tuple>
 struct EntryTuple : std::false_type {};
+
+template <class T>
+struct IsConstKeyEntry : std::false_type {};
+
+template <StringLiteral K, detail::ElemT Value>
+struct IsConstKeyEntry<::hosq::Entry<::hosq::Key<K>, Value>> : std::true_type {};
+
+template <class T>
+concept ConstKeyEntryT = IsConstKeyEntry<std::remove_cvref_t<T>>::value;
 
 template <class... Ts>
 struct EntryTuple<std::tuple<Ts...>>
@@ -95,6 +149,7 @@ concept AsEntryTupleT = requires(T t) {
  */
 template <detail::EntryT T>
 constexpr auto as_tuple(T&) = delete;
+
 template <detail::EntryT T>
 constexpr auto as_tuple(const T&) = delete;
 

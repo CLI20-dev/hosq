@@ -46,7 +46,7 @@ struct AnyBoolImpl {
 constexpr auto any_bool = step<AnyBoolImpl>;
 
 // ─── Schema aliases ───────────────────────────────────────────────────────────
-
+//
 template <StringLiteral Name>
 using Key = Elem<scan::string | match::literal<Name>, noop_encoder>;
 
