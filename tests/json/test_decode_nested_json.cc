@@ -13,9 +13,8 @@ namespace {
 using Reader = json::SimpleReader;
 
 template <StringLiteral Name>
-using Key =
-    Elem<scan::scalar | decode::string_view | match::literal<Name>,
-         noop_encoder>;
+using Key = Elem<scan::scalar | decode::string_view | match::literal<Name>,
+                 noop_encoder>;
 
 using StringValue =
     Elem<scan::scalar | decode::string_view | store::assign, noop_encoder>;

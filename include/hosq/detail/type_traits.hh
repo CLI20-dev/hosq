@@ -93,9 +93,7 @@ template <class T>
 concept TryT = IsTry<std::remove_cvref_t<T>>::value;
 
 template <class T>
-struct TryBase {
-  static_assert(always_false<T>, "TryBase<T> requires hosq::Try<U>");
-};
+struct TryBase {};
 
 template <class U>
 struct TryBase<::hosq::Try<U>> {
@@ -112,9 +110,9 @@ template <class Tuple>
 struct TryElemTuple : std::false_type {};
 
 template <class... Ts>
+  requires(sizeof...(Ts) > 0 && (TryT<Ts> && ...))
 struct TryElemTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (TryT<Ts> && ...) &&
-                         (ElemT<try_base_t<Ts>> && ...)> {};
+    : std::bool_constant<(ElemT<try_base_t<Ts>> && ...)> {};
 
 template <class T>
 concept TryElemTupleT = TryElemTuple<std::remove_cvref_t<T>>::value;
@@ -131,9 +129,9 @@ template <class Tuple>
 struct TryEntryTuple : std::false_type {};
 
 template <class... Ts>
+  requires(sizeof...(Ts) > 0 && (TryT<Ts> && ...))
 struct TryEntryTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (TryT<Ts> && ...) &&
-                         (EntryT<try_base_t<Ts>> && ...)> {};
+    : std::bool_constant<(EntryT<try_base_t<Ts>> && ...)> {};
 
 template <class T>
 concept TryEntryTupleT = TryEntryTuple<std::remove_cvref_t<T>>::value;

@@ -59,14 +59,12 @@ struct WriteJsonKey {
 template <StringLiteral Name>
 using Key = Elem<noop_decoder, step<WriteJsonKey<Name>>>;
 
-using StringValue =
-    Elem<scan::scalar | decode::string_view | store::once,
-         encode::string_view | step<WriteJsonString>>;
+using StringValue = Elem<scan::scalar | decode::string_view | store::once,
+                         encode::string_view | step<WriteJsonString>>;
 
 template <class T>
-using NumberValue =
-    Elem<scan::scalar | decode::number<T> | store::once,
-         encode::number<T> | step<WriteJsonLiteral>>;
+using NumberValue = Elem<scan::scalar | decode::number<T> | store::once,
+                         encode::number<T> | step<WriteJsonLiteral>>;
 
 struct User {
   Entry<Key<"id">, NumberValue<int>> id;

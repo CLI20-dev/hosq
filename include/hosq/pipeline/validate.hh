@@ -32,6 +32,17 @@ struct MatchImpl {
   }
 };
 
+template <StringLiteral V>
+struct MatchImpl<V> {
+  template <class T, class Context>
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
+    if (value != V.view()) {
+      report_validation_error(ctx, ErrorCode::invalid_choice);
+    }
+    return std::forward<T>(value);
+  }
+};
+
 template <auto... Vs>
 struct OneOfImpl {
   template <class T, class Context>

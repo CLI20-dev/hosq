@@ -51,8 +51,8 @@ auto invoke_pipeline(Storage& storage, std::string_view input) {
   auto state = Reader::state_type{};
   reader.reset(state, input);
   (void)reader.next_token(state);
-  auto ctx = DecodeContext<Storage, Reader, TryPhase::normal>{storage, reader,
-                                                              state};
+  auto ctx =
+      DecodeContext<Storage, Reader, TryPhase::normal>{storage, reader, state};
   return std::remove_cvref_t<decltype(Pipeline)>::invoke(ctx);
 }
 
@@ -70,9 +70,8 @@ auto invoke_pipeline(std::string_view input) {
 }
 
 template <StringLiteral Name>
-using FieldKey =
-    Elem<scan::scalar | decode::string_view | match::literal<Name>,
-         noop_encoder>;
+using FieldKey = Elem<scan::scalar | decode::string_view | match::literal<Name>,
+                      noop_encoder>;
 
 struct Document {
   Try<Entry<FieldKey<"ids">, IntArrayValue>> ids;
@@ -118,9 +117,9 @@ TEST(DecodeArray, DecodesObjectMemberArrayValues) {
 TEST(DecodeArray, DecodesObjectMemberArrayValuesWithReorderedKeys) {
   struct WithArrayAndScalar {
     Try<Entry<FieldKey<"ids">, IntArrayValue>> ids;
-    Try<Entry<FieldKey<"version">,
-              Elem<scan::scalar | decode::number<int> | store::assign,
-                   noop_encoder>>>
+    Try<Entry<
+        FieldKey<"version">,
+        Elem<scan::scalar | decode::number<int> | store::assign, noop_encoder>>>
         version;
   };
 
@@ -190,7 +189,7 @@ TEST(DecodeArray, CollectCanReturnBoolValues) {
       scan::array |
       decode::collect<scan::scalar | decode::number<int> |
                       decode::custom<[](int value) constexpr -> bool {
-            return value % 2 == 0;
+                        return value % 2 == 0;
                       }>>;
 
   const auto result = invoke_pipeline<pipeline>("[2,3,4]"sv);
@@ -204,8 +203,7 @@ TEST(DecodeArray, CollectCanReturnBoolValues) {
 TEST(DecodeObjectCollect, CollectsKeysAndValues) {
   auto object = NumberObjectValue{};
 
-  const auto result =
-      decode_into<Reader>(object, R"({"x":1,"y":2,"z":3})"sv);
+  const auto result = decode_into<Reader>(object, R"({"x":1,"y":2,"z":3})"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(object.value().keys().size(), 3U);
@@ -234,12 +232,12 @@ TEST(DecodeObjectEach, AggregatesBoolAcrossMembers) {
       decode::each<scan::scalar | decode::string_view | store::push,
                    scan::scalar | decode::number<int> |
                        decode::custom<[](int value) constexpr -> bool {
-                return value > 0;
+                         return value > 0;
                        }>>;
 
   auto object_state = Map<std::vector<std::string_view>, detail::NoStorage>{};
-  const auto result = invoke_pipeline<pipeline>(object_state,
-                                                R"({"x":1,"y":-2,"z":3})"sv);
+  const auto result =
+      invoke_pipeline<pipeline>(object_state, R"({"x":1,"y":-2,"z":3})"sv);
 
   EXPECT_FALSE(result);
   EXPECT_EQ(object_state.keys(), (std::vector<std::string_view>{"x"sv, "y"sv}));

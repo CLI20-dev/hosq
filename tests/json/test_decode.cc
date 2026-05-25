@@ -13,9 +13,8 @@ namespace {
 using Reader = json::SimpleReader;
 
 template <StringLiteral Name>
-using Key =
-    Elem<scan::scalar | decode::string_view | match::literal<Name>,
-         noop_encoder>;
+using Key = Elem<scan::scalar | decode::string_view | match::literal<Name>,
+                 noop_encoder>;
 
 using StringValue =
     Elem<scan::scalar | decode::string_view | store::assign, noop_encoder>;
@@ -78,8 +77,7 @@ struct FirstWinsId {
 TEST(DecodeJson, StringAndIntFields) {
   auto json = Person{};
 
-  const auto result =
-      decode_into<Reader>(json, R"({"name":"John","id":123})"sv);
+  const auto result = decode_into<Reader>(json, R"({"name":"John","id":123})"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(json.name.value().value(), "John"sv);
@@ -119,8 +117,7 @@ TEST(DecodeJson, WrongTopLevelTypeErrors) {
 TEST(DecodeJson, SingleStringField) {
   auto json = OnlyMsg{};
 
-  const auto result =
-      decode_into<Reader>(json, R"({"msg":"hello world"})"sv);
+  const auto result = decode_into<Reader>(json, R"({"msg":"hello world"})"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(json.msg.value().value(), "hello world"sv);

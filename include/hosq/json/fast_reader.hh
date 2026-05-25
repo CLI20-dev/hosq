@@ -537,8 +537,9 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth>> {
   }
 
  private:
-  static HOSQ_FUNCTION_ALWAYS_INLINE auto advance_resolved(
-      State& st, const Token& tok) -> void {
+  static HOSQ_FUNCTION_ALWAYS_INLINE auto advance_resolved(State& st,
+                                                           const Token& tok)
+      -> void {
     if (tok.context == static_cast<std::uint8_t>(JsonTokenContext::string)) {
       st.pos = st.begin + tok.offset + tok.length + 1;
       return;
@@ -547,8 +548,8 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth>> {
   }
 
   static HOSQ_FUNCTION_ALWAYS_INLINE auto resolve_scalar(const Reader& reader,
-                                                         State& st,
-                                                         Token& tok) -> void {
+                                                         State& st, Token& tok)
+      -> void {
     if (tok.context == static_cast<std::uint8_t>(JsonTokenContext::string)) {
       const char* const content = st.begin + tok.offset;
       const char* p = content;
@@ -583,11 +584,10 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth>> {
     }
 
     reader.report_error(
-        st,
-        Error{
-            .code = ErrorCode::unexpected_eof,
-            .offset = static_cast<std::size_t>(st.end - st.begin),
-        });
+        st, Error{
+                .code = ErrorCode::unexpected_eof,
+                .offset = static_cast<std::size_t>(st.end - st.begin),
+            });
   }
 };
 

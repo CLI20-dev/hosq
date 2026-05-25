@@ -152,7 +152,7 @@ class Decoder<R> {
     std::apply(
         [&](auto&... entry) HOSQ_ALWAYS_INLINE_ATTR -> void {
           ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
-            if (!decode_entry(entry)) [[unlikely]] {
+            if (!decode_entry(entry, reader, reader_state)) [[unlikely]] {
               return false;
             }
             // If decode puts the reader into an error state, subsequent

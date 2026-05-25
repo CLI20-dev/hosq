@@ -604,8 +604,8 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
 
 struct BooleanImpl {
   template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(const ScalarView&,
-                  DecodeContext<Storage, R, Phase>& ctx) const -> bool {
+  auto operator()(const ScalarView&, DecodeContext<Storage, R, Phase>& ctx) const
+      -> bool {
     const Token& tok = ctx.reader().current_token(ctx.reader_state());
     const BytesView bytes = ctx.reader().input(ctx.reader_state());
     const std::string_view sv =

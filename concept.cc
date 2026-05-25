@@ -16,9 +16,9 @@ constexpr auto to_vec2 = [](const JsonVec2& p) {
 };
 
 struct Circle {
-  hosq::Entry<key<"type">, Elem<hosq::scan::scalar |
-                                hosq::match::literal<"circle"> |
-                                hosq::pack::once>>
+  hosq::Entry<key<"type">,
+              Elem<hosq::scan::scalar | hosq::match::literal<"circle"> |
+                   hosq::pack::once>>
       type;
 
   hosq::Entry<key<"color">,

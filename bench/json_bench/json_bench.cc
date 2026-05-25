@@ -69,6 +69,10 @@ constexpr bool kAnotherBoolean = false;
 using SkipKey = Elem<scan::scalar | decode::skip, noop_encoder>;
 using SkipVal = Elem<decode::skip, noop_encoder>;
 
+template <StringLiteral Name>
+using FieldKey = Elem<scan::scalar | decode::string_view | match::literal<Name>,
+                      noop_encoder>;
+
 template <class T>
 using NumberField =
     Elem<scan::scalar | decode::number<T> | store::assign, noop_encoder>;
@@ -81,8 +85,8 @@ using BoolField =
 
 template <class T>
 using NumberArrayField =
-    Elem<scan::array | decode::each<scan::scalar | decode::number<T> |
-                                    store::push>,
+    Elem<scan::array |
+             decode::each<scan::scalar | decode::number<T> | store::push>,
          noop_encoder>;
 
 using StringArrayField =
@@ -90,31 +94,30 @@ using StringArrayField =
              decode::each<scan::scalar | decode::string_view | store::push>,
          noop_encoder>;
 
-using V3ArrayField =
-    Elem<scan::array |
-             decode::collect<scan::array |
-                             decode::collect<scan::scalar |
-                                             decode::number<double>>> |
-             store::assign,
-         noop_encoder>;
+using V3ArrayField = Elem<
+    scan::array |
+        decode::collect<scan::array |
+                        decode::collect<scan::scalar | decode::number<double>>> |
+        store::assign,
+    noop_encoder>;
 
 struct FixedObjectSchema {
-  Try<Entry<Key<"int_array">, NumberArrayField<int>>> int_array;
-  Try<Entry<Key<"float_array">, NumberArrayField<double>>> float_array;
-  Try<Entry<Key<"double_array">, NumberArrayField<double>>> double_array;
+  Entry<FieldKey<"int_array">, NumberArrayField<int>> int_array;
+  Entry<FieldKey<"float_array">, NumberArrayField<double>> float_array;
+  Entry<FieldKey<"double_array">, NumberArrayField<double>> double_array;
 };
 
 struct FixedNameObjectSchema {
-  Try<Entry<Key<"name0">, StringField>> name0;
-  Try<Entry<Key<"name1">, StringField>> name1;
-  Try<Entry<Key<"name2">, StringField>> name2;
-  Try<Entry<Key<"name3">, StringField>> name3;
-  Try<Entry<Key<"name4">, StringField>> name4;
+  Entry<FieldKey<"name0">, StringField> name0;
+  Entry<FieldKey<"name1">, StringField> name1;
+  Entry<FieldKey<"name2">, StringField> name2;
+  Entry<FieldKey<"name3">, StringField> name3;
+  Entry<FieldKey<"name4">, StringField> name4;
 };
 
 struct NestedObjectSchema {
-  Try<Entry<Key<"v3s">, V3ArrayField>> v3s;
-  Try<Entry<Key<"id">, StringField>> id;
+  Entry<FieldKey<"v3s">, V3ArrayField> v3s;
+  Entry<FieldKey<"id">, StringField> id;
 };
 
 using NestedObjectField =
@@ -122,11 +125,11 @@ using NestedObjectField =
          noop_encoder>;
 
 struct AnotherObjectSchema {
-  Try<Entry<Key<"string">, StringField>> string;
-  Try<Entry<Key<"another_string">, StringField>> another_string;
-  Try<Entry<Key<"escaped_text">, StringField>> escaped_text;
-  Try<Entry<Key<"boolean">, BoolField>> boolean;
-  Try<Entry<Key<"nested_object">, NestedObjectField>> nested_object;
+  Entry<FieldKey<"string">, StringField> string;
+  Entry<FieldKey<"another_string">, StringField> another_string;
+  Entry<FieldKey<"escaped_text">, StringField> escaped_text;
+  Entry<FieldKey<"boolean">, BoolField> boolean;
+  Entry<FieldKey<"nested_object">, NestedObjectField> nested_object;
 };
 
 using FixedObjectField =
@@ -140,15 +143,15 @@ using AnotherObjectField =
          noop_encoder>;
 
 struct RootSchema {
-  Try<Entry<Key<"fixed_object">, FixedObjectField>> fixed_object;
-  Try<Entry<Key<"fixed_name_object">, FixedNameObjectField>> fixed_name_object;
-  Try<Entry<Key<"another_object">, AnotherObjectField>> another_object;
-  Try<Entry<Key<"string_array">, StringArrayField>> string_array;
-  Try<Entry<Key<"string">, StringField>> string;
-  Try<Entry<Key<"number">, NumberField<double>>> number;
-  Try<Entry<Key<"boolean">, BoolField>> boolean;
-  Try<Entry<Key<"another_bool">, BoolField>> another_bool;
-  Try<Entry<SkipKey, SkipVal>> skip;
+  Entry<FieldKey<"fixed_object">, FixedObjectField> fixed_object;
+  Entry<FieldKey<"fixed_name_object">, FixedNameObjectField> fixed_name_object;
+  Entry<FieldKey<"another_object">, AnotherObjectField> another_object;
+  Entry<FieldKey<"string_array">, StringArrayField> string_array;
+  Entry<FieldKey<"string">, StringField> string;
+  Entry<FieldKey<"number">, NumberField<double>> number;
+  Entry<FieldKey<"boolean">, BoolField> boolean;
+  Entry<FieldKey<"another_bool">, BoolField> another_bool;
+  // Entry<SkipKey, SkipVal> skip;
 };
 
 struct Stats {
@@ -176,7 +179,8 @@ auto unquote_json_string(std::string_view value) -> std::string_view {
 auto make_stats(const RootSchema& root) -> Stats {
   Stats stats;
 
-  for (const auto value : root.fixed_object.value().value().int_array.value().value()) {
+  for (const auto value :
+       root.fixed_object.value().value().int_array.value().value()) {
     stats.int_sum += value;
   }
   for (const auto value :
@@ -192,27 +196,38 @@ auto make_stats(const RootSchema& root) -> Stats {
   }
 
   const auto& names = root.fixed_name_object.value().value();
-  stats.name_total_len += unquote_json_string(names.name0.value().value()).size();
-  stats.name_total_len += unquote_json_string(names.name1.value().value()).size();
-  stats.name_total_len += unquote_json_string(names.name2.value().value()).size();
-  stats.name_total_len += unquote_json_string(names.name3.value().value()).size();
-  stats.name_total_len += unquote_json_string(names.name4.value().value()).size();
+  stats.name_total_len +=
+      unquote_json_string(names.name0.value().value()).size();
+  stats.name_total_len +=
+      unquote_json_string(names.name1.value().value()).size();
+  stats.name_total_len +=
+      unquote_json_string(names.name2.value().value()).size();
+  stats.name_total_len +=
+      unquote_json_string(names.name3.value().value()).size();
+  stats.name_total_len +=
+      unquote_json_string(names.name4.value().value()).size();
 
   for (const auto value : root.string_array.value().value()) {
     stats.string_array_total_len += unquote_json_string(value).size();
   }
 
-  for (const auto& row :
-       root.another_object.value().value().nested_object.value().value().v3s
-           .value()
-           .value()) {
+  for (const auto& row : root.another_object.value()
+                             .value()
+                             .nested_object.value()
+                             .value()
+                             .v3s.value()
+                             .value()) {
     for (const auto value : row) {
       stats.v3_sum += value;
     }
   }
 
-  stats.nested_id = std::string{unquote_json_string(
-      root.another_object.value().value().nested_object.value().value().id.value().value())};
+  stats.nested_id = std::string{unquote_json_string(root.another_object.value()
+                                                        .value()
+                                                        .nested_object.value()
+                                                        .value()
+                                                        .id.value()
+                                                        .value())};
   stats.top_level_string =
       std::string{unquote_json_string(root.string.value().value())};
   stats.another_string = std::string{unquote_json_string(
@@ -252,19 +267,22 @@ auto collect_yyjson(std::string_view input) -> Stats {
   size_t max = 0;
   yyjson_val* value = nullptr;
 
-  yyjson_arr_foreach(yyjson_obj_get(fixed_object, "int_array"), idx, max, value) {
+  yyjson_arr_foreach(yyjson_obj_get(fixed_object, "int_array"), idx, max,
+                     value) {
     stats.int_sum += static_cast<int>(yyjson_get_int(value));
   }
 
   idx = 0;
   max = 0;
-  yyjson_arr_foreach(yyjson_obj_get(fixed_object, "float_array"), idx, max, value) {
+  yyjson_arr_foreach(yyjson_obj_get(fixed_object, "float_array"), idx, max,
+                     value) {
     stats.float_sum += yyjson_get_num(value);
   }
 
   idx = 0;
   max = 0;
-  yyjson_arr_foreach(yyjson_obj_get(fixed_object, "double_array"), idx, max, value) {
+  yyjson_arr_foreach(yyjson_obj_get(fixed_object, "double_array"), idx, max,
+                     value) {
     if (idx == 1) {
       stats.second_double = yyjson_get_num(value);
     }
@@ -272,20 +290,20 @@ auto collect_yyjson(std::string_view input) -> Stats {
   }
 
   stats.name_total_len += std::string_view{yyjson_get_str(yyjson_obj_get(
-                               fixed_name_object, "name0"))}
-                               .size();
+                                               fixed_name_object, "name0"))}
+                              .size();
   stats.name_total_len += std::string_view{yyjson_get_str(yyjson_obj_get(
-                               fixed_name_object, "name1"))}
-                               .size();
+                                               fixed_name_object, "name1"))}
+                              .size();
   stats.name_total_len += std::string_view{yyjson_get_str(yyjson_obj_get(
-                               fixed_name_object, "name2"))}
-                               .size();
+                                               fixed_name_object, "name2"))}
+                              .size();
   stats.name_total_len += std::string_view{yyjson_get_str(yyjson_obj_get(
-                               fixed_name_object, "name3"))}
-                               .size();
+                                               fixed_name_object, "name3"))}
+                              .size();
   stats.name_total_len += std::string_view{yyjson_get_str(yyjson_obj_get(
-                               fixed_name_object, "name4"))}
-                               .size();
+                                               fixed_name_object, "name4"))}
+                              .size();
 
   idx = 0;
   max = 0;
@@ -311,8 +329,7 @@ auto collect_yyjson(std::string_view input) -> Stats {
   stats.another_string =
       yyjson_get_str(yyjson_obj_get(another_object, "another_string"));
   stats.top_level_boolean = yyjson_get_bool(yyjson_obj_get(root, "boolean"));
-  stats.another_boolean =
-      yyjson_get_bool(yyjson_obj_get(root, "another_bool"));
+  stats.another_boolean = yyjson_get_bool(yyjson_obj_get(root, "another_bool"));
 
   yyjson_doc_free(doc);
   return stats;
@@ -322,8 +339,8 @@ auto is_expected(const Stats& stats) -> bool {
   return stats.int_sum == kIntArraySum &&
          std::abs(stats.float_sum - kFloatArraySum) < 1e-12 &&
          stats.double_count == kDoubleArrayCount &&
-         std::abs((stats.second_double - kDoubleArraySecond) / kDoubleArraySecond) <
-             1e-12 &&
+         std::abs((stats.second_double - kDoubleArraySecond) /
+                  kDoubleArraySecond) < 1e-12 &&
          stats.name_total_len == kNameTotalLength &&
          stats.string_array_total_len == kStringArrayTotalLength &&
          std::abs(stats.v3_sum - kV3Sum) < 1e-12 &&
