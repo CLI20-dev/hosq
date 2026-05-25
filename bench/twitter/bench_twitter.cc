@@ -2,30 +2,19 @@
 #include <yyjson.h>
 
 #include <fstream>
+#include <hosq/hosq.hh>
+#include <hosq/json/fast_reader.hh>
+#include <hosq/json/simple_reader.hh>
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <variant>
-
-#include "hosq/decoder.hh"
-#include "hosq/element.hh"
-#include "hosq/entry.hh"
-#include "hosq/json/fast_reader.hh"
-#include "hosq/json/simple_reader.hh"
-#include "hosq/pipeline/decode.hh"
-#include "hosq/pipeline/match.hh"
-#include "hosq/pipeline/scan.hh"
-#include "hosq/pipeline/store.hh"
-#include "hosq/pipeline_util.hh"
-#include "hosq/string_literal.hh"
-#include "hosq/try.hh"
 
 using namespace hosq;
 using namespace std::string_view_literals;
 
 namespace {
 
-using Reader = hosq::json::SimpleReader;
+using Reader = json::SimpleReader;
 
 // Expected sums — computed from twitter.json with uint64 wrapping
 constexpr uint64_t kStatusIdSum = 13693999927316377398ULL;
@@ -33,66 +22,53 @@ constexpr uint64_t kUserIdSum = 221361100704ULL;
 constexpr int kRetweetSum = 7122;
 constexpr int kFavoriteSum = 0;
 
-// ─── Custom pipeline steps ────────────────────────────────────────────────────
-
-// Matches any string key, returning bool=true (required for Try<Entry<Key,...>>)
-struct AnyBoolImpl {
-  template <class Input>
-  using storage_type = std::monostate;
-
-  auto operator()(std::string_view) const -> bool { return true; }
-};
-
-constexpr auto any_bool = step<AnyBoolImpl>;
-
 // ─── Schema aliases ───────────────────────────────────────────────────────────
-//
-template <StringLiteral Name>
-using Key = Elem<scan::string | match::literal<Name>, noop_encoder>;
 
-// Catch-all entry: matches any key, skips the associated value.
-using SkipKey = Elem<scan::string | any_bool, noop_encoder>;
+using SkipKey = Elem<scan::scalar | decode::skip, noop_encoder>;
 using SkipVal = Elem<decode::skip, noop_encoder>;
-using SkipEntry = Try<Entry<SkipKey, SkipVal>>;
 
 template <class T>
 using NumberField =
-    Elem<scan::literal | decode::number<T> | store::assign, noop_encoder>;
+    Elem<scan::scalar | decode::number<T> | store::assign, noop_encoder>;
 
 // ─── Schema structs ───────────────────────────────────────────────────────────
 
 struct UserSchema {
-  Try<Entry<Key<"id"_literal>, NumberField<uint64_t>>> id;
-  SkipEntry skip;
+  Try<Entry<Key<"id">, NumberField<uint64_t>>> id;
+  Try<Entry<SkipKey, SkipVal>> skip;
 };
 
 using UserField =
     Elem<scan::object | decode::to<UserSchema> | store::assign, noop_encoder>;
 
 struct StatusSchema {
-  Try<Entry<Key<"id"_literal>, NumberField<uint64_t>>> id;
-  Try<Entry<Key<"retweet_count"_literal>, NumberField<int>>> retweet_count;
-  Try<Entry<Key<"favorite_count"_literal>, NumberField<int>>> favorite_count;
-  Try<Entry<Key<"user"_literal>, UserField>> user;
-  SkipEntry skip;
+  Try<Entry<Key<"id">, NumberField<uint64_t>>> id;
+  Try<Entry<Key<"retweet_count">, NumberField<int>>> retweet_count;
+  Try<Entry<Key<"favorite_count">, NumberField<int>>> favorite_count;
+  Try<Entry<Key<"user">, UserField>> user;
+  Try<Entry<SkipKey, SkipVal>> skip;
 };
 
 using StatusesField =
-    Elem<scan::array | decode::collect<scan::object | decode::to<StatusSchema>> |
-             store::assign,
+    Elem<scan::array |
+             decode::each<scan::object | decode::to<StatusSchema> | store::push>,
          noop_encoder>;
 
 struct TwitterSchema {
-  Try<Entry<Key<"statuses"_literal>, StatusesField>> statuses;
-  SkipEntry skip;
+  Try<Entry<Key<"statuses">, StatusesField>> statuses;
+  Try<Entry<SkipKey, SkipVal>> skip;
 };
 
 // ─── Shared JSON data ─────────────────────────────────────────────────────────
 
 std::string g_json;  // NOLINT
 
+#ifndef TWITTER_JSON_PATH
+#define TWITTER_JSON_PATH "twitter.json"  // NOLINT
+#endif
+
 void load_json() {
-  std::ifstream f(TWITTER_JSON_PATH);  // NOLINT
+  std::ifstream f(TWITTER_JSON_PATH);
   g_json.assign(std::istreambuf_iterator<char>(f), {});
 }
 
@@ -127,7 +103,7 @@ auto collect_hosq() -> Sums {
 }
 
 auto collect_hosq_fast() -> Sums {
-  using FastReader = hosq::json::FastReader<>;
+  using FastReader = json::FastReader<>;
   TwitterSchema schema;
   const auto result = decode_into<FastReader>(schema, std::string_view{g_json});
   if (!result.is_ok()) {
@@ -188,7 +164,7 @@ static void bm_hosq_twitter(benchmark::State& state) {
 }
 
 static void bm_hosq_twitter_fast(benchmark::State& state) {
-  using FastReader = hosq::json::FastReader<>;
+  using FastReader = json::FastReader<>;
   for (auto _ : state) {
     TwitterSchema schema;
     const auto result =

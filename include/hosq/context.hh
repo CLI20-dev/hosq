@@ -2,7 +2,6 @@
 
 #include <functional>
 
-#include "hosq/detail/pipeline_analysis_io.hh"
 #include "hosq/reader_base.hh"
 #include "hosq/writer_base.hh"
 
@@ -13,7 +12,6 @@ namespace detail {
 template <ReaderConcept R>
 struct DecodeContextBase {
   using reader_state_type = typename R::state_type;
-  using input_type = typename R::input_type;
   using reader_type = R;
 
  protected:
@@ -41,7 +39,7 @@ struct DecodeContextBase {
   }
 
   [[nodiscard]]
-  auto input() const noexcept -> input_type {
+  auto input() const noexcept -> BytesView {
     return reader().input(reader_state());
   }
 
@@ -57,9 +55,15 @@ enum class TryPhase {
   first,
 };
 
-template <class T, ReaderConcept R, TryPhase Phase = TryPhase::normal>
-struct DecodeContext : private detail::DecodeContextBase<R> {
-  template <class, ReaderConcept, TryPhase>
+template <class T, class R, TryPhase Phase = TryPhase::normal>
+struct DecodeContext {
+  static_assert(ReaderConcept<R>,
+                "DecodeContext reader type must satisfy ReaderConcept");
+};
+
+template <class T, ReaderConcept R, TryPhase Phase>
+struct DecodeContext<T, R, Phase> : private detail::DecodeContextBase<R> {
+  template <class, class, TryPhase>
   friend struct DecodeContext;
 
   using base_type = detail::DecodeContextBase<R>;
@@ -112,7 +116,7 @@ struct DecodeContext : private detail::DecodeContextBase<R> {
 
 template <ReaderConcept R, TryPhase Phase>
 struct DecodeContext<void, R, Phase> : private detail::DecodeContextBase<R> {
-  template <class, ReaderConcept, TryPhase>
+  template <class, class, TryPhase>
   friend struct DecodeContext;
 
   using base_type = detail::DecodeContextBase<R>;
@@ -165,9 +169,15 @@ struct EncodeContextBase {
 
 }  // namespace detail
 
+template <class T, class W>
+struct EncodeContext {
+  static_assert(WriterConcept<W>,
+                "EncodeContext writer type must satisfy WriterConcept");
+};
+
 template <class T, WriterConcept W>
-struct EncodeContext : private detail::EncodeContextBase<W> {
-  template <class, WriterConcept>
+struct EncodeContext<T, W> : private detail::EncodeContextBase<W> {
+  template <class, class>
   friend struct EncodeContext;
   using base_type = detail::EncodeContextBase<W>;
 
@@ -206,25 +216,5 @@ struct EncodeContext<void, W> : private detail::EncodeContextBase<W> {
   /* implicit */ EncodeContext(EncodeContext<T, W>& other) noexcept
       : base_type(other.writer()) {}
 };
-
-namespace detail {
-
-template <class T, ReaderConcept R, TryPhase Phase>
-auto make_decode_context_from_const(
-    T& value, const DecodeContext<void, R, Phase>& other) noexcept {
-  auto& mutable_other =
-      const_cast<DecodeContext<void, R, Phase>&>(other);  // NOLINT
-
-  return DecodeContext<T, R, Phase>{value, mutable_other};
-}
-
-using PipelineDecodeAnalysisContext =
-    DecodeContext<PipelineAnalysisStorage, PipelineAnalysisReader,
-                  TryPhase::first>;
-
-using PipelineEncodeAnalysisContext =
-    EncodeContext<PipelineAnalysisStorage, PipelineAnalysisWriter>;
-
-}  // namespace detail
 
 }  // namespace hosq

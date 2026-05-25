@@ -24,7 +24,7 @@ void report_validation_error(Context& ctx, ErrorCode code) {
 template <auto V>
 struct MatchImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value != V) {
       report_validation_error(ctx, ErrorCode::invalid_choice);
     }
@@ -35,7 +35,7 @@ struct MatchImpl {
 template <auto... Vs>
 struct OneOfImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (!((value == Vs) || ...)) {
       report_validation_error(ctx, ErrorCode::invalid_choice);
     }
@@ -46,7 +46,7 @@ struct OneOfImpl {
 template <auto Min, auto Max>
 struct RangeImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value < Min || value > Max) {
       report_validation_error(ctx, ErrorCode::out_of_range);
     }
@@ -57,7 +57,7 @@ struct RangeImpl {
 template <auto Min>
 struct MinImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value < Min) {
       report_validation_error(ctx, ErrorCode::out_of_range);
     }
@@ -68,7 +68,7 @@ struct MinImpl {
 template <auto Max>
 struct MaxImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value > Max) {
       report_validation_error(ctx, ErrorCode::out_of_range);
     }
@@ -78,7 +78,7 @@ struct MaxImpl {
 
 struct NonEmptyImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value.empty()) {
       report_validation_error(ctx, ErrorCode::validation_failed);
     }
@@ -89,7 +89,7 @@ struct NonEmptyImpl {
 template <std::size_t N>
 struct SizeImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value.size() != N) {
       report_validation_error(ctx, ErrorCode::size_mismatch);
     }
@@ -100,7 +100,7 @@ struct SizeImpl {
 template <std::size_t Min, std::size_t Max>
 struct SizeRangeImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value.size() < Min || value.size() > Max) {
       report_validation_error(ctx, ErrorCode::validation_failed);
     }
@@ -111,7 +111,7 @@ struct SizeRangeImpl {
 template <auto F>
 struct PredicateImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (!F(value)) {
       report_validation_error(ctx, ErrorCode::validation_failed);
     }
@@ -122,7 +122,7 @@ struct PredicateImpl {
 template <auto F>
 struct CustomImpl {
   template <class T, class Context>
-  decltype(auto) operator()(T&& value, Context& ctx) const {
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if constexpr (requires { F(std::forward<T>(value), ctx); }) {
       using R = std::remove_cvref_t<decltype(F(std::forward<T>(value), ctx))>;
       if constexpr (std::same_as<R, bool>) {
@@ -155,7 +155,7 @@ struct CustomImpl {
 
 struct IdentityImpl {
   template <class T>
-  decltype(auto) operator()(T&& value) const {
+  auto operator()(T&& value) const -> decltype(auto) {
     return std::forward<T>(value);
   }
 };

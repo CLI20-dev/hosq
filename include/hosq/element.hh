@@ -1,11 +1,10 @@
 #pragma once
 
-#include <tuple>
 #include <type_traits>
 
 #include "hosq/context.hh"
-#include "hosq/detail/as_tuple.hh"
 #include "hosq/detail/pipeline_analysis.hh"
+#include "hosq/detail/pipeline_analysis_io.hh"
 #include "hosq/pipeline.hh"
 
 namespace hosq {
@@ -20,6 +19,14 @@ namespace hosq {
 #endif
 #endif
 
+template <auto Decoder, auto Encoder>
+struct Elem {
+  static_assert(detail::PipelineObject<decltype(Decoder)>,
+                "Decoder must be a hosq::Pipeline");
+  static_assert(detail::PipelineObject<decltype(Encoder)>,
+                "Encoder must be a hosq::Pipeline");
+};
+
 /// A single decoded/encoded field backed by a Decoder and Encoder pipeline pair.
 ///
 /// `storage_type` is derived from the decoder's `storage_type<Input>`
@@ -32,7 +39,7 @@ namespace hosq {
 template <auto Decoder, auto Encoder>
   requires detail::PipelineObject<decltype(Decoder)> &&
            detail::PipelineObject<decltype(Encoder)>
-struct Elem {
+struct Elem<Decoder, Encoder> {
   using decoder_type = std::remove_cvref_t<decltype(Decoder)>;
   using encoder_type = std::remove_cvref_t<decltype(Encoder)>;
 
@@ -147,34 +154,6 @@ struct Elem {
  private:
   [[no_unique_address]] storage_type value_{};
 };
-
-namespace detail {
-
-template <class T>
-struct IsElem : std::false_type {};
-
-template <auto Decoder, auto Encoder>
-struct IsElem<::hosq::Elem<Decoder, Encoder>> : std::true_type {};
-
-template <class T>
-concept ElemT = IsElem<std::remove_cvref_t<T>>::value;
-
-template <class Tuple>
-struct ElemTuple : std::false_type {};
-
-template <class... Ts>
-struct ElemTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (ElemT<Ts> && ...)> {};
-
-template <class T>
-concept ElemTupleT = ElemTuple<std::remove_cvref_t<T>>::value;
-
-template <class T>
-concept AsElemTupleT = requires(T t) {
-  { hosq::detail::as_tuple(t) } -> ElemTupleT;
-};
-
-}  // namespace detail
 
 /**
  * @brief Prevents Elem from being decomposed as an aggregate schema.

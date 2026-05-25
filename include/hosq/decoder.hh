@@ -6,13 +6,13 @@
 #include <type_traits>
 #include <utility>
 
+#include "hosq/context.hh"
 #include "hosq/detail/as_tuple.hh"
-#include "hosq/element.hh"
-#include "hosq/entry.hh"
+#include "hosq/detail/type_traits.hh"
 #include "hosq/meta_match.hh"
+#include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/reader_base.hh"
-#include "hosq/try.hh"
 
 namespace hosq {
 
@@ -27,23 +27,13 @@ namespace hosq {
 #define HOSQ_FUNCTION_ALWAYS_INLINE inline
 #endif
 
-namespace detail {
-
-template <class T>
-struct DecoderAcceptableType : std::false_type {};
-
-template <class T>
-  requires(ElemT<T> || AsElemTupleT<T> || AsEntryTupleT<T> ||
-           AsTryElemTupleT<T> || AsTryEntryTupleT<T>)
-struct DecoderAcceptableType<T> : std::true_type {};
-
-template <class T>
-concept DecoderAcceptableT = DecoderAcceptableType<T>::value;
-
-}  // namespace detail
+template <class R>
+class Decoder {
+  static_assert(ReaderConcept<R>, "Decoder requires a ReaderConcept");
+};
 
 template <ReaderConcept R>
-class Decoder {
+class Decoder<R> {
  public:
   Decoder(const Decoder&) = delete;
   Decoder(Decoder&&) = delete;
@@ -298,7 +288,8 @@ class Decoder {
     const auto key_ctx =
         DecodeContext<void, reader_type, TryPhase::first>{reader, reader_state};
 
-    std::string_view key_view = (::hosq::scan::string).invoke(key_ctx);
+    std::string_view key_view =
+        (::hosq::scan::scalar | ::hosq::decode::string_view).invoke(key_ctx);
 
     bool decoded = false;
     auto handlers = std::tuple{hosq::meta::make_handler<detail::try_base_t<
@@ -397,9 +388,6 @@ class Decoder {
           decode_raw_result_t<key_is_const_decodable, key_elem_type,
                               key_elem_context_type>;
 
-      static_assert(std::same_as<key_elem_raw_result_type, bool>,
-                    "Try<Entry> key decoder must return bool");
-
       using value_elem_type = entry_type::value_type;
       using value_elem_value_type = typename value_elem_type::storage_type;
       using value_elem_context_type =
@@ -415,9 +403,13 @@ class Decoder {
       auto key_ctx = make_decode_context<key_elem_type, phase>(key_elem, reader,
                                                                reader_state);
       if constexpr (key_is_const_decodable) {
-        const auto& const_key_ctx = key_ctx;
-        if (!key_elem.decode(const_key_ctx)) {
-          return false;
+        if constexpr (std::same_as<key_elem_raw_result_type, bool>) {
+          const auto& const_key_ctx = key_ctx;
+          if (!key_elem.decode(const_key_ctx)) {
+            return false;
+          }
+        } else {
+          key_elem.decode(key_ctx);
         }
 
         if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
@@ -448,12 +440,16 @@ class Decoder {
 
       } else {
         auto checkpoint = reader_state.checkpoint();
-        {
-          auto ret = key_elem.decode(key_ctx);
-          if (!ret) {
-            reader_state.rollback(std::move(checkpoint));
-            return false;
+        if constexpr (std::same_as<key_elem_raw_result_type, bool>) {
+          {
+            auto ret = key_elem.decode(key_ctx);
+            if (!ret) {
+              reader_state.rollback(std::move(checkpoint));
+              return false;
+            }
           }
+        } else {
+          key_elem.decode(key_ctx);
         }
 
         if (!reader.next_token(reader_state)) [[unlikely]] {

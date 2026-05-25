@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string_view>
 
+#include "hosq/context.hh"
 #include "hosq/error.hh"
 #include "hosq/reader_base.hh"
 #include "hosq/writer_base.hh"
@@ -27,11 +28,13 @@ struct PipelineAnalysisReaderState {
   };
 };
 
-struct PipelineAnalysisReader {
-  using input_type = std::string_view;
-  using state_type = PipelineAnalysisReaderState;
+struct DummyInput {};
 
-  auto reset(state_type&, input_type) noexcept -> void {}
+struct PipelineAnalysisReader {
+  using state_type = PipelineAnalysisReaderState;
+  using input_type = DummyInput;
+
+  auto reset(state_type&, DummyInput) noexcept -> void {}
 
   auto next_token(state_type&) noexcept -> bool { return false; }
 
@@ -48,9 +51,8 @@ struct PipelineAnalysisReader {
   }
 
   [[nodiscard]]
-  auto input(const state_type&) const noexcept -> const input_type& {
-    static constexpr input_type empty{};
-    return empty;
+  auto input(const state_type&) const noexcept -> BytesView {
+    return {nullptr, 0};
   }
 };
 
@@ -76,6 +78,16 @@ struct PipelineAnalysisWriter {
 struct PipelineAnalysisStorage {
   PipelineAnalysisStorage() = delete;
 };
+
+using PipelineDecodeAnalysisContext =
+    DecodeContext<PipelineAnalysisStorage, PipelineAnalysisReader,
+                  TryPhase::first>;
+
+using PipelineEncodeAnalysisContext =
+    EncodeContext<PipelineAnalysisStorage, PipelineAnalysisWriter>;
+
+static_assert(ReaderConcept<PipelineAnalysisReader>);
+static_assert(ReaderStateConcept<PipelineAnalysisReaderState>);
 
 }  // namespace hosq::detail
 

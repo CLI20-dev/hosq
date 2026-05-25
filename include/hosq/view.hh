@@ -1,32 +1,22 @@
 #pragma once
 
-#include "hosq/reader_base.hh"
+#include <ranges>
+
+#include "hosq/ext_fwd.hh"
+
+namespace hosq::scan::detail {
+
+struct ScanObject;
+
+struct ScanArray;
+
+struct ScanScalar;
+
+}  // namespace hosq::scan::detail
 
 namespace hosq {
 
-namespace ext {
-
-template <ReaderConcept R>
-struct ScanObject;
-
-template <ReaderConcept R>
-struct ScanArray;
-
-}  // namespace ext
-
-namespace scan::detail {
-
-struct ScanObject;
-
-struct ScanArray;
-
-}  // namespace scan::detail
-
-template <auto... Fns>
-  requires(sizeof...(Fns) > 0)
-struct Pipeline;
-
-struct ObjectView final {
+struct ObjectView final : public std::ranges::view_interface<ObjectView> {
   ~ObjectView() = default;
 
  protected:
@@ -60,6 +50,26 @@ struct ArrayView final {
   template <ReaderConcept R>
   friend struct ::hosq::ext::ScanArray;
   friend struct ::hosq::scan::detail::ScanArray;
+
+  template <auto... Fns>
+    requires(sizeof...(Fns) > 0)
+  friend struct Pipeline;
+};
+
+struct ScalarView final {
+  ~ScalarView() = default;
+
+ protected:
+  ScalarView() = default;
+
+  ScalarView(const ScalarView&) = default;
+  ScalarView(ScalarView&&) = default;
+  auto operator=(const ScalarView&) -> ScalarView& = default;
+  auto operator=(ScalarView&&) -> ScalarView& = default;
+
+  template <ReaderConcept R>
+  friend struct ::hosq::ext::ScanScalar;
+  friend struct ::hosq::scan::detail::ScanScalar;
 
   template <auto... Fns>
     requires(sizeof...(Fns) > 0)

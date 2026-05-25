@@ -2,81 +2,67 @@
 
 #include <string_view>
 
-#include "hosq/decoder.hh"
-#include "hosq/entry.hh"
+#include "hosq/hosq.hh"
 #include "hosq/json/simple_reader.hh"
-#include "hosq/pipeline/decode.hh"
-#include "hosq/pipeline/match.hh"
-#include "hosq/pipeline/scan.hh"
-#include "hosq/pipeline/store.hh"
-#include "hosq/pipeline_util.hh"
-#include "hosq/try.hh"
 
 using namespace std::string_view_literals;
+using namespace hosq;
 
 namespace {
 
-using Reader = hosq::json::SimpleReader;
+using Reader = json::SimpleReader;
 
-template <hosq::StringLiteral Name>
-using Key = hosq::Elem<hosq::scan::string | hosq::match::literal<Name>,
-                       hosq::noop_encoder>;
+template <StringLiteral Name>
+using Key =
+    Elem<scan::scalar | decode::string_view | match::literal<Name>,
+         noop_encoder>;
 
-using StringValue = hosq::Elem<hosq::scan::string | hosq::decode::string_view |
-                                   hosq::store::assign,
-                               hosq::noop_encoder>;
+using StringValue =
+    Elem<scan::scalar | decode::string_view | store::assign, noop_encoder>;
 
 template <class T>
-using NumberValue = hosq::Elem<hosq::scan::literal | hosq::decode::number<T> |
-                                   hosq::store::assign,
-                               hosq::noop_encoder>;
+using NumberValue =
+    Elem<scan::scalar | decode::number<T> | store::assign, noop_encoder>;
 
 struct Address {
-  hosq::Try<hosq::Entry<Key<"city">, StringValue>> city;
-  hosq::Try<hosq::Entry<Key<"zip">, NumberValue<int>>> zip;
+  Try<Entry<Key<"city">, StringValue>> city;
+  Try<Entry<Key<"zip">, NumberValue<int>>> zip;
 };
 
 struct Profile {
-  hosq::Try<hosq::Entry<Key<"display_name">, StringValue>> display_name;
+  Try<Entry<Key<"display_name">, StringValue>> display_name;
 };
 
-using AddressValue = hosq::Elem<hosq::scan::object | hosq::decode::to<Address> |
-                                    hosq::store::assign,
-                                hosq::noop_encoder>;
+using AddressValue =
+    Elem<scan::object | decode::to<Address> | store::assign, noop_encoder>;
 
-using ProfileValue = hosq::Elem<hosq::scan::object | hosq::decode::to<Profile> |
-                                    hosq::store::assign,
-                                hosq::noop_encoder>;
+using ProfileValue =
+    Elem<scan::object | decode::to<Profile> | store::assign, noop_encoder>;
 
 struct User {
-  hosq::Try<hosq::Entry<Key<"id">, NumberValue<int>>> id;
-  hosq::Try<hosq::Entry<Key<"name">, StringValue>> name;
-  hosq::Try<hosq::Entry<Key<"address">, AddressValue>> address;
-  hosq::Try<hosq::Entry<Key<"profile">, ProfileValue>> profile;
+  Try<Entry<Key<"id">, NumberValue<int>>> id;
+  Try<Entry<Key<"name">, StringValue>> name;
+  Try<Entry<Key<"address">, AddressValue>> address;
+  Try<Entry<Key<"profile">, ProfileValue>> profile;
 };
 
 using UserValue =
-    hosq::Elem<hosq::scan::object | hosq::decode::to<User> | hosq::store::assign,
-               hosq::noop_encoder>;
+    Elem<scan::object | decode::to<User> | store::assign, noop_encoder>;
 
 struct Company {
-  hosq::Try<hosq::Entry<Key<"name">, StringValue>> name;
-  hosq::Try<hosq::Entry<Key<"owner">, UserValue>> owner;
+  Try<Entry<Key<"name">, StringValue>> name;
+  Try<Entry<Key<"owner">, UserValue>> owner;
 };
 
 struct AddressEnvelope {
-  hosq::Try<hosq::Entry<Key<"address">, AddressValue>> address;
+  Try<Entry<Key<"address">, AddressValue>> address;
 };
 
 struct UserWithSkip {
-  hosq::Try<hosq::Entry<Key<"id">, NumberValue<int>>> id;
-  hosq::Try<hosq::Entry<Key<"name">, StringValue>> name;
-  hosq::Try<hosq::Entry<hosq::Elem<hosq::scan::string | hosq::decode::custom<
-                                                      [](std::string_view) {
-                                                        return true;
-                                                      }>,
-                                   hosq::noop_encoder>,
-                        hosq::Elem<hosq::decode::skip, hosq::noop_encoder>>>
+  Try<Entry<Key<"id">, NumberValue<int>>> id;
+  Try<Entry<Key<"name">, StringValue>> name;
+  Try<Entry<Elem<scan::scalar | decode::skip, noop_encoder>,
+            Elem<decode::skip, noop_encoder>>>
       skip;
 };
 
@@ -85,7 +71,7 @@ struct UserWithSkip {
 TEST(DecodeNestedJson, DecodesNestedObjectValue) {
   auto user = User{};
 
-  const auto result = hosq::decode_into<Reader>(
+  const auto result = decode_into<Reader>(
       user,
       R"({"id":7,"name":"Alice","address":{"city":"Tokyo","zip":100},"profile":{"display_name":"alice"}})"sv);
 
@@ -101,7 +87,7 @@ TEST(DecodeNestedJson, DecodesNestedObjectValue) {
 TEST(DecodeNestedJson, DecodesNestedFieldsInReverseOrder) {
   auto user = User{};
 
-  const auto result = hosq::decode_into<Reader>(
+  const auto result = decode_into<Reader>(
       user,
       R"({"profile":{"display_name":"bob"},"address":{"zip":150,"city":"Osaka"},"name":"Bob","id":8})"sv);
 
@@ -116,7 +102,7 @@ TEST(DecodeNestedJson, DecodesNestedFieldsInReverseOrder) {
 TEST(DecodeNestedJson, DecodesMultipleNestedObjectLevels) {
   auto company = Company{};
 
-  const auto result = hosq::decode_into<Reader>(
+  const auto result = decode_into<Reader>(
       company,
       R"({"name":"Acme","owner":{"id":1,"name":"Carol","address":{"city":"Kyoto","zip":600},"profile":{"display_name":"ceo"}}})"sv);
 
@@ -142,28 +128,28 @@ TEST(DecodeNestedJson, DecodesMultipleNestedObjectLevels) {
 TEST(DecodeNestedJson, RejectsUnknownNestedField) {
   auto envelope = AddressEnvelope{};
 
-  const auto result = hosq::decode_into<Reader>(
+  const auto result = decode_into<Reader>(
       envelope, R"({"address":{"city":"Tokyo","extra":1,"zip":100}})"sv);
 
   ASSERT_FALSE(result.is_ok());
-  EXPECT_EQ(result.code, hosq::ErrorCode::unknown_member);
+  EXPECT_EQ(result.code, ErrorCode::unknown_member);
 }
 
 TEST(DecodeNestedJson, NestedObjectTypeMismatch) {
   auto user = User{};
 
-  const auto result = hosq::decode_into<Reader>(
+  const auto result = decode_into<Reader>(
       user,
       R"({"id":7,"name":"Alice","address":true,"profile":{"display_name":"alice"}})"sv);
 
   ASSERT_FALSE(result.is_ok());
-  EXPECT_EQ(result.code, hosq::ErrorCode::type_mismatch);
+  EXPECT_EQ(result.code, ErrorCode::type_mismatch);
 }
 
 TEST(DecodeNestedJson, SkipIgnoresUnknownScalarObjectAndArrayValues) {
   auto user = UserWithSkip{};
 
-  const auto result = hosq::decode_into<Reader>(
+  const auto result = decode_into<Reader>(
       user,
       R"({"ignored_scalar":1,"name":"Alice","ignored_object":{"a":[1,2,3]},"id":7,"ignored_array":[{"x":1},2,3]})"sv);
 

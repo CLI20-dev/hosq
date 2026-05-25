@@ -11,32 +11,30 @@
 #include <vector>
 
 #include "hosq/context.hh"
-#include "hosq/decoder.hh"
-#include "hosq/detail/always_false.hh"
 #include "hosq/detail/pipeline_analysis.hh"
 #include "hosq/detail/pipeline_analysis_io.hh"
+#include "hosq/detail/type_traits.hh"
 #include "hosq/error.hh"
-#include "hosq/map.hh"
 #include "hosq/pipeline.hh"
 #include "hosq/view.hh"
 
 namespace hosq::ext {
 
 template <ReaderConcept R>
-struct SkipValue {
+struct DecodeSkipValue {
   template <class T, TryPhase Phase>
-  auto operator()(const std::string_view&,
-                  DecodeContext<T, R, Phase>&) const -> void {}
+  auto operator()(const ScalarView&, DecodeContext<T, R, Phase>&) const -> void {
+  }
 
   template <class T, TryPhase Phase>
-  auto operator()(const ObjectView&,
-                  DecodeContext<T, R, Phase>& ctx) const -> void {
+  auto operator()(const ObjectView&, DecodeContext<T, R, Phase>& ctx) const
+      -> void {
     skip_nested(ctx);
   }
 
   template <class T, TryPhase Phase>
-  auto operator()(const ArrayView&,
-                  DecodeContext<T, R, Phase>& ctx) const -> void {
+  auto operator()(const ArrayView&, DecodeContext<T, R, Phase>& ctx) const
+      -> void {
     skip_nested(ctx);
   }
 
@@ -54,7 +52,8 @@ struct SkipValue {
     if (tok.type == TokenType::Scalar) {
       return;
     }
-    if (tok.type == TokenType::ObjectBegin || tok.type == TokenType::ArrayBegin) {
+    if (tok.type == TokenType::ObjectBegin ||
+        tok.type == TokenType::ArrayBegin) {
       return skip_nested(ctx);
     }
     reader.report_error(
@@ -83,27 +82,21 @@ struct SkipValue {
   }
 };
 
-}  // namespace hosq::ext
-
-namespace hosq::decode {
-
-namespace detail {
-
-template <class T>
-concept Number = (std::integral<std::remove_cvref_t<T>> &&
-                  !std::same_as<std::remove_cvref_t<T>, bool>) ||
-                 std::floating_point<std::remove_cvref_t<T>>;
-
-template <Number T>
-struct NumberImpl {
-  template <class Context>
-  auto operator()(const std::string_view& input, const Context& ctx) const
+template <ReaderConcept R>
+struct DecodeNumber {
+  template <class T, class Context>
+  auto operator()(const ScalarView&, const Context& ctx) const
       -> std::remove_cvref_t<T> {
     using Value = std::remove_cvref_t<T>;
+
     Value value{};
-    const char* first = input.data();
-    const char* last = input.data() + input.size();
+    const Token& tok = ctx.reader().current_token(ctx.reader_state());
+    const BytesView bytes = ctx.reader().input(ctx.reader_state());
+    const char* first = bytes.as_string_view().data() + tok.offset;
+    const char* last = bytes.as_string_view().data() + tok.offset + tok.length;
+
     const auto result = std::from_chars(first, last, value);
+
     if (result.ec == std::errc::result_out_of_range) [[unlikely]] {
       ctx.reader().report_error(
           ctx.reader_state(),
@@ -113,6 +106,7 @@ struct NumberImpl {
           });
       return static_cast<Value>(0);
     }
+
     if (result.ec != std::errc{} || result.ptr != last) [[unlikely]] {
       ctx.reader().report_error(
           ctx.reader_state(),
@@ -122,16 +116,66 @@ struct NumberImpl {
           });
       return static_cast<Value>(0);
     }
+
     return value;
   }
 };
 
-struct IdentityImpl {
-  template <class T>
-  constexpr auto operator()(T&& value) const noexcept -> decltype(auto) {
-    return std::forward<T>(value);
+}  // namespace hosq::ext
+
+namespace hosq::decode {
+
+namespace detail {
+
+struct SkipImpl {
+  template <class Input>
+  using storage_type = std::monostate;
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ScalarView& view,
+                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
+    ext::DecodeSkipValue<R>{}(view, ctx);
+  }
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ObjectView& view,
+                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
+    ext::DecodeSkipValue<R>{}(view, ctx);
+  }
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ArrayView& view,
+                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
+    ext::DecodeSkipValue<R>{}(view, ctx);
+  }
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const -> void {
+    ext::DecodeSkipValue<R>{}(ctx);
   }
 };
+
+template <class T>
+concept Number = (std::integral<std::remove_cvref_t<T>> &&
+                  !std::same_as<std::remove_cvref_t<T>, bool>) ||
+                 std::floating_point<std::remove_cvref_t<T>>;
+
+template <Number T>
+struct NumberImpl {
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ScalarView& input,
+                  DecodeContext<Storage, R, Phase>& ctx) const
+      -> std::remove_cvref_t<T> {
+    return ext::DecodeNumber<R>{}.template operator()<T>(input, ctx);
+  }
+};
+
+// struct IdentityImpl {
+//   template <class T>
+//   constexpr auto operator()(T&& value) const noexcept -> decltype(auto) {
+//     return std::forward<T>(value);
+//   }
+// };
 
 template <auto F>
 struct CustomImpl {
@@ -259,7 +303,7 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
                              std::same_as<value_terminal_type, bool>,
                          bool, void>;
 
-  template <ReaderConcept R, TryPhase Phase, class Storage>
+  template <class Storage, ReaderConcept R, TryPhase Phase>
   auto operator()(const ObjectView&, DecodeContext<Storage, R, Phase>& ctx) const
       -> pipeline_output_type {
     using actual_key_info = ::hosq::detail::pipeline_analysis_t<
@@ -559,9 +603,13 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
 };
 
 struct BooleanImpl {
-  template <ReaderConcept R>
-  auto operator()(const std::string_view& sv, DecodeContext<void, R>& ctx) const
-      -> bool {
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ScalarView&,
+                  DecodeContext<Storage, R, Phase>& ctx) const -> bool {
+    const Token& tok = ctx.reader().current_token(ctx.reader_state());
+    const BytesView bytes = ctx.reader().input(ctx.reader_state());
+    const std::string_view sv =
+        bytes.as_string_view().substr(tok.offset, tok.length);
     if (sv == "true") return true;
     if (sv == "false") return false;
     ctx.reader().report_error(
@@ -575,36 +623,15 @@ struct BooleanImpl {
 };
 
 struct StringViewImpl {
-  auto operator()(const std::string_view& sv) const -> std::string_view {
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ScalarView&,
+                  const DecodeContext<Storage, R, Phase>& ctx) const
+      -> std::string_view {
+    const Token& tok = ctx.reader().current_token(ctx.reader_state());
+    const BytesView bytes = ctx.reader().input(ctx.reader_state());
+    const std::string_view sv =
+        bytes.as_string_view().substr(tok.offset, tok.length);
     return sv;
-  }
-};
-
-struct SkipImpl {
-  template <class Input>
-  using storage_type = std::monostate;
-
-  template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(const std::string_view&,
-                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
-    ext::SkipValue<R>{}(std::string_view{}, ctx);
-  }
-
-  template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(const ObjectView& view,
-                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
-    ext::SkipValue<R>{}(view, ctx);
-  }
-
-  template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(const ArrayView& view,
-                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
-    ext::SkipValue<R>{}(view, ctx);
-  }
-
-  template <class Storage, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<Storage, R, Phase>& ctx) const -> void {
-    ext::SkipValue<R>{}(ctx);
   }
 };
 
@@ -662,8 +689,8 @@ inline constexpr auto string_view = step<detail::StringViewImpl>;
 /// Consumes the current JSON value without storing it.
 inline constexpr auto skip = step<detail::SkipImpl>;
 
-/// Passes any value through unchanged.
-inline constexpr auto identity = step<detail::IdentityImpl>;
+// /// Passes any value through unchanged.
+// inline constexpr auto identity = step<detail::IdentityImpl>;
 
 template <auto F>
 inline constexpr auto custom = step<detail::CustomImpl<F>>;

@@ -1,13 +1,11 @@
 #pragma once
 
-#include <cstdint>
 #include <functional>
 #include <tuple>
 #include <type_traits>
 
-#include "hosq/as_tuple.hh"
-#include "hosq/element.hh"
-#include "hosq/entry.hh"
+#include "hosq/detail/as_tuple.hh"
+#include "hosq/detail/type_traits.hh"
 #include "hosq/writer_base.hh"
 
 namespace hosq {
@@ -23,8 +21,11 @@ namespace hosq {
 #define HOSQ_ENCODER_FUNCTION_ALWAYS_INLINE inline
 #endif
 
+template <class W>
+class Encoder;
+
 template <WriterConcept W>
-class Encoder {
+class Encoder<W> {
  public:
   Encoder(const Encoder&) = delete;
   Encoder(Encoder&&) = delete;
@@ -100,13 +101,13 @@ class Encoder {
 
     bool ok = true;
     std::apply(
-        [&](const auto&... entry) HOSQ_ENCODER_ALWAYS_INLINE_ATTR {
+        [&](const auto&... entry) HOSQ_ENCODER_ALWAYS_INLINE_ATTR -> auto {
           ([&]() HOSQ_ENCODER_ALWAYS_INLINE_ATTR -> bool {
             ok = encode_one_member(entry);
             return !ok;
           }() || ...);
         },
-        hosq::as_tuple(t));
+        hosq::detail::as_tuple(t));
     if (!ok) {
       return false;
     }

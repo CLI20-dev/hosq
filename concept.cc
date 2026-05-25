@@ -16,8 +16,8 @@ constexpr auto to_vec2 = [](const JsonVec2& p) {
 };
 
 struct Circle {
-  hosq::Entry<key<"type">, Elem<hosq::scan::string |
-                                hosq::validate::match<"circle"_json_string> |
+  hosq::Entry<key<"type">, Elem<hosq::scan::scalar |
+                                hosq::match::literal<"circle"> |
                                 hosq::pack::once>>
       type;
 
@@ -36,14 +36,14 @@ struct Circle {
       radius;
 
   hosq::Entry<
-      Elem<hosq::scan::string>,
+      Elem<hosq::scan::scalar>,
       Elem<hosq::decode::member<hosq::pack::reject_unknown_with_suggestion> |
            hosq::pack::ignore>>
       unknown;
 };
 
 struct Rectangle {
-  hosq::Entry<key<"type">, Elem<hosq::scan::string |
+  hosq::Entry<key<"type">, Elem<hosq::scan::scalar |
                                 hosq::validate::match<"rectangle"_json_string> |
                                 hosq::pack::once>>
       type;
@@ -67,14 +67,14 @@ struct Rectangle {
       height;
 
   hosq::Entry<
-      Elem<hosq::scan::string>,
+      Elem<hosq::scan::scalar>,
       Elem<hosq::decode::member<hosq::pack::reject_unknown_with_suggestion> |
            hosq::pack::ignore>>
       unknown;
 };
 
 struct Triangle {
-  hosq::Entry<key<"type">, Elem<hosq::scan::string |
+  hosq::Entry<key<"type">, Elem<hosq::scan::scalar |
                                 hosq::validate::match<"triangle"_json_string> |
                                 hosq::pack::once>>
       type;
@@ -100,14 +100,14 @@ struct Triangle {
       vertex3;
 
   hosq::Entry<
-      Elem<hosq::scan::string>,
+      Elem<hosq::scan::scalar>,
       Elem<hosq::decode::member<hosq::pack::reject_unknown_with_suggestion> |
            hosq::pack::ignore>>
       unknown;
 };
 
 struct Metadata {
-  hosq::Entry<key<"source">, Elem<hosq::scan::string |
+  hosq::Entry<key<"source">, Elem<hosq::scan::scalar |
                                   hosq::decode::string_view | hosq::pack::once>>
       source;
 
@@ -117,7 +117,7 @@ struct Metadata {
       version;
 
   hosq::Entry<
-      Elem<hosq::scan::string>,
+      Elem<hosq::scan::scalar>,
       Elem<hosq::decode::member<hosq::pack::ignore> | hosq::pack::ignore>>
       unknown;
 };
@@ -135,7 +135,7 @@ struct Document {
               Elem<hosq::decode::parse_to<Metadata> | hosq::pack::once>>
       metadata;
 
-  hosq::Entry<Elem<hosq::scan::string>,
+  hosq::Entry<Elem<hosq::scan::scalar>,
               Elem<hosq::unknown::reject_with_suggestion>>
       unknown;
 };

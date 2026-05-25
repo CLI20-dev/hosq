@@ -6,7 +6,6 @@
 #include <utility>
 #include <variant>
 
-#include "hosq/context.hh"
 #include "hosq/pipeline.hh"
 
 namespace hosq {

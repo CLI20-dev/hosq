@@ -29,19 +29,4 @@ struct MatchResult {
 template <class T>
 MatchResult(bool, T) -> MatchResult<std::remove_cvref_t<T>>;
 
-namespace detail {
-
-template <class T>
-struct IsMatchResult : std::false_type {};
-
-template <class T>
-struct IsMatchResult<MatchResult<T>> : std::true_type {
-  using value_type = T;
-};
-
-template <class T>
-concept MatchResultT = IsMatchResult<std::remove_cvref_t<T>>::value;
-
-}  // namespace detail
-
 }  // namespace hosq

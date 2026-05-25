@@ -6,6 +6,7 @@
 #include <limits>
 #include <type_traits>
 
+#include "hosq/bytes_view.hh"
 #include "hosq/error.hh"
 
 namespace hosq {
@@ -42,18 +43,25 @@ concept ReaderStateConcept = requires(T state) {
 };
 
 template <class T>
-concept ReaderConcept = requires(T r, const T cr, typename T::state_type state,
-                                 const typename T::state_type const_state,
-                                 Error error, typename T::input_type input) {
-  typename T::input_type;
+concept ReaderConcept = requires(      //
+    T& r,                              //
+    const T& cr,                       //
+    typename T::state_type& s,         //
+    const typename T::state_type& cs,  //
+    Error er,                          //
+    typename T::input_type in          //
+) {
   typename T::state_type;
+  typename T::input_type;
   requires ReaderStateConcept<typename T::state_type>;
-  { r.reset(state, input) } -> std::same_as<void>;
-  { r.next_token(state) } -> std::same_as<bool>;
-  { cr.report_error(const_state, error) } -> std::same_as<void>;
-  { cr.error(const_state) } -> std::same_as<Error>;
-  { cr.current_token(const_state) } -> std::same_as<const Token&>;
-  { cr.input(const_state) } -> std::same_as<const typename T::input_type&>;
+
+  { r.reset(s, in) } -> std::same_as<void>;
+  { r.next_token(s) } -> std::same_as<bool>;
+
+  { cr.report_error(cs, er) } -> std::same_as<void>;
+  { cr.error(cs) } -> std::same_as<Error>;
+  { cr.current_token(cs) } -> std::same_as<const Token&>;
+  { cr.input(cs) } -> std::same_as<BytesView>;
 };
 
 enum class Format : std::uint8_t {

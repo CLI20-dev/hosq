@@ -2,14 +2,12 @@
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <variant>
 
 #include "hosq/decoder.hh"
 #include "hosq/element.hh"
 #include "hosq/entry.hh"
 #include "hosq/json/fast_reader.hh"
 #include "hosq/pipeline/decode.hh"
-#include "hosq/pipeline/match.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/pipeline/store.hh"
 #include "hosq/pipeline_util.hh"
@@ -18,55 +16,48 @@
 
 using namespace hosq;
 
-struct AnyBoolImpl {
-  template <class Input>
-  using storage_type = std::monostate;
-  auto operator()(std::string_view) const -> bool { return true; }
-};
-constexpr auto any_bool = step<AnyBoolImpl>;
-
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 struct UserSchema {
   Try<Entry<Key<"id">,
-            Elem<scan::literal | decode::number<uint64_t> | store::assign,
+            Elem<scan::scalar | decode::number<uint64_t> | store::assign,
                  noop_encoder>>>
       id;
-  Try<Entry<Elem<scan::string | any_bool, noop_encoder>,
+  Try<Entry<Elem<scan::scalar | decode::skip, noop_encoder>,
             Elem<decode::skip, noop_encoder>>>
       skip;
 };
 
 struct StatusSchema {
   Try<Entry<Key<"id">,
-            Elem<scan::literal | decode::number<uint64_t> | store::assign,
+            Elem<scan::scalar | decode::number<uint64_t> | store::assign,
                  noop_encoder>>>
       id;
   Try<Entry<
       Key<"retweet_count">,
-      Elem<scan::literal | decode::number<int> | store::assign, noop_encoder>>>
+      Elem<scan::scalar | decode::number<int> | store::assign, noop_encoder>>>
       retweet_count;
   Try<Entry<
       Key<"favorite_count">,
-      Elem<scan::literal | decode::number<int> | store::assign, noop_encoder>>>
+      Elem<scan::scalar | decode::number<int> | store::assign, noop_encoder>>>
       favorite_count;
   Try<Entry<
-      Key<"user"_literal>,
+      Key<"user">,
       Elem<scan::object | decode::to<UserSchema> | store::assign, noop_encoder>>>
       user;
-  Try<Entry<Elem<scan::string | any_bool, noop_encoder>,
+  Try<Entry<Elem<scan::scalar | decode::skip, noop_encoder>,
             Elem<decode::skip, noop_encoder>>>
       skip;
 };
 
 struct TwitterSchema {
-  Try<Entry<Key<"statuses"_literal>,
+  Try<Entry<Key<"statuses">,
             Elem<scan::array |
                      decode::collect<scan::object | decode::to<StatusSchema>> |
                      store::assign,
                  noop_encoder>>>
       statuses;
-  Try<Entry<Elem<scan::string | any_bool, noop_encoder>,
+  Try<Entry<Elem<scan::scalar | decode::skip, noop_encoder>,
             Elem<decode::skip, noop_encoder>>>
       skip;
 };

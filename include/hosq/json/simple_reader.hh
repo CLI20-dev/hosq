@@ -5,6 +5,7 @@
 #include <string_view>
 #include <vector>
 
+#include "hosq/bytes_view.hh"
 #include "hosq/error.hh"
 #include "hosq/reader_base.hh"
 
@@ -69,7 +70,11 @@ class SimpleReader {
     };
 
     [[nodiscard]] auto checkpoint() const -> Checkpoint {
-      return {pos, current, stack, root_done, end_done};
+      return {.pos = pos,
+              .current = current,
+              .stack = stack,
+              .root_done = root_done,
+              .end_done = end_done};
     }
 
     auto rollback(const Checkpoint& cp) -> void {
@@ -121,8 +126,8 @@ class SimpleReader {
     return st.last_error;
   }
 
-  [[nodiscard]] auto input(const StateType& st) const -> const input_type& {
-    return st.input;
+  [[nodiscard]] auto input(const StateType& st) const -> BytesView {
+    return BytesView::from_string_view(st.input);
   }
 
  private:

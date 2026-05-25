@@ -7,8 +7,8 @@
 #include <type_traits>
 #include <utility>
 
-#include "hosq/detail/always_false.hh"
 #include "hosq/detail/pipeline_analysis.hh"
+#include "hosq/detail/type_traits.hh"
 
 #if defined(__GNUC__) || defined(__clang__)
 #define HOSQ_ALWAYS_INLINE_ATTR __attribute__((always_inline))

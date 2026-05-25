@@ -87,11 +87,5 @@ struct StringLiteral {
 template <std::size_t N>
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays)
 StringLiteral(const char (&)[N]) -> StringLiteral<N>;
-template <StringLiteral Str>
-
-[[nodiscard]]
-consteval auto operator""_literal() noexcept {
-  return Str;
-}
 
 }  // namespace hosq

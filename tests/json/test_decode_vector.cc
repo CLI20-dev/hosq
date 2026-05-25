@@ -4,44 +4,32 @@
 #include <type_traits>
 #include <vector>
 
-#include "hosq/context.hh"
-#include "hosq/decoder.hh"
-#include "hosq/entry.hh"
-#include "hosq/error.hh"
+#include "hosq/hosq.hh"
 #include "hosq/json/simple_reader.hh"
-#include "hosq/map.hh"
-#include "hosq/pipeline/decode.hh"
-#include "hosq/pipeline/match.hh"
-#include "hosq/pipeline/scan.hh"
-#include "hosq/pipeline/store.hh"
-#include "hosq/pipeline_util.hh"
-#include "hosq/string_literal.hh"
-#include "hosq/try.hh"
 
 using namespace std::string_view_literals;
+using namespace hosq;
 
 namespace {
 
-using Reader = hosq::json::SimpleReader;
+using Reader = json::SimpleReader;
 
-using IntArrayValue = hosq::Elem<
-    hosq::scan::array |
-        hosq::decode::collect<hosq::scan::literal | hosq::decode::number<int>> |
-        hosq::store::assign,
-    hosq::noop_encoder>;
+using IntArrayValue =
+    Elem<scan::array | decode::collect<scan::scalar | decode::number<int>> |
+             store::assign,
+         noop_encoder>;
 
 using IntArrayEachValue =
-    hosq::Elem<hosq::scan::array | hosq::decode::each<hosq::scan::literal |
-                                                      hosq::decode::number<int> |
-                                                      hosq::store::push>,
-               hosq::noop_encoder>;
+    Elem<scan::array |
+             decode::each<scan::scalar | decode::number<int> | store::push>,
+         noop_encoder>;
 
-using NumberObjectValue = hosq::Elem<
-    hosq::scan::object |
-        hosq::decode::collect<hosq::scan::string,
-                              hosq::scan::literal | hosq::decode::number<int>> |
-        hosq::store::assign,
-    hosq::noop_encoder>;
+using NumberObjectValue =
+    Elem<scan::object |
+             decode::collect<scan::scalar | decode::string_view,
+                             scan::scalar | decode::number<int>> |
+             store::assign,
+         noop_encoder>;
 
 struct EvenPushImpl {
   template <class Input>
@@ -55,20 +43,7 @@ struct EvenPushImpl {
   }
 };
 
-inline constexpr auto even_push = hosq::step<EvenPushImpl>;
-
-struct KeyPushImpl {
-  template <class Input>
-  using storage_type = std::vector<std::remove_cvref_t<Input>>;
-
-  template <class Input, class Context>
-  auto operator()(Input value, Context& ctx) const -> bool {
-    ctx.elem().push_back(std::move(value));
-    return true;
-  }
-};
-
-inline constexpr auto key_push = hosq::step<KeyPushImpl>;
+inline constexpr auto even_push = step<EvenPushImpl>;
 
 template <auto Pipeline, class Storage>
 auto invoke_pipeline(Storage& storage, std::string_view input) {
@@ -76,8 +51,8 @@ auto invoke_pipeline(Storage& storage, std::string_view input) {
   auto state = Reader::state_type{};
   reader.reset(state, input);
   (void)reader.next_token(state);
-  auto ctx = hosq::DecodeContext<Storage, Reader, hosq::TryPhase::normal>{
-      storage, reader, state};
+  auto ctx = DecodeContext<Storage, Reader, TryPhase::normal>{storage, reader,
+                                                              state};
   return std::remove_cvref_t<decltype(Pipeline)>::invoke(ctx);
 }
 
@@ -88,19 +63,19 @@ auto invoke_pipeline(std::string_view input) {
   reader.reset(state, input);
   (void)reader.next_token(state);
   auto scratch = int{};
-  auto storage_ctx = hosq::DecodeContext<int, Reader, hosq::TryPhase::normal>{
-      scratch, reader, state};
-  auto ctx =
-      hosq::DecodeContext<void, Reader, hosq::TryPhase::normal>{storage_ctx};
+  auto storage_ctx =
+      DecodeContext<int, Reader, TryPhase::normal>{scratch, reader, state};
+  auto ctx = DecodeContext<void, Reader, TryPhase::normal>{storage_ctx};
   return std::remove_cvref_t<decltype(Pipeline)>::invoke(ctx);
 }
 
-template <hosq::StringLiteral Name>
-using Key = hosq::Elem<hosq::scan::string | hosq::match::literal<Name>,
-                       hosq::noop_encoder>;
+template <StringLiteral Name>
+using FieldKey =
+    Elem<scan::scalar | decode::string_view | match::literal<Name>,
+         noop_encoder>;
 
 struct Document {
-  hosq::Try<hosq::Entry<Key<"ids">, IntArrayValue>> ids;
+  Try<Entry<FieldKey<"ids">, IntArrayValue>> ids;
 };
 
 }  // namespace
@@ -108,7 +83,7 @@ struct Document {
 TEST(DecodeArray, CollectsTopLevelArrayValues) {
   auto ids = IntArrayValue{};
 
-  const auto result = hosq::decode_into<Reader>(ids, "[1,2,3]"sv);
+  const auto result = decode_into<Reader>(ids, "[1,2,3]"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(ids.value().size(), 3U);
@@ -120,7 +95,7 @@ TEST(DecodeArray, CollectsTopLevelArrayValues) {
 TEST(DecodeArray, EachStoresTopLevelArrayValues) {
   auto ids = IntArrayEachValue{};
 
-  const auto result = hosq::decode_into<Reader>(ids, "[4,5,6]"sv);
+  const auto result = decode_into<Reader>(ids, "[4,5,6]"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(ids.value().size(), 3U);
@@ -132,7 +107,7 @@ TEST(DecodeArray, EachStoresTopLevelArrayValues) {
 TEST(DecodeArray, DecodesObjectMemberArrayValues) {
   auto document = Document{};
 
-  const auto result = hosq::decode_into<Reader>(document, R"({"ids":[4,5]})"sv);
+  const auto result = decode_into<Reader>(document, R"({"ids":[4,5]})"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(document.ids.value().value().size(), 2U);
@@ -142,19 +117,17 @@ TEST(DecodeArray, DecodesObjectMemberArrayValues) {
 
 TEST(DecodeArray, DecodesObjectMemberArrayValuesWithReorderedKeys) {
   struct WithArrayAndScalar {
-    hosq::Try<hosq::Entry<Key<"ids">, IntArrayValue>> ids;
-    hosq::Try<
-        hosq::Entry<Key<"version">,
-                    hosq::Elem<hosq::scan::literal | hosq::decode::number<int> |
-                                   hosq::store::assign,
-                               hosq::noop_encoder>>>
+    Try<Entry<FieldKey<"ids">, IntArrayValue>> ids;
+    Try<Entry<FieldKey<"version">,
+              Elem<scan::scalar | decode::number<int> | store::assign,
+                   noop_encoder>>>
         version;
   };
 
   auto document = WithArrayAndScalar{};
 
   const auto result =
-      hosq::decode_into<Reader>(document, R"({"version":2,"ids":[7,8]})"sv);
+      decode_into<Reader>(document, R"({"version":2,"ids":[7,8]})"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(document.version.value().value(), 2);
@@ -166,25 +139,25 @@ TEST(DecodeArray, DecodesObjectMemberArrayValuesWithReorderedKeys) {
 TEST(DecodeArray, RequiresArrayBegin) {
   auto ids = IntArrayValue{};
 
-  const auto result = hosq::decode_into<Reader>(ids, "1"sv);
+  const auto result = decode_into<Reader>(ids, "1"sv);
 
   ASSERT_FALSE(result.is_ok());
-  EXPECT_EQ(result.code, hosq::ErrorCode::type_mismatch);
+  EXPECT_EQ(result.code, ErrorCode::type_mismatch);
 }
 
 TEST(DecodeArray, RejectsInvalidElement) {
   auto ids = IntArrayValue{};
 
-  const auto result = hosq::decode_into<Reader>(ids, R"([1,"x"])"sv);
+  const auto result = decode_into<Reader>(ids, R"([1,"x"])"sv);
 
   ASSERT_FALSE(result.is_ok());
-  EXPECT_EQ(result.code, hosq::ErrorCode::type_mismatch);
+  EXPECT_EQ(result.code, ErrorCode::invalid_number);
 }
 
 TEST(DecodeArray, CollectsEmptyArrayValues) {
   auto ids = IntArrayValue{};
 
-  const auto result = hosq::decode_into<Reader>(ids, "[]"sv);
+  const auto result = decode_into<Reader>(ids, "[]"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_TRUE(ids.value().empty());
@@ -192,9 +165,7 @@ TEST(DecodeArray, CollectsEmptyArrayValues) {
 
 TEST(DecodeArray, EachAggregatesBoolAcrossElements) {
   constexpr auto pipeline =
-      hosq::scan::array |
-      hosq::decode::each<hosq::scan::literal | hosq::decode::number<int> |
-                         even_push>;
+      scan::array | decode::each<scan::scalar | decode::number<int> | even_push>;
 
   auto values = std::vector<int>{};
   const auto result = invoke_pipeline<pipeline>(values, "[2,4,5,8]"sv);
@@ -205,9 +176,7 @@ TEST(DecodeArray, EachAggregatesBoolAcrossElements) {
 
 TEST(DecodeArray, EachBoolReturnsTrueForEmptyArray) {
   constexpr auto pipeline =
-      hosq::scan::array |
-      hosq::decode::each<hosq::scan::literal | hosq::decode::number<int> |
-                         even_push>;
+      scan::array | decode::each<scan::scalar | decode::number<int> | even_push>;
 
   auto values = std::vector<int>{};
   const auto result = invoke_pipeline<pipeline>(values, "[]"sv);
@@ -218,11 +187,11 @@ TEST(DecodeArray, EachBoolReturnsTrueForEmptyArray) {
 
 TEST(DecodeArray, CollectCanReturnBoolValues) {
   constexpr auto pipeline =
-      hosq::scan::array |
-      hosq::decode::collect<hosq::scan::literal | hosq::decode::number<int> |
-                            hosq::decode::custom<[](int value) constexpr {
-                              return value % 2 == 0;
-                            }>>;
+      scan::array |
+      decode::collect<scan::scalar | decode::number<int> |
+                      decode::custom<[](int value) constexpr -> bool {
+            return value % 2 == 0;
+                      }>>;
 
   const auto result = invoke_pipeline<pipeline>("[2,3,4]"sv);
 
@@ -236,7 +205,7 @@ TEST(DecodeObjectCollect, CollectsKeysAndValues) {
   auto object = NumberObjectValue{};
 
   const auto result =
-      hosq::decode_into<Reader>(object, R"({"x":1,"y":2,"z":3})"sv);
+      decode_into<Reader>(object, R"({"x":1,"y":2,"z":3})"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(object.value().keys().size(), 3U);
@@ -252,7 +221,7 @@ TEST(DecodeObjectCollect, CollectsKeysAndValues) {
 TEST(DecodeObjectCollect, CollectsEmptyObject) {
   auto object = NumberObjectValue{};
 
-  const auto result = hosq::decode_into<Reader>(object, "{}"sv);
+  const auto result = decode_into<Reader>(object, "{}"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_TRUE(object.value().keys().empty());
@@ -261,17 +230,16 @@ TEST(DecodeObjectCollect, CollectsEmptyObject) {
 
 TEST(DecodeObjectEach, AggregatesBoolAcrossMembers) {
   constexpr auto pipeline =
-      hosq::scan::object |
-      hosq::decode::each<hosq::scan::string | key_push,
-                         hosq::scan::literal | hosq::decode::number<int> |
-                             hosq::decode::custom<[](int value) constexpr {
-                               return value > 0;
-                             }>>;
+      scan::object |
+      decode::each<scan::scalar | decode::string_view | store::push,
+                   scan::scalar | decode::number<int> |
+                       decode::custom<[](int value) constexpr -> bool {
+                return value > 0;
+                       }>>;
 
-  auto object_state =
-      hosq::Map<std::vector<std::string_view>, hosq::detail::NoStorage>{};
-  const auto result =
-      invoke_pipeline<pipeline>(object_state, R"({"x":1,"y":-2,"z":3})"sv);
+  auto object_state = Map<std::vector<std::string_view>, detail::NoStorage>{};
+  const auto result = invoke_pipeline<pipeline>(object_state,
+                                                R"({"x":1,"y":-2,"z":3})"sv);
 
   EXPECT_FALSE(result);
   EXPECT_EQ(object_state.keys(), (std::vector<std::string_view>{"x"sv, "y"sv}));

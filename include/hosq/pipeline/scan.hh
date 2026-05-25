@@ -1,84 +1,27 @@
 #pragma once
 
-#include <cstdint>
-#include <string_view>
-
 #include "hosq/context.hh"
 #include "hosq/error.hh"
 #include "hosq/pipeline.hh"
 #include "hosq/reader_base.hh"
 #include "hosq/view.hh"
 
-namespace hosq {
-
-namespace ext {
+namespace hosq::ext {
 
 template <ReaderConcept R>
-  requires(!ReaderTraits<R>::is_binary_format)
 struct ScanScalar {
   template <class T, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view {
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const -> ScalarView {
     const R& reader = ctx.reader();
     const auto& state = ctx.reader_state();
     const auto& tok = reader.current_token(state);
-
-    if (tok.type != TokenType::Scalar) {
+    if (tok.type != TokenType::Scalar) [[unlikely]] {
       reader.report_error(state, Error{
                                      .code = ErrorCode::type_mismatch,
                                      .offset = tok.offset,
                                  });
-      return {};
     }
-
-    return reader.input(state).substr(tok.offset, tok.length);
-  }
-};
-
-template <ReaderConcept R>
-  requires(!ReaderTraits<R>::is_binary_format &&
-           ReaderTraits<R>::format == Format::json)
-struct ScanString {
-  template <class T, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view {
-    const R& reader = ctx.reader();
-    const auto& state = ctx.reader_state();
-    const auto& tok = reader.current_token(state);
-
-    if (tok.type != TokenType::Scalar ||
-        tok.context != static_cast<std::uint8_t>(JsonTokenContext::string)) {
-      reader.report_error(state, Error{
-                                     .code = ErrorCode::type_mismatch,
-                                     .offset = tok.offset,
-                                 });
-      return {};
-    }
-
-    return reader.input(state).substr(tok.offset, tok.length);
-  }
-};
-
-template <ReaderConcept R>
-  requires(!ReaderTraits<R>::is_binary_format &&
-           ReaderTraits<R>::format == Format::json)
-struct ScanLiteral {
-  template <class T, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view {
-    const R& reader = ctx.reader();
-    const auto& state = ctx.reader_state();
-    const auto& tok = reader.current_token(state);
-
-    if (tok.type != TokenType::Scalar ||
-        tok.context != static_cast<std::uint8_t>(JsonTokenContext::literal)) {
-      reader.report_error(state, Error{
-                                     .code = ErrorCode::type_mismatch,
-                                     .offset = tok.offset,
-                                 });
-      return {};
-    }
-    return reader.input(state).substr(tok.offset, tok.length);
+    return {};
   }
 };
 
@@ -107,7 +50,7 @@ struct ScanArray {
     auto& state = ctx.reader_state();
     const auto& tok = reader.current_token(state);
 
-    if (tok.type != TokenType::ArrayBegin) {
+    if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
       reader.report_error(state, Error{
                                      .code = ErrorCode::type_mismatch,
                                      .offset = tok.offset,
@@ -117,65 +60,29 @@ struct ScanArray {
   }
 };
 
-}  // namespace ext
+}  // namespace hosq::ext
 
-namespace scan {
-
-namespace detail {
+namespace hosq::scan::detail {
 
 template <class Ext, class Ctx>
-concept CanScanCtx = requires(const Ext& ext, Ctx&& ctx) {
-  { ext(static_cast<Ctx&&>(ctx)) } -> std::convertible_to<std::string_view>;
+concept CanScanScalarCtx = requires(const Ext& ext, Ctx&& ctx) {
+  { ext(static_cast<Ctx&&>(ctx)) } -> std::same_as<ScalarView>;
 };
 
 struct ScanScalar {
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view
-    requires CanScanCtx<ext::ScanScalar<R>, DecodeContext<T, R, Phase>&>
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> ScalarView
+    requires CanScanScalarCtx<ext::ScanScalar<R>, DecodeContext<T, R, Phase>&>
   {
     return ext::ScanScalar<R>{}(ctx);
   }
 
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view
-    requires CanScanCtx<ext::ScanScalar<R>, const DecodeContext<T, R, Phase>&>
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const -> ScalarView
+    requires CanScanScalarCtx<ext::ScanScalar<R>,
+                              const DecodeContext<T, R, Phase>&>
   {
     return ext::ScanScalar<R>{}(ctx);
-  }
-};
-
-struct ScanString {
-  template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view
-    requires CanScanCtx<ext::ScanString<R>, DecodeContext<T, R, Phase>&>
-  {
-    return ext::ScanString<R>{}(ctx);
-  }
-
-  template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view
-    requires CanScanCtx<ext::ScanString<R>, const DecodeContext<T, R, Phase>&>
-  {
-    return ext::ScanString<R>{}(ctx);
-  }
-};
-
-struct ScanLiteral {
-  template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> std::string_view
-    requires CanScanCtx<ext::ScanLiteral<R>, DecodeContext<T, R, Phase>&>
-  {
-    return ext::ScanLiteral<R>{}(ctx);
-  }
-
-  template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
-      -> std::string_view
-    requires CanScanCtx<ext::ScanLiteral<R>, const DecodeContext<T, R, Phase>&>
-  {
-    return ext::ScanLiteral<R>{}(ctx);
   }
 };
 
@@ -193,18 +100,14 @@ struct ScanArray {
   }
 };
 
-}  // namespace detail
+}  // namespace hosq::scan::detail
+
+namespace hosq::scan {
 
 inline constexpr auto scalar = hosq::step<detail::ScanScalar>;
-
-inline constexpr auto string = hosq::step<detail::ScanString>;
-
-inline constexpr auto literal = hosq::step<detail::ScanLiteral>;
 
 inline constexpr auto object = hosq::step<detail::ScanObject>;
 
 inline constexpr auto array = hosq::step<detail::ScanArray>;
 
-}  // namespace scan
-
-}  // namespace hosq
+}  // namespace hosq::scan

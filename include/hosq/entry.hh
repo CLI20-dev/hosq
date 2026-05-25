@@ -1,11 +1,9 @@
 #pragma once
 
-#include <tuple>
 #include <type_traits>
 
 #include "hosq/context.hh"
-#include "hosq/detail/as_tuple.hh"
-#include "hosq/element.hh"
+#include "hosq/detail/type_traits.hh"
 #include "hosq/string_literal.hh"
 
 namespace hosq {
@@ -95,46 +93,6 @@ struct Entry<std::integral_constant<decltype(Key), Key>, Value> {
  private:
   value_type value_{};  // NOLINT
 };
-
-template <StringLiteral K>
-using Key = std::integral_constant<decltype(K), K>;
-
-namespace detail {
-
-template <class T>
-struct IsEntry : std::false_type {};
-
-template <class Key, class Value>
-struct IsEntry<::hosq::Entry<Key, Value>> : std::true_type {};
-
-template <class T>
-concept EntryT = IsEntry<std::remove_cvref_t<T>>::value;
-
-template <class Tuple>
-struct EntryTuple : std::false_type {};
-
-template <class T>
-struct IsConstKeyEntry : std::false_type {};
-
-template <StringLiteral K, detail::ElemT Value>
-struct IsConstKeyEntry<::hosq::Entry<::hosq::Key<K>, Value>> : std::true_type {};
-
-template <class T>
-concept ConstKeyEntryT = IsConstKeyEntry<std::remove_cvref_t<T>>::value;
-
-template <class... Ts>
-struct EntryTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (EntryT<Ts> && ...)> {};
-
-template <class T>
-concept EntryTupleT = EntryTuple<std::remove_cvref_t<T>>::value;
-
-template <class T>
-concept AsEntryTupleT = requires(T t) {
-  { hosq::detail::as_tuple(t) } -> EntryTupleT;
-};
-
-}  // namespace detail
 
 /**
  * @brief Prevents Entry from being decomposed as an aggregate schema.

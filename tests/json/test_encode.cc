@@ -6,28 +6,20 @@
 #include <string_view>
 #include <variant>
 
-#include "hosq/encoder.hh"
-#include "hosq/entry.hh"
+#include "hosq/hosq.hh"
 #include "hosq/json/compact_writer.hh"
-#include "hosq/pipeline/decode.hh"
-#include "hosq/pipeline/encode.hh"
-#include "hosq/pipeline/match.hh"
-#include "hosq/pipeline/scan.hh"
-#include "hosq/pipeline/store.hh"
-#include "hosq/pipeline_util.hh"
-#include "hosq/string_literal.hh"
 
 using namespace std::string_view_literals;
 using namespace hosq;
 
 namespace {
 
-using TT = hosq::TokenType;
-using JTC = hosq::JsonTokenContext;
+using TT = TokenType;
+using JTC = JsonTokenContext;
 
 template <class W>
 auto write_scalar(W& writer, std::string_view content, JTC context) -> bool {
-  auto buffer = writer.write(hosq::WriteRequest{
+  auto buffer = writer.write(WriteRequest{
       .length = content.size(),
       .type = TT::Scalar,
       .context = static_cast<std::uint8_t>(context),
@@ -56,7 +48,7 @@ struct WriteJsonLiteral {
   }
 };
 
-template <hosq::StringLiteral Name>
+template <StringLiteral Name>
 struct WriteJsonKey {
   template <class Context>
   auto operator()(std::monostate, Context& ctx) const -> void {
@@ -64,23 +56,22 @@ struct WriteJsonKey {
   }
 };
 
-template <hosq::StringLiteral Name>
-using Key = hosq::Elem<hosq::noop_decoder, hosq::step<WriteJsonKey<Name>>>;
+template <StringLiteral Name>
+using Key = Elem<noop_decoder, step<WriteJsonKey<Name>>>;
 
 using StringValue =
-    hosq::Elem<hosq::scan::string | hosq::decode::string_view |
-                   hosq::store::once,
-               hosq::encode::string_view | hosq::step<WriteJsonString>>;
+    Elem<scan::scalar | decode::string_view | store::once,
+         encode::string_view | step<WriteJsonString>>;
 
 template <class T>
 using NumberValue =
-    hosq::Elem<hosq::scan::literal | hosq::decode::number<T> | hosq::store::once,
-               hosq::encode::number<T> | hosq::step<WriteJsonLiteral>>;
+    Elem<scan::scalar | decode::number<T> | store::once,
+         encode::number<T> | step<WriteJsonLiteral>>;
 
 struct User {
-  hosq::Entry<Key<"id">, NumberValue<int>> id;
-  hosq::Entry<Key<"name">, StringValue> name;
-  hosq::Entry<Key<"age">, NumberValue<int>> age;
+  Entry<Key<"id">, NumberValue<int>> id;
+  Entry<Key<"name">, StringValue> name;
+  Entry<Key<"age">, NumberValue<int>> age;
 };
 
 }  // namespace
@@ -90,9 +81,9 @@ TEST(EncodeJson, EncodesTopLevelElement) {
   value.value() = 42;
 
   std::string output;
-  hosq::json::CompactWriter writer{output};
+  json::CompactWriter writer{output};
 
-  ASSERT_TRUE(hosq::encode_into(value, writer));
+  ASSERT_TRUE(encode_into(value, writer));
   EXPECT_EQ(output, "42");
 }
 
@@ -103,9 +94,9 @@ TEST(EncodeJson, EncodesObjectSchema) {
   user.age.value().value() = 30;
 
   std::string output;
-  hosq::json::CompactWriter writer{output};
+  json::CompactWriter writer{output};
 
-  ASSERT_TRUE(hosq::encode_into(user, writer));
+  ASSERT_TRUE(encode_into(user, writer));
   EXPECT_EQ(output, R"({"id":7,"name":"Alice","age":30})");
 }
 
@@ -116,12 +107,11 @@ TEST(EncodeJson, CanEncodeIntoExistingWriterStream) {
   user.age.value().value() = 41;
 
   std::string output;
-  hosq::json::CompactWriter writer{output};
+  json::CompactWriter writer{output};
 
   (void)writer.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
   ASSERT_FALSE(writer.error().has_error());
-  ASSERT_TRUE(hosq::Encoder<hosq::json::CompactWriter<>>::encode_to_writer(
-      user, writer));
+  ASSERT_TRUE(Encoder<json::CompactWriter<>>::encode_to_writer(user, writer));
   (void)writer.write({.length = 0, .type = TT::ArrayEnd, .context = 0});
   ASSERT_FALSE(writer.error().has_error());
   (void)writer.write({.length = 0, .type = TT::End, .context = 0});

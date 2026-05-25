@@ -1,20 +1,18 @@
 #pragma once
 
-#include <cstdint>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
-#include "hosq/detail/always_false.hh"
-#include "hosq/match_result.hh"
+#include "hosq/detail/type_traits.hh"
 
-namespace hosq {
+namespace hosq::detail {
 
-template <auto... Fns>
-  requires(sizeof...(Fns) > 0)
-struct Pipeline;
-
-namespace detail {
+enum class PipelineVerificationMode : std::uint8_t {
+  none,
+  at_most_one_storage,
+  no_storage,
+};
 
 /// Incomplete type; instantiating it triggers a "duplicate storage_type"
 /// static_assert diagnostic.
@@ -44,12 +42,6 @@ struct NextStorage {
 template <class Head, class Input, class Storage>
 struct NextStorage<Head, Input, Storage, true> {
   using type = typename Head::template storage_type<Input>;
-};
-
-enum class PipelineVerificationMode : std::uint8_t {
-  none,
-  at_most_one_storage,
-  no_storage,
 };
 
 template <class T>
@@ -133,6 +125,30 @@ constexpr auto analyze_pipeline_impl() {
   }
 }
 
+template <PipelineVerificationMode V, class ProbeContext, class Start, class T>
+struct PipelineAnalysis {
+  static_assert(always_false<T>,
+                "pipeline analysis requires hosq::Pipeline<...>");
+};
+
+template <PipelineVerificationMode Mode, class ProbeContext, class Start,
+          auto... Fns>
+struct PipelineAnalysis<Mode, ProbeContext, Start, Pipeline<Fns...>> {
+  using type = decltype(analyze_pipeline_impl<Mode, ProbeContext, Start,
+                                              NoStorage, false, Fns...>());
+};
+
+template <PipelineVerificationMode V, class ProbeContext, class Start, class T>
+using pipeline_analysis_t =
+    typename PipelineAnalysis<V, ProbeContext, Start,
+                              std::remove_cvref_t<T>>::type;
+
+template <class Pipeline, class Context, class Input>
+struct PipelineCallableWithConstContext {
+  static_assert(always_false<Pipeline>,
+                "callability probe requires hosq::Pipeline<...>");
+};
+
 template <class Context, class Input, auto FnHead, auto... FnTail>
 consteval auto callable_with_const_context_impl() -> bool {
   using In = std::remove_cvref_t<Input>;
@@ -173,6 +189,21 @@ consteval auto callable_with_const_context_impl() -> bool {
     return callable_with_const_context_impl<Context, After, FnTail...>();
   }
 }
+template <auto... Fns, class Context, class Input>
+struct PipelineCallableWithConstContext<hosq::Pipeline<Fns...>, Context, Input>
+    : std::bool_constant<
+          callable_with_const_context_impl<Context, Input, Fns...>()> {};
+
+template <class Pipeline, class Context, class Input>
+inline constexpr bool pipeline_callable_with_const_context_v =
+    PipelineCallableWithConstContext<std::remove_cvref_t<Pipeline>, Context,
+                                     Input>::value;
+
+template <class Pipeline, class Context, class Input>
+struct PipelineCallableWithMutableContext {
+  static_assert(always_false<Pipeline>,
+                "callability probe requires hosq::Pipeline<...>");
+};
 
 template <class Context, class Input, auto FnHead, auto... FnTail>
 consteval auto callable_with_mutable_context_impl() -> bool {
@@ -215,46 +246,6 @@ consteval auto callable_with_mutable_context_impl() -> bool {
   }
 }
 
-template <PipelineVerificationMode V, class ProbeContext, class Start, class T>
-struct PipelineAnalysis {
-  static_assert(always_false<T>,
-                "pipeline analysis requires hosq::Pipeline<...>");
-};
-
-template <PipelineVerificationMode Mode, class ProbeContext, class Start,
-          auto... Fns>
-struct PipelineAnalysis<Mode, ProbeContext, Start, Pipeline<Fns...>> {
-  using type = decltype(analyze_pipeline_impl<Mode, ProbeContext, Start,
-                                              NoStorage, false, Fns...>());
-};
-
-template <PipelineVerificationMode V, class ProbeContext, class Start, class T>
-using pipeline_analysis_t =
-    typename PipelineAnalysis<V, ProbeContext, Start,
-                              std::remove_cvref_t<T>>::type;
-
-template <class Pipeline, class Context, class Input>
-struct PipelineCallableWithConstContext {
-  static_assert(always_false<Pipeline>,
-                "callability probe requires hosq::Pipeline<...>");
-};
-
-template <auto... Fns, class Context, class Input>
-struct PipelineCallableWithConstContext<hosq::Pipeline<Fns...>, Context, Input>
-    : std::bool_constant<
-          callable_with_const_context_impl<Context, Input, Fns...>()> {};
-
-template <class Pipeline, class Context, class Input>
-inline constexpr bool pipeline_callable_with_const_context_v =
-    PipelineCallableWithConstContext<std::remove_cvref_t<Pipeline>, Context,
-                                     Input>::value;
-
-template <class Pipeline, class Context, class Input>
-struct PipelineCallableWithMutableContext {
-  static_assert(always_false<Pipeline>,
-                "callability probe requires hosq::Pipeline<...>");
-};
-
 template <auto... Fns, class Context, class Input>
 struct PipelineCallableWithMutableContext<hosq::Pipeline<Fns...>, Context, Input>
     : std::bool_constant<
@@ -271,6 +262,4 @@ using pipeline_storage_t = typename std::tuple_element_t<1, Analysis>::type;
 template <class Analysis>
 using pipeline_terminal_t = typename std::tuple_element_t<2, Analysis>::type;
 
-}  // namespace detail
-
-}  // namespace hosq
+}  // namespace hosq::detail
