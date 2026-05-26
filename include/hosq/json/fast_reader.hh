@@ -450,6 +450,12 @@ class FastReader {
     const char c = *p;
     const std::size_t o = off(st, p);
 
+    if (st.ctx_size == 0) [[unlikely]] {
+      st.pos = p;
+      st.last_error = Error{.code = ErrorCode::trailing_data, .offset = o};
+      return false;
+    }
+
     if (c == ',') {
       st.pos = p + 1;
       if (in_object(st)) {

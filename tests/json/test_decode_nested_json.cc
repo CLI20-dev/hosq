@@ -3,14 +3,12 @@
 #include <string_view>
 
 #include "hosq/hosq.hh"
-#include "hosq/json/simple_reader.hh"
+#include "reader_test_types.hh"
 
 using namespace std::string_view_literals;
 using namespace hosq;
 
 namespace {
-
-using Reader = json::SimpleReader;
 
 template <StringLiteral Name>
 using Key = Elem<scan::scalar | decode::string_view | match::literal<Name>,
@@ -67,10 +65,15 @@ struct UserWithSkip {
 
 }  // namespace
 
-TEST(DecodeNestedJson, DecodesNestedObjectValue) {
+template <class Reader>
+class DecodeNestedJsonTest : public test::RuntimeReaderTest<Reader> {};
+
+TYPED_TEST_SUITE(DecodeNestedJsonTest, test::RuntimeReaderTypes);
+
+TYPED_TEST(DecodeNestedJsonTest, DecodesNestedObjectValue) {
   auto user = User{};
 
-  const auto result = decode_into<Reader>(
+  const auto result = decode_into<TypeParam>(
       user,
       R"({"id":7,"name":"Alice","address":{"city":"Tokyo","zip":100},"profile":{"display_name":"alice"}})"sv);
 
@@ -83,10 +86,10 @@ TEST(DecodeNestedJson, DecodesNestedObjectValue) {
             "alice"sv);
 }
 
-TEST(DecodeNestedJson, DecodesNestedFieldsInReverseOrder) {
+TYPED_TEST(DecodeNestedJsonTest, DecodesNestedFieldsInReverseOrder) {
   auto user = User{};
 
-  const auto result = decode_into<Reader>(
+  const auto result = decode_into<TypeParam>(
       user,
       R"({"profile":{"display_name":"bob"},"address":{"zip":150,"city":"Osaka"},"name":"Bob","id":8})"sv);
 
@@ -98,10 +101,10 @@ TEST(DecodeNestedJson, DecodesNestedFieldsInReverseOrder) {
   EXPECT_EQ(user.profile.value().value().display_name.value().value(), "bob"sv);
 }
 
-TEST(DecodeNestedJson, DecodesMultipleNestedObjectLevels) {
+TYPED_TEST(DecodeNestedJsonTest, DecodesMultipleNestedObjectLevels) {
   auto company = Company{};
 
-  const auto result = decode_into<Reader>(
+  const auto result = decode_into<TypeParam>(
       company,
       R"({"name":"Acme","owner":{"id":1,"name":"Carol","address":{"city":"Kyoto","zip":600},"profile":{"display_name":"ceo"}}})"sv);
 
@@ -124,20 +127,20 @@ TEST(DecodeNestedJson, DecodesMultipleNestedObjectLevels) {
             "ceo"sv);
 }
 
-TEST(DecodeNestedJson, RejectsUnknownNestedField) {
+TYPED_TEST(DecodeNestedJsonTest, RejectsUnknownNestedField) {
   auto envelope = AddressEnvelope{};
 
-  const auto result = decode_into<Reader>(
+  const auto result = decode_into<TypeParam>(
       envelope, R"({"address":{"city":"Tokyo","extra":1,"zip":100}})"sv);
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::unknown_member);
 }
 
-TEST(DecodeNestedJson, NestedObjectTypeMismatch) {
+TYPED_TEST(DecodeNestedJsonTest, NestedObjectTypeMismatch) {
   auto user = User{};
 
-  const auto result = decode_into<Reader>(
+  const auto result = decode_into<TypeParam>(
       user,
       R"({"id":7,"name":"Alice","address":true,"profile":{"display_name":"alice"}})"sv);
 
@@ -145,10 +148,10 @@ TEST(DecodeNestedJson, NestedObjectTypeMismatch) {
   EXPECT_EQ(result.code, ErrorCode::type_mismatch);
 }
 
-TEST(DecodeNestedJson, SkipIgnoresUnknownScalarObjectAndArrayValues) {
+TYPED_TEST(DecodeNestedJsonTest, SkipIgnoresUnknownScalarObjectAndArrayValues) {
   auto user = UserWithSkip{};
 
-  const auto result = decode_into<Reader>(
+  const auto result = decode_into<TypeParam>(
       user,
       R"({"ignored_scalar":1,"name":"Alice","ignored_object":{"a":[1,2,3]},"id":7,"ignored_array":[{"x":1},2,3]})"sv);
 

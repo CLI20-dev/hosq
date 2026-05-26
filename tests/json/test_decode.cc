@@ -3,14 +3,12 @@
 #include <string_view>
 
 #include "hosq/hosq.hh"
-#include "hosq/json/simple_reader.hh"
+#include "reader_test_types.hh"
 
 using namespace std::string_view_literals;
 using namespace hosq;
 
 namespace {
-
-using Reader = json::SimpleReader;
 
 template <StringLiteral Name>
 using Key = Elem<scan::scalar | decode::string_view | match::literal<Name>,
@@ -74,68 +72,74 @@ struct FirstWinsId {
 
 }  // namespace
 
-TEST(DecodeJson, StringAndIntFields) {
+template <class Reader>
+class DecodeJsonTest : public test::RuntimeReaderTest<Reader> {};
+
+TYPED_TEST_SUITE(DecodeJsonTest, test::RuntimeReaderTypes);
+
+TYPED_TEST(DecodeJsonTest, StringAndIntFields) {
   auto json = Person{};
 
-  const auto result = decode_into<Reader>(json, R"({"name":"John","id":123})"sv);
+  const auto result =
+      decode_into<TypeParam>(json, R"({"name":"John","id":123})"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(json.name.value().value(), "John"sv);
   EXPECT_EQ(json.id.value().value(), 123);
 }
 
-TEST(DecodeJson, FieldsInReverseOrder) {
+TYPED_TEST(DecodeJsonTest, FieldsInReverseOrder) {
   auto json = PersonWithAge{};
 
   const auto result =
-      decode_into<Reader>(json, R"({"age":30,"name":"Alice"})"sv);
+      decode_into<TypeParam>(json, R"({"age":30,"name":"Alice"})"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(json.name.value().value(), "Alice"sv);
   EXPECT_EQ(json.age.value().value(), 30);
 }
 
-TEST(DecodeJson, RejectsUnknownFields) {
+TYPED_TEST(DecodeJsonTest, RejectsUnknownFields) {
   auto json = OnlyId{};
 
   const auto result =
-      decode_into<Reader>(json, R"({"name":"ignored","id":42})"sv);
+      decode_into<TypeParam>(json, R"({"name":"ignored","id":42})"sv);
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::unknown_member);
 }
 
-TEST(DecodeJson, WrongTopLevelTypeErrors) {
+TYPED_TEST(DecodeJsonTest, WrongTopLevelTypeErrors) {
   auto json = OnlyV{};
 
-  const auto result = decode_into<Reader>(json, "[1,2,3]"sv);
+  const auto result = decode_into<TypeParam>(json, "[1,2,3]"sv);
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::type_mismatch);
 }
 
-TEST(DecodeJson, SingleStringField) {
+TYPED_TEST(DecodeJsonTest, SingleStringField) {
   auto json = OnlyMsg{};
 
-  const auto result = decode_into<Reader>(json, R"({"msg":"hello world"})"sv);
+  const auto result = decode_into<TypeParam>(json, R"({"msg":"hello world"})"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(json.msg.value().value(), "hello world"sv);
 }
 
-TEST(DecodeJson, FloatField) {
+TYPED_TEST(DecodeJsonTest, FloatField) {
   auto json = OnlyRatio{};
 
-  const auto result = decode_into<Reader>(json, R"({"ratio":3.14})"sv);
+  const auto result = decode_into<TypeParam>(json, R"({"ratio":3.14})"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_DOUBLE_EQ(json.ratio.value().value(), 3.14);
 }
 
-TEST(DecodeJson, OnceRejectsDuplicateMembers) {
+TYPED_TEST(DecodeJsonTest, OnceRejectsDuplicateMembers) {
   auto json = OnceId{};
 
-  const auto result = decode_into<Reader>(json, R"({"id":1,"id":2})"sv);
+  const auto result = decode_into<TypeParam>(json, R"({"id":1,"id":2})"sv);
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::duplicate_member);
@@ -143,10 +147,10 @@ TEST(DecodeJson, OnceRejectsDuplicateMembers) {
   EXPECT_EQ(*json.id.value().value(), 1);
 }
 
-TEST(DecodeJson, FirstWinsKeepsFirstDuplicateMember) {
+TYPED_TEST(DecodeJsonTest, FirstWinsKeepsFirstDuplicateMember) {
   auto json = FirstWinsId{};
 
-  const auto result = decode_into<Reader>(json, R"({"id":1,"id":2})"sv);
+  const auto result = decode_into<TypeParam>(json, R"({"id":1,"id":2})"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_TRUE(json.id.value().value().has_value());

@@ -3,21 +3,22 @@
 #include <vector>
 
 #include "hosq/detail/pipeline_analysis.hh"
+#include "hosq/json/fast_reader.hh"
 #include "hosq/json/simple_reader.hh"
 
 namespace {
 
 using namespace hosq;
 
+template <class Reader>
 struct DecodePipelineStaticFixture {
-  using reader_type = json::SimpleReader;
-
   template <class T>
-  using context_type = DecodeContext<T, reader_type, TryPhase::normal>;
+  using context_type = DecodeContext<T, Reader, TryPhase::normal>;
 };
 
-template <class T>
-using ProbeContext = DecodePipelineStaticFixture::context_type<T>;
+template <class Reader, class T>
+using ProbeContext =
+    DecodePipelineStaticFixture<Reader>::template context_type<T>;
 
 template <class Step, class View, class... Args>
 concept StepCallable =
@@ -42,36 +43,6 @@ using ObjectEachPipeline =
                                 return true;
                               }>>);
 
-using ArrayCollectInfo =
-    detail::pipeline_analysis_t<detail::PipelineVerificationMode::no_storage,
-                                ProbeContext<void>, void, ArrayCollectPipeline>;
-
-static_assert(std::same_as<detail::pipeline_terminal_t<ArrayCollectInfo>,
-                           std::vector<int>>);
-
-using ArrayEachInfo = detail::pipeline_analysis_t<
-    detail::PipelineVerificationMode::at_most_one_storage, ProbeContext<void>,
-    void, ArrayEachPipeline>;
-
-static_assert(
-    std::same_as<detail::pipeline_storage_t<ArrayEachInfo>, std::vector<int>>);
-
-using ObjectCollectInfo =
-    detail::pipeline_analysis_t<detail::PipelineVerificationMode::no_storage,
-                                ProbeContext<void>, void, ObjectCollectPipeline>;
-
-static_assert(
-    std::same_as<detail::pipeline_terminal_t<ObjectCollectInfo>,
-                 Map<std::vector<std::string_view>, std::vector<int>>>);
-
-using ObjectEachInfo = detail::pipeline_analysis_t<
-    detail::PipelineVerificationMode::at_most_one_storage, ProbeContext<void>,
-    void, ObjectEachPipeline>;
-
-static_assert(std::same_as<detail::pipeline_storage_t<ObjectEachInfo>,
-                           Map<std::vector<std::string_view>,
-                               std::vector<detail::NoStorage>>>);
-
 using ArrayEachStep =
     decode::detail::EachImpl<scan::scalar | decode::number_into<int>>;
 
@@ -79,9 +50,50 @@ using ObjectCollectStep =
     decode::detail::CollectImpl<scan::scalar | decode::string_view,
                                 scan::scalar | decode::number<int>>;
 
-static_assert(
-    !StepCallable<ArrayEachStep, ObjectView, ProbeContext<std::vector<int>>&>);
+template <class Reader>
+struct StaticChecks {
+  using ArrayCollectInfo =
+      detail::pipeline_analysis_t<detail::PipelineVerificationMode::no_storage,
+                                  ProbeContext<Reader, void>, void,
+                                  ArrayCollectPipeline>;
 
-static_assert(!StepCallable<ObjectCollectStep, ArrayView, ProbeContext<void>&>);
+  static_assert(std::same_as<detail::pipeline_terminal_t<ArrayCollectInfo>,
+                             std::vector<int>>);
+
+  using ArrayEachInfo = detail::pipeline_analysis_t<
+      detail::PipelineVerificationMode::at_most_one_storage,
+      ProbeContext<Reader, void>, void, ArrayEachPipeline>;
+
+  static_assert(
+      std::same_as<detail::pipeline_storage_t<ArrayEachInfo>, std::vector<int>>);
+
+  using ObjectCollectInfo =
+      detail::pipeline_analysis_t<detail::PipelineVerificationMode::no_storage,
+                                  ProbeContext<Reader, void>, void,
+                                  ObjectCollectPipeline>;
+
+  static_assert(
+      std::same_as<detail::pipeline_terminal_t<ObjectCollectInfo>,
+                   Map<std::vector<std::string_view>, std::vector<int>>>);
+
+  using ObjectEachInfo = detail::pipeline_analysis_t<
+      detail::PipelineVerificationMode::at_most_one_storage,
+      ProbeContext<Reader, void>, void, ObjectEachPipeline>;
+
+  static_assert(std::same_as<detail::pipeline_storage_t<ObjectEachInfo>,
+                             Map<std::vector<std::string_view>,
+                                 std::vector<detail::NoStorage>>>);
+
+  static_assert(!StepCallable<ArrayEachStep, ObjectView,
+                              ProbeContext<Reader, std::vector<int>>&>);
+
+  static_assert(
+      !StepCallable<ObjectCollectStep, ArrayView, ProbeContext<Reader, void>&>);
+};
+
+[[maybe_unused]] inline constexpr StaticChecks<json::SimpleReader>
+    simple_reader_checks{};
+[[maybe_unused]] inline constexpr StaticChecks<json::FastReader<>>
+    fast_reader_checks{};
 
 }  // namespace

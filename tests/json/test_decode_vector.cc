@@ -5,14 +5,12 @@
 #include <type_traits>
 #include <vector>
 
-#include "hosq/json/simple_reader.hh"
+#include "reader_test_types.hh"
 
 using namespace std::string_view_literals;
 using namespace hosq;
 
 namespace {
-
-using Reader = json::SimpleReader;
 
 using IntArrayValue =
     Elem<scan::array | decode::collect<scan::scalar | decode::number<int>> |
@@ -44,10 +42,10 @@ struct EvenPushImpl {
 
 inline constexpr auto even_push = step<EvenPushImpl>;
 
-template <auto Pipeline, class Storage>
-auto invoke_pipeline(Storage& storage, std::string_view input) {
+template <class Reader, auto Pipeline, class Storage>
+auto invoke_pipeline(std::string_view input, Storage& storage) {
   auto reader = Reader{};
-  auto state = Reader::state_type{};
+  auto state = typename Reader::state_type{};
   reader.reset(state, input);
   (void)reader.next_token(state);
   auto ctx =
@@ -55,10 +53,10 @@ auto invoke_pipeline(Storage& storage, std::string_view input) {
   return std::remove_cvref_t<decltype(Pipeline)>::invoke(ctx);
 }
 
-template <auto Pipeline>
+template <class Reader, auto Pipeline>
 auto invoke_pipeline(std::string_view input) {
   auto reader = Reader{};
-  auto state = Reader::state_type{};
+  auto state = typename Reader::state_type{};
   reader.reset(state, input);
   (void)reader.next_token(state);
   auto scratch = int{};
@@ -78,10 +76,15 @@ struct Document {
 
 }  // namespace
 
-TEST(DecodeArray, CollectsTopLevelArrayValues) {
+template <class Reader>
+class DecodeVectorTest : public test::RuntimeReaderTest<Reader> {};
+
+TYPED_TEST_SUITE(DecodeVectorTest, test::RuntimeReaderTypes);
+
+TYPED_TEST(DecodeVectorTest, CollectsTopLevelArrayValues) {
   auto ids = IntArrayValue{};
 
-  const auto result = decode_into<Reader>(ids, "[1,2,3]"sv);
+  const auto result = decode_into<TypeParam>(ids, "[1,2,3]"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(ids.value().size(), 3U);
@@ -90,10 +93,10 @@ TEST(DecodeArray, CollectsTopLevelArrayValues) {
   EXPECT_EQ(ids.value()[2], 3);
 }
 
-TEST(DecodeArray, EachStoresTopLevelArrayValues) {
+TYPED_TEST(DecodeVectorTest, EachStoresTopLevelArrayValues) {
   auto ids = IntArrayEachValue{};
 
-  const auto result = decode_into<Reader>(ids, "[4,5,6]"sv);
+  const auto result = decode_into<TypeParam>(ids, "[4,5,6]"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(ids.value().size(), 3U);
@@ -102,10 +105,10 @@ TEST(DecodeArray, EachStoresTopLevelArrayValues) {
   EXPECT_EQ(ids.value()[2], 6);
 }
 
-TEST(DecodeArray, DecodesObjectMemberArrayValues) {
+TYPED_TEST(DecodeVectorTest, DecodesObjectMemberArrayValues) {
   auto document = Document{};
 
-  const auto result = decode_into<Reader>(document, R"({"ids":[4,5]})"sv);
+  const auto result = decode_into<TypeParam>(document, R"({"ids":[4,5]})"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(document.ids.value().value().size(), 2U);
@@ -113,7 +116,7 @@ TEST(DecodeArray, DecodesObjectMemberArrayValues) {
   EXPECT_EQ(document.ids.value().value()[1], 5);
 }
 
-TEST(DecodeArray, DecodesObjectMemberArrayValuesWithReorderedKeys) {
+TYPED_TEST(DecodeVectorTest, DecodesObjectMemberArrayValuesWithReorderedKeys) {
   struct WithArrayAndScalar {
     Try<Entry<FieldKey<"ids">, IntArrayValue>> ids;
     Try<Entry<
@@ -125,7 +128,7 @@ TEST(DecodeArray, DecodesObjectMemberArrayValuesWithReorderedKeys) {
   auto document = WithArrayAndScalar{};
 
   const auto result =
-      decode_into<Reader>(document, R"({"version":2,"ids":[7,8]})"sv);
+      decode_into<TypeParam>(document, R"({"version":2,"ids":[7,8]})"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(document.version.value().value(), 2);
@@ -134,56 +137,57 @@ TEST(DecodeArray, DecodesObjectMemberArrayValuesWithReorderedKeys) {
   EXPECT_EQ(document.ids.value().value()[1], 8);
 }
 
-TEST(DecodeArray, RequiresArrayBegin) {
+TYPED_TEST(DecodeVectorTest, RequiresArrayBegin) {
   auto ids = IntArrayValue{};
 
-  const auto result = decode_into<Reader>(ids, "1"sv);
+  const auto result = decode_into<TypeParam>(ids, "1"sv);
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::type_mismatch);
 }
 
-TEST(DecodeArray, RejectsInvalidElement) {
+TYPED_TEST(DecodeVectorTest, RejectsInvalidElement) {
   auto ids = IntArrayValue{};
 
-  const auto result = decode_into<Reader>(ids, R"([1,"x"])"sv);
+  const auto result = decode_into<TypeParam>(ids, R"([1,"x"])"sv);
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::invalid_number);
 }
 
-TEST(DecodeArray, CollectsEmptyArrayValues) {
+TYPED_TEST(DecodeVectorTest, CollectsEmptyArrayValues) {
   auto ids = IntArrayValue{};
 
-  const auto result = decode_into<Reader>(ids, "[]"sv);
+  const auto result = decode_into<TypeParam>(ids, "[]"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_TRUE(ids.value().empty());
 }
 
-TEST(DecodeArray, EachAggregatesBoolAcrossElements) {
+TYPED_TEST(DecodeVectorTest, EachAggregatesBoolAcrossElements) {
   constexpr auto pipeline =
       scan::array | decode::each<scan::scalar | decode::number<int> | even_push>;
 
   auto values = std::vector<int>{};
-  const auto result = invoke_pipeline<pipeline>(values, "[2,4,5,8]"sv);
+  const auto result =
+      invoke_pipeline<TypeParam, pipeline>("[2,4,5,8]"sv, values);
 
   EXPECT_FALSE(result);
   EXPECT_TRUE(values.empty());
 }
 
-TEST(DecodeArray, EachBoolReturnsTrueForEmptyArray) {
+TYPED_TEST(DecodeVectorTest, EachBoolReturnsTrueForEmptyArray) {
   constexpr auto pipeline =
       scan::array | decode::each<scan::scalar | decode::number<int> | even_push>;
 
   auto values = std::vector<int>{};
-  const auto result = invoke_pipeline<pipeline>(values, "[]"sv);
+  const auto result = invoke_pipeline<TypeParam, pipeline>("[]"sv, values);
 
   EXPECT_TRUE(result);
   EXPECT_TRUE(values.empty());
 }
 
-TEST(DecodeArray, CollectCanReturnBoolValues) {
+TYPED_TEST(DecodeVectorTest, CollectCanReturnBoolValues) {
   constexpr auto pipeline =
       scan::array |
       decode::collect<scan::scalar | decode::number<int> |
@@ -191,7 +195,7 @@ TEST(DecodeArray, CollectCanReturnBoolValues) {
                         return value % 2 == 0;
                       }>>;
 
-  const auto result = invoke_pipeline<pipeline>("[2,3,4]"sv);
+  const auto result = invoke_pipeline<TypeParam, pipeline>("[2,3,4]"sv);
 
   ASSERT_EQ(result.size(), 3U);
   EXPECT_TRUE(result[0]);
@@ -199,10 +203,10 @@ TEST(DecodeArray, CollectCanReturnBoolValues) {
   EXPECT_TRUE(result[2]);
 }
 
-TEST(DecodeObjectCollect, CollectsKeysAndValues) {
+TYPED_TEST(DecodeVectorTest, CollectsKeysAndValues) {
   auto object = NumberObjectValue{};
 
-  const auto result = decode_into<Reader>(object, R"({"x":1,"y":2,"z":3})"sv);
+  const auto result = decode_into<TypeParam>(object, R"({"x":1,"y":2,"z":3})"sv);
 
   ASSERT_TRUE(result.is_ok());
   ASSERT_EQ(object.value().keys().size(), 3U);
@@ -215,17 +219,17 @@ TEST(DecodeObjectCollect, CollectsKeysAndValues) {
   EXPECT_EQ(object.value().values()[2], 3);
 }
 
-TEST(DecodeObjectCollect, CollectsEmptyObject) {
+TYPED_TEST(DecodeVectorTest, CollectsEmptyObject) {
   auto object = NumberObjectValue{};
 
-  const auto result = decode_into<Reader>(object, "{}"sv);
+  const auto result = decode_into<TypeParam>(object, "{}"sv);
 
   ASSERT_TRUE(result.is_ok());
   EXPECT_TRUE(object.value().keys().empty());
   EXPECT_TRUE(object.value().values().empty());
 }
 
-TEST(DecodeObjectEach, AggregatesBoolAcrossMembers) {
+TYPED_TEST(DecodeVectorTest, AggregatesBoolAcrossMembers) {
   constexpr auto pipeline =
       scan::object |
       decode::each<scan::scalar | decode::string_view | store::assign,
@@ -236,8 +240,8 @@ TEST(DecodeObjectEach, AggregatesBoolAcrossMembers) {
 
   auto object_state =
       Map<std::vector<std::string_view>, std::vector<detail::NoStorage>>{};
-  const auto result =
-      invoke_pipeline<pipeline>(object_state, R"({"x":1,"y":-2,"z":3})"sv);
+  const auto result = invoke_pipeline<TypeParam, pipeline>(
+      R"({"x":1,"y":-2,"z":3})"sv, object_state);
 
   EXPECT_FALSE(result);
   EXPECT_TRUE(object_state.keys().empty());

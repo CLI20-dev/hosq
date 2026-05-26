@@ -157,7 +157,26 @@ struct RootSchema {
   Entry<FieldKey<"another_bool">, BoolField> another_bool;
 };
 
-constexpr int kIterations = 10000;
+constexpr int kIterations = 1000000;
+volatile double g_sink = 0.0;  // NOLINT
+
+[[gnu::noinline]] auto checksum(const RootSchema& root) -> double {
+  double sum = 0.0;
+  for (const auto value : *root.fixed_object->int_array) {
+    sum += value;
+  }
+  for (const auto value : *root.fixed_object->float_array) {
+    sum += value;
+  }
+  for (const auto value : *root.fixed_object->double_array) {
+    sum += value;
+  }
+  sum += root.string->size();
+  sum += root.another_object->string->size();
+  sum += *root.boolean ? 1.0 : 0.0;
+  sum += *root.another_bool ? 1.0 : 0.0;
+  return sum;
+}
 
 }  // namespace
 
@@ -172,7 +191,8 @@ auto main() -> int {
                 << " offset=" << result.offset << "\n";
       return 1;
     }
+    g_sink += checksum(root);
   }
 
-  return 0;
+  return g_sink == 0.0 ? 1 : 0;
 }
