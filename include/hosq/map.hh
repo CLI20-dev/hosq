@@ -20,6 +20,19 @@ struct Map {
   auto values() noexcept -> Values& { return values_; }
   auto values() const noexcept -> const Values& { return values_; }
 
+  auto clear() noexcept -> void {
+    if constexpr (requires(Keys& k) { k.clear(); }) {
+      keys_.clear();
+    } else {
+      keys_ = Keys{};
+    }
+    if constexpr (requires(Values& v) { v.clear(); }) {
+      values_.clear();
+    } else {
+      values_ = Values{};
+    }
+  }
+
  private:
   Keys keys_{};
   Values values_{};

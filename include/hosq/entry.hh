@@ -50,8 +50,21 @@ struct Entry<Key, Value> {
   [[nodiscard]] auto value() const -> const value_type& { return value_; }
   [[nodiscard]] auto value() -> value_type& { return value_; }
 
-  [[nodiscard]] auto operator*() -> value_type& { return value_; }
-  [[nodiscard]] auto operator*() const -> const value_type& { return value_; }
+  [[nodiscard]] auto operator*() -> typename value_type::storage_type& {
+    return *value_;
+  }
+  [[nodiscard]] auto operator*() const -> const
+      typename value_type::storage_type& {
+    return *value_;
+  }
+
+  [[nodiscard]] auto operator->() -> typename value_type::storage_type* {
+    return &*value_;
+  }
+  [[nodiscard]] auto operator->() const -> const
+      typename value_type::storage_type* {
+    return &*value_;
+  }
 
  private:
   key_type key_{};      // NOLINT

@@ -121,6 +121,38 @@ struct DecodeNumber {
   }
 };
 
+template <ReaderConcept R>
+struct DecodeNumberInto {
+  template <class T, class Context>
+  auto operator()(const ScalarView&, const Context& ctx) const -> void {
+    const Token& tok = ctx.reader().current_token(ctx.reader_state());
+    const BytesView bytes = ctx.reader().input(ctx.reader_state());
+    const char* first = bytes.as_string_view().data() + tok.offset;
+    const char* last = bytes.as_string_view().data() + tok.offset + tok.length;
+
+    const auto result = std::from_chars(first, last, ctx.value());
+
+    if (result.ec == std::errc::result_out_of_range) [[unlikely]] {
+      ctx.reader().report_error(
+          ctx.reader_state(),
+          Error{
+              .code = ErrorCode::out_of_range,
+              .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+          });
+      return;
+    }
+    if (result.ec != std::errc{} || result.ptr != last) [[unlikely]] {
+      ctx.reader().report_error(
+          ctx.reader_state(),
+          Error{
+              .code = ErrorCode::invalid_number,
+              .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+          });
+      return;
+    }
+  }
+};
+
 }  // namespace hosq::ext
 
 namespace hosq::decode {
@@ -170,12 +202,16 @@ struct NumberImpl {
   }
 };
 
-// struct IdentityImpl {
-//   template <class T>
-//   constexpr auto operator()(T&& value) const noexcept -> decltype(auto) {
-//     return std::forward<T>(value);
-//   }
-// };
+template <Number T>
+struct NumberIntoImpl {
+  template <class Input>
+  using storage_type = T;
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ScalarView& input,
+                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
+    ext::DecodeNumberInto<R>{}.template operator()<T>(input, ctx);
+  }
+};
 
 template <auto F>
 struct CustomImpl {
@@ -196,6 +232,7 @@ struct EachImpl {
 };
 
 template <auto Pipeline>
+  requires(::hosq::detail::PipelineObject<decltype(Pipeline)>)
 struct EachImpl<Pipeline> {
   static_assert(hosq::detail::PipelineObject<decltype(Pipeline)>,
                 "decode::each<P> requires P to be a hosq::Pipeline");
@@ -210,70 +247,156 @@ struct EachImpl<Pipeline> {
 
   using terminal_type = ::hosq::detail::pipeline_terminal_t<info>;
 
-  // Required by the pipeline-analysis interface.
-  //
-  // For each<P>, storage is independent of the step input. The input is the
-  // surrounding ArrayView; the actual storage is the element storage declared by
-  // the inner pipeline P.
   template <class Input>
-  using storage_type = ::hosq::detail::pipeline_storage_t<info>;
+  using storage_type = std::vector<::hosq::detail::pipeline_storage_t<info>>;
+
+  template <auto T, class U>
+  struct InvalidPipelineTerminal;
 
   template <ReaderConcept R, TryPhase Phase, class Storage>
   auto operator()(const ArrayView&, DecodeContext<Storage, R, Phase>& ctx) const
       -> std::conditional_t<std::same_as<terminal_type, bool>, bool, void> {
     using actual_decoder_info = ::hosq::detail::pipeline_analysis_t<
         ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
-        DecodeContext<Storage, R, TryPhase::first>, void, pipeline_type>;
+        DecodeContext<typename Storage::value_type, R, TryPhase::first>, void,
+        pipeline_type>;
     using actual_decoder_terminal =
         ::hosq::detail::pipeline_terminal_t<actual_decoder_info>;
-    using expected_storage_type = storage_type<ArrayView>;
 
-    static_assert(std::same_as<actual_decoder_terminal, void> ||
-                      std::same_as<actual_decoder_terminal, bool>,
-                  "Decoder pipeline must have a terminal type of void or bool "
-                  "for this Reader/Context");
+    if constexpr (!std::same_as<actual_decoder_terminal, void> &&
+                  !std::same_as<actual_decoder_terminal, bool>) {
+      static_assert(
+          sizeof(InvalidPipelineTerminal<Pipeline, actual_decoder_terminal>) ==
+              0,
+          "Decoder pipeline must have a terminal type of void or bool "
+          "for this Reader/Context");
+    }
     static_assert(std::same_as<terminal_type, actual_decoder_terminal>,
                   "Decoder pipeline terminal type must be void or bool, and if "
                   "bool, must be the same as the EachImpl terminal type");
-    static_assert(
-        std::same_as<Storage, expected_storage_type>,
-        "decode::each<P> context storage must match the storage declared by P");
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
+    using expected_storage_type = storage_type<ArrayView>;
+    static_assert(
+        std::same_as<Storage, expected_storage_type>,
+        "decode::each<P> context storage must be std::vector<PipelineStorage>");
 
-    if constexpr (std::same_as<terminal_type, bool>) {
-      while (true) {
-        if (!reader.next_token(state)) [[unlikely]] {
-          return false;
-        }
-        const auto& tok = reader.current_token(state);
-        if (tok.type == TokenType::ArrayEnd) {
-          return true;
-        }
-        auto elem_ctx = DecodeContext<Storage, R, TryPhase::first>{
-            ctx.elem(), reader, state};
-        if (!pipeline_type::invoke(elem_ctx)) {
-          return false;
-        }
+    while (true) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        ctx.value().clear();
+        return hosq::detail::terminal_return<terminal_type>(false);
       }
-    } else {
-      while (true) {
-        if (!reader.next_token(state)) [[unlikely]] {
-          return;
+
+      const auto& tok = reader.current_token(state);
+      if (tok.type == TokenType::ArrayEnd) {
+        return hosq::detail::terminal_return<terminal_type>(true);
+      }
+
+      ctx.value().emplace_back();
+
+      auto elem_ctx =
+          DecodeContext<typename Storage::value_type, R, TryPhase::first>{
+              ctx.value().back(), reader, state};
+
+      if constexpr (std::same_as<actual_decoder_terminal, bool>) {
+        if (!pipeline_type::invoke(elem_ctx)) {
+          ctx.value().clear();
+          return hosq::detail::terminal_return<terminal_type>(false);
         }
-        const auto& tok = reader.current_token(state);
-        if (tok.type == TokenType::ArrayEnd) {
-          return;
-        }
-        auto elem_ctx = DecodeContext<Storage, R, TryPhase::first>{
-            ctx.elem(), reader, state};
+      } else {
         pipeline_type::invoke(elem_ctx);
       }
     }
   }
 };
 
+template <auto Pipeline, size_t N>
+  requires(::hosq::detail::PipelineObject<decltype(Pipeline)>)
+struct EachImpl<Pipeline, N> {
+  static_assert(hosq::detail::PipelineObject<decltype(Pipeline)>,
+                "decode::each<P> requires P to be a hosq::Pipeline");
+
+  using pipeline_type = std::remove_cvref_t<decltype(Pipeline)>;
+
+  using info = ::hosq::detail::pipeline_analysis_t<
+      ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
+      DecodeContext<void, ::hosq::detail::PipelineAnalysisReader,
+                    TryPhase::first>,
+      void, pipeline_type>;
+
+  using terminal_type = ::hosq::detail::pipeline_terminal_t<info>;
+
+  template <class Input>
+  using storage_type = std::array<::hosq::detail::pipeline_storage_t<info>, N>;
+
+  template <auto T, class U>
+  struct InvalidPipelineTerminal;
+
+  template <ReaderConcept R, TryPhase Phase, class Storage>
+  auto operator()(const ArrayView&, DecodeContext<Storage, R, Phase>& ctx) const
+      -> terminal_type {
+    using actual_decoder_info = ::hosq::detail::pipeline_analysis_t<
+        ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
+        DecodeContext<Storage, R, TryPhase::first>, void, pipeline_type>;
+    using actual_decoder_terminal =
+        ::hosq::detail::pipeline_terminal_t<actual_decoder_info>;
+
+    if constexpr (!std::same_as<actual_decoder_terminal, void> &&
+                  !std::same_as<actual_decoder_terminal, bool>) {
+      static_assert(
+          sizeof(InvalidPipelineTerminal<Pipeline, actual_decoder_terminal>) ==
+              0,
+          "Decoder pipeline must have a terminal type of void or bool "
+          "for this Reader/Context");
+    }
+    static_assert(std::same_as<terminal_type, actual_decoder_terminal>,
+                  "Decoder pipeline terminal type must be void or bool, and if "
+                  "bool, must be the same as the EachImpl terminal type");
+    auto& reader = ctx.reader();
+    auto& state = ctx.reader_state();
+    size_t index = 0;
+    while (index < N) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return hosq::detail::terminal_return<terminal_type>(false);
+      }
+      const auto& tok = reader.current_token(state);
+      if (tok.type == TokenType::ArrayEnd) {
+        reader.report_error(state, Error{
+                                       .code = ErrorCode::invalid_length,
+                                       .offset = tok.offset,
+                                   });
+        return hosq::detail::terminal_return<terminal_type>(false);
+      }
+      auto elem_ctx =
+          DecodeContext<typename Storage::value_type, R, TryPhase::first>{
+              ctx.value()[index], reader, state};
+      if constexpr (std::same_as<terminal_type, bool>) {
+        if (!pipeline_type::invoke(elem_ctx)) {
+          return false;
+        }
+      } else {
+        pipeline_type::invoke(elem_ctx);
+      }
+      index++;
+    }
+    if (!reader.next_token(state)) [[unlikely]] {
+      return hosq::detail::terminal_return<terminal_type>(false);
+    }
+    const auto& tok = reader.current_token(state);
+    if (tok.type == TokenType::ArrayEnd) {
+      return hosq::detail::terminal_return<terminal_type>(true);
+    }
+    reader.report_error(state, Error{
+                                   .code = ErrorCode::invalid_length,
+                                   .offset = reader.current_token(state).offset,
+                               });
+    return hosq::detail::terminal_return<terminal_type>(false);
+  }
+};
+
 template <auto KeyPipeline, auto ValuePipeline>
+  requires(::hosq::detail::PipelineObject<decltype(KeyPipeline)> &&
+           ::hosq::detail::PipelineObject<decltype(ValuePipeline)>)
 struct EachImpl<KeyPipeline, ValuePipeline> {
   static_assert(hosq::detail::PipelineObject<decltype(KeyPipeline)> &&
                     hosq::detail::PipelineObject<decltype(ValuePipeline)>,
@@ -296,7 +419,8 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
   using value_storage_type = ::hosq::detail::pipeline_storage_t<value_info>;
 
   template <class Input>
-  using storage_type = ::hosq::Map<key_storage_type, value_storage_type>;
+  using storage_type = ::hosq::Map<std::vector<key_storage_type>,
+                                   std::vector<value_storage_type>>;
 
   using pipeline_output_type =
       std::conditional_t<std::same_as<key_terminal_type, bool> ||
@@ -353,94 +477,178 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
 
-    if constexpr (std::same_as<actual_key_terminal, void> &&
-                  std::same_as<actual_value_terminal, void>) {
-      while (true) {
-        if (!reader.next_token(state)) [[unlikely]] {
-          return;
-        }
-        const auto& tok = reader.current_token(state);
-        if (tok.type == TokenType::ObjectEnd) {
-          return;
-        }
-        auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-            ctx.elem().keys(), reader, state};
-        key_pipeline_type::invoke(key_ctx);
-        if (!reader.next_token(state)) [[unlikely]] {
-          return;
-        }
-        auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-            ctx.elem().values(), reader, state};
-        value_pipeline_type::invoke(value_ctx);
+    while (true) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        ctx.value().clear();
+        return hosq::detail::terminal_return<pipeline_output_type>(false);
       }
-    } else if constexpr (std::same_as<actual_key_terminal, bool> &&
-                         std::same_as<actual_value_terminal, void>) {
-      while (true) {
-        if (!reader.next_token(state)) [[unlikely]] {
-          return false;
-        }
-        const auto& tok = reader.current_token(state);
-        if (tok.type == TokenType::ObjectEnd) {
-          return true;
-        }
-        auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-            ctx.elem().keys(), reader, state};
+      const auto& tok = reader.current_token(state);
+      if (tok.type == TokenType::ObjectEnd) {
+        return hosq::detail::terminal_return<pipeline_output_type>(true);
+      }
+      ctx.value().keys().emplace_back();
+      auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
+          ctx.value().keys().back(), reader, state};
+
+      if constexpr (std::same_as<actual_key_terminal, bool>) {
         if (!key_pipeline_type::invoke(key_ctx)) {
-          return false;
+          ctx.value().clear();
+          return hosq::detail::terminal_return<pipeline_output_type>(false);
         }
-        if (!reader.next_token(state)) [[unlikely]] {
-          return false;
-        }
-        auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-            ctx.elem().values(), reader, state};
-        value_pipeline_type::invoke(value_ctx);
-      }
-    } else if constexpr (std::same_as<actual_key_terminal, void> &&
-                         std::same_as<actual_value_terminal, bool>) {
-      while (true) {
-        if (!reader.next_token(state)) [[unlikely]] {
-          return false;
-        }
-        const auto& tok = reader.current_token(state);
-        if (tok.type == TokenType::ObjectEnd) {
-          return true;
-        }
-        auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-            ctx.elem().keys(), reader, state};
+      } else {
         key_pipeline_type::invoke(key_ctx);
-        if (!reader.next_token(state)) [[unlikely]] {
-          return false;
-        }
-        auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-            ctx.elem().values(), reader, state};
-        if (!value_pipeline_type::invoke(value_ctx)) {
-          return false;
-        }
       }
-    } else {
-      while (true) {
-        if (!reader.next_token(state)) [[unlikely]] {
-          return false;
-        }
-        const auto& tok = reader.current_token(state);
-        if (tok.type == TokenType::ObjectEnd) {
-          return true;
-        }
-        auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-            ctx.elem().keys(), reader, state};
-        if (!key_pipeline_type::invoke(key_ctx)) {
-          return false;
-        }
-        if (!reader.next_token(state)) [[unlikely]] {
-          return false;
-        }
-        auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-            ctx.elem().values(), reader, state};
+      if (!reader.next_token(state)) [[unlikely]] {
+        ctx.value().clear();
+        return hosq::detail::terminal_return<pipeline_output_type>(false);
+      }
+      ctx.value().values().emplace_back();
+      auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
+          ctx.value().values().back(), reader, state};
+      if constexpr (std::same_as<actual_value_terminal, bool>) {
         if (!value_pipeline_type::invoke(value_ctx)) {
-          return false;
+          ctx.value().clear();
+          return hosq::detail::terminal_return<pipeline_output_type>(false);
         }
+      } else {
+        value_pipeline_type::invoke(value_ctx);
       }
     }
+  }
+};
+
+template <auto KeyPipeline, auto ValuePipeline, size_t N>
+  requires(::hosq::detail::PipelineObject<decltype(KeyPipeline)> &&
+           ::hosq::detail::PipelineObject<decltype(ValuePipeline)>)
+struct EachImpl<KeyPipeline, ValuePipeline, N> {
+  static_assert(hosq::detail::PipelineObject<decltype(KeyPipeline)> &&
+                    hosq::detail::PipelineObject<decltype(ValuePipeline)>,
+                "decode::each<KeyP, ValueP> requires hosq::Pipeline operands");
+
+  using key_pipeline_type = std::remove_cvref_t<decltype(KeyPipeline)>;
+  using value_pipeline_type = std::remove_cvref_t<decltype(ValuePipeline)>;
+
+  using key_info = ::hosq::detail::pipeline_analysis_t<
+      ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, key_pipeline_type>;
+  using value_info = ::hosq::detail::pipeline_analysis_t<
+      ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, value_pipeline_type>;
+
+  using key_terminal_type = ::hosq::detail::pipeline_terminal_t<key_info>;
+  using value_terminal_type = ::hosq::detail::pipeline_terminal_t<value_info>;
+
+  using key_storage_type = ::hosq::detail::pipeline_storage_t<key_info>;
+  using value_storage_type = ::hosq::detail::pipeline_storage_t<value_info>;
+
+  template <class Input>
+  using storage_type = ::hosq::Map<std::array<key_storage_type, N>,
+                                   std::array<value_storage_type, N>>;
+
+  using pipeline_output_type =
+      std::conditional_t<std::same_as<key_terminal_type, bool> ||
+                             std::same_as<value_terminal_type, bool>,
+                         bool, void>;
+
+  template <class Storage, ReaderConcept R, TryPhase Phase>
+  auto operator()(const ObjectView&, DecodeContext<Storage, R, Phase>& ctx) const
+      -> pipeline_output_type {
+    using actual_key_info = ::hosq::detail::pipeline_analysis_t<
+        ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
+        DecodeContext<key_storage_type, R, TryPhase::first>, void,
+        key_pipeline_type>;
+    using actual_key_terminal =
+        ::hosq::detail::pipeline_terminal_t<actual_key_info>;
+    using actual_key_storage =
+        ::hosq::detail::pipeline_storage_t<actual_key_info>;
+    static_assert(std::same_as<actual_key_terminal, void> ||
+                      std::same_as<actual_key_terminal, bool>,
+                  "Decoder pipeline must have a terminal type of void or bool "
+                  "for this Reader/Context");
+    static_assert(std::same_as<key_terminal_type, actual_key_terminal>,
+                  "Decoder pipeline terminal type must be void or bool, and if "
+                  "bool, must be the same as the EachImpl terminal type");
+
+    static_assert(std::same_as<key_storage_type, actual_key_storage>,
+                  "decode::each<KeyP, ValueP> key pipeline storage_type must be "
+                  "Reader-independent");
+
+    using actual_value_info = ::hosq::detail::pipeline_analysis_t<
+        ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
+        DecodeContext<value_storage_type, R, TryPhase::first>, void,
+        value_pipeline_type>;
+    using actual_value_terminal =
+        ::hosq::detail::pipeline_terminal_t<actual_value_info>;
+    using actual_value_storage =
+        ::hosq::detail::pipeline_storage_t<actual_value_info>;
+    static_assert(std::same_as<actual_value_terminal, void> ||
+                      std::same_as<actual_value_terminal, bool>,
+                  "Decoder pipeline must have a terminal type of void or bool "
+                  "for this Reader/Context");
+    static_assert(std::same_as<value_terminal_type, actual_value_terminal>,
+                  "Decoder pipeline terminal type must be void or bool, and if "
+                  "bool, must be the same as the EachImpl terminal type");
+    static_assert(std::same_as<value_storage_type, actual_value_storage>,
+                  "decode::each<KeyP, ValueP> value pipeline storage_type must "
+                  "be Reader-independent");
+
+    using expected_storage_type = storage_type<ObjectView>;
+    static_assert(std::same_as<Storage, expected_storage_type>,
+                  "decode::each<KeyP, ValueP> context storage must be "
+                  "hosq::Map<KeyStorage, ValueStorage>");
+
+    auto& reader = ctx.reader();
+    auto& state = ctx.reader_state();
+
+    size_t index = 0;
+    while (index < N) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return hosq::detail::terminal_return<pipeline_output_type>(false);
+      }
+      const auto& tok = reader.current_token(state);
+      if (tok.type == TokenType::ObjectEnd) {
+        reader.report_error(state, Error{
+                                       .code = ErrorCode::invalid_length,
+                                       .offset = tok.offset,
+                                   });
+        return hosq::detail::terminal_return<pipeline_output_type>(false);
+      }
+      auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
+          ctx.value().keys()[index], reader, state};
+
+      if constexpr (std::same_as<actual_key_terminal, bool>) {
+        if (!key_pipeline_type::invoke(key_ctx)) {
+          return hosq::detail::terminal_return<pipeline_output_type>(false);
+        }
+      } else {
+        key_pipeline_type::invoke(key_ctx);
+      }
+      if (!reader.next_token(state)) [[unlikely]] {
+        return hosq::detail::terminal_return<pipeline_output_type>(false);
+      }
+      auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
+          ctx.value().values()[index], reader, state};
+      if constexpr (std::same_as<actual_value_terminal, bool>) {
+        if (!value_pipeline_type::invoke(value_ctx)) {
+          return hosq::detail::terminal_return<pipeline_output_type>(false);
+        }
+      } else {
+        value_pipeline_type::invoke(value_ctx);
+      }
+      index++;
+    }
+    if (!reader.next_token(state)) [[unlikely]] {
+      return hosq::detail::terminal_return<pipeline_output_type>(false);
+    }
+    const auto& tok = reader.current_token(state);
+    if (tok.type == TokenType::ObjectEnd) {
+      return hosq::detail::terminal_return<pipeline_output_type>(true);
+    }
+    reader.report_error(state, Error{
+                                   .code = ErrorCode::invalid_length,
+                                   .offset = tok.offset,
+                               });
+    return hosq::detail::terminal_return<pipeline_output_type>(false);
   }
 };
 
@@ -505,6 +713,83 @@ struct CollectImpl<Pipeline> {
       DecodeContext<void, R, TryPhase::first> elem_ctx{reader, state};
       ret.push_back(pipeline_type::invoke(elem_ctx));
     }
+  }
+};
+
+template <auto Pipeline, size_t N>
+  requires(::hosq::detail::PipelineObject<decltype(Pipeline)>)
+struct CollectImpl<Pipeline, N> {
+  static_assert(hosq::detail::PipelineObject<decltype(Pipeline)>,
+                "decode::collect<P, N> requires P to be a hosq::Pipeline");
+
+  using pipeline_type = std::remove_cvref_t<decltype(Pipeline)>;
+
+  using info = ::hosq::detail::pipeline_analysis_t<
+      ::hosq::detail::PipelineVerificationMode::no_storage,
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, pipeline_type>;
+
+  using terminal_type = ::hosq::detail::pipeline_terminal_t<info>;
+
+  static_assert(!std::same_as<terminal_type, void>,
+                "decode::collect<P, N> requires P to return a value");
+
+  template <ReaderConcept R, TryPhase Phase, class Storage>
+  auto operator()(const ArrayView&, DecodeContext<Storage, R, Phase>& ctx) const
+      -> std::array<terminal_type, N> {
+    using actual_decoder_info = ::hosq::detail::pipeline_analysis_t<
+        ::hosq::detail::PipelineVerificationMode::no_storage,
+        DecodeContext<void, R, TryPhase::first>, void, pipeline_type>;
+
+    using actual_decoder_terminal =
+        ::hosq::detail::pipeline_terminal_t<actual_decoder_info>;
+
+    static_assert(!std::same_as<actual_decoder_terminal, void>,
+                  "decode::collect<P, N> requires P to return a value "
+                  "for this Reader/Context");
+
+    static_assert(std::same_as<terminal_type, actual_decoder_terminal>,
+                  "decode::collect<P, N> pipeline terminal type must be "
+                  "Reader-independent");
+
+    auto& reader = ctx.reader();
+    auto& state = ctx.reader_state();
+
+    std::array<terminal_type, N> ret{};
+    std::size_t index = 0;
+
+    while (index < N) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return ret;
+      }
+
+      const auto& tok = reader.current_token(state);
+      if (tok.type == TokenType::ArrayEnd) {
+        reader.report_error(state, Error{
+                                       .code = ErrorCode::invalid_length,
+                                       .offset = tok.offset,
+                                   });
+        return ret;
+      }
+
+      DecodeContext<void, R, TryPhase::first> elem_ctx{reader, state};
+      ret[index] = pipeline_type::invoke(elem_ctx);
+      ++index;
+    }
+
+    if (!reader.next_token(state)) [[unlikely]] {
+      return ret;
+    }
+
+    const auto& tok = reader.current_token(state);
+    if (tok.type == TokenType::ArrayEnd) {
+      return ret;
+    }
+
+    reader.report_error(state, Error{
+                                   .code = ErrorCode::invalid_length,
+                                   .offset = tok.offset,
+                               });
+    return ret;
   }
 };
 
@@ -602,6 +887,124 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
   }
 };
 
+template <auto KeyPipeline, auto ValuePipeline, size_t N>
+  requires(::hosq::detail::PipelineObject<decltype(KeyPipeline)> &&
+           ::hosq::detail::PipelineObject<decltype(ValuePipeline)>)
+struct CollectImpl<KeyPipeline, ValuePipeline, N> {
+  static_assert(
+      hosq::detail::PipelineObject<decltype(KeyPipeline)> &&
+          hosq::detail::PipelineObject<decltype(ValuePipeline)>,
+      "decode::collect<KeyP, ValueP, N> requires hosq::Pipeline operands");
+
+  using key_pipeline_type = std::remove_cvref_t<decltype(KeyPipeline)>;
+  using value_pipeline_type = std::remove_cvref_t<decltype(ValuePipeline)>;
+
+  using key_info = ::hosq::detail::pipeline_analysis_t<
+      ::hosq::detail::PipelineVerificationMode::no_storage,
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, key_pipeline_type>;
+
+  using value_info = ::hosq::detail::pipeline_analysis_t<
+      ::hosq::detail::PipelineVerificationMode::no_storage,
+      ::hosq::detail::PipelineDecodeAnalysisContext, void, value_pipeline_type>;
+
+  using key_terminal_type = ::hosq::detail::pipeline_terminal_t<key_info>;
+  using value_terminal_type = ::hosq::detail::pipeline_terminal_t<value_info>;
+
+  static_assert(
+      !std::same_as<key_terminal_type, void>,
+      "decode::collect<KeyP, ValueP, N> key pipeline must return a value");
+
+  static_assert(
+      !std::same_as<value_terminal_type, void>,
+      "decode::collect<KeyP, ValueP, N> value pipeline must return a value");
+
+  using output_type = ::hosq::Map<std::array<key_terminal_type, N>,
+                                  std::array<value_terminal_type, N>>;
+
+  template <ReaderConcept R, TryPhase Phase, class Storage>
+  auto operator()(const ObjectView&, DecodeContext<Storage, R, Phase>& ctx) const
+      -> output_type {
+    using actual_key_info = ::hosq::detail::pipeline_analysis_t<
+        ::hosq::detail::PipelineVerificationMode::no_storage,
+        DecodeContext<void, R, TryPhase::first>, void, key_pipeline_type>;
+
+    using actual_value_info = ::hosq::detail::pipeline_analysis_t<
+        ::hosq::detail::PipelineVerificationMode::no_storage,
+        DecodeContext<void, R, TryPhase::first>, void, value_pipeline_type>;
+
+    using actual_key_terminal =
+        ::hosq::detail::pipeline_terminal_t<actual_key_info>;
+    using actual_value_terminal =
+        ::hosq::detail::pipeline_terminal_t<actual_value_info>;
+
+    static_assert(
+        !std::same_as<actual_key_terminal, void>,
+        "decode::collect<KeyP, ValueP, N> key pipeline must return a value "
+        "for this Reader/Context");
+
+    static_assert(
+        !std::same_as<actual_value_terminal, void>,
+        "decode::collect<KeyP, ValueP, N> value pipeline must return a value "
+        "for this Reader/Context");
+
+    static_assert(std::same_as<key_terminal_type, actual_key_terminal>,
+                  "decode::collect<KeyP, ValueP, N> key terminal type must be "
+                  "Reader-independent");
+
+    static_assert(std::same_as<value_terminal_type, actual_value_terminal>,
+                  "decode::collect<KeyP, ValueP, N> value terminal type must be "
+                  "Reader-independent");
+
+    auto& reader = ctx.reader();
+    auto& state = ctx.reader_state();
+
+    auto ret = output_type{};
+    std::size_t index = 0;
+
+    while (index < N) {
+      if (!reader.next_token(state)) [[unlikely]] {
+        return ret;
+      }
+
+      const auto& tok = reader.current_token(state);
+      if (tok.type == TokenType::ObjectEnd) {
+        reader.report_error(state, Error{
+                                       .code = ErrorCode::invalid_length,
+                                       .offset = tok.offset,
+                                   });
+        return ret;
+      }
+
+      DecodeContext<void, R, TryPhase::first> key_ctx{reader, state};
+      ret.keys()[index] = key_pipeline_type::invoke(key_ctx);
+
+      if (!reader.next_token(state)) [[unlikely]] {
+        return ret;
+      }
+
+      DecodeContext<void, R, TryPhase::first> value_ctx{reader, state};
+      ret.values()[index] = value_pipeline_type::invoke(value_ctx);
+
+      ++index;
+    }
+
+    if (!reader.next_token(state)) [[unlikely]] {
+      return ret;
+    }
+
+    const auto& tok = reader.current_token(state);
+    if (tok.type == TokenType::ObjectEnd) {
+      return ret;
+    }
+
+    reader.report_error(state, Error{
+                                   .code = ErrorCode::invalid_length,
+                                   .offset = tok.offset,
+                               });
+    return ret;
+  }
+};
+
 struct BooleanImpl {
   template <class Storage, ReaderConcept R, TryPhase Phase>
   auto operator()(const ScalarView&, DecodeContext<Storage, R, Phase>& ctx) const
@@ -678,6 +1081,9 @@ struct ToImpl {
 /// Parses a numeric string_view into arithmetic type T using std::from_chars.
 template <detail::Number T>
 inline constexpr auto number = step<detail::NumberImpl<T>>;
+
+template <detail::Number T>
+inline constexpr auto number_into = step<detail::NumberIntoImpl<T>>;
 
 /// Converts "true"/"false" to bool; returns type_mismatch for anything else.
 inline constexpr auto boolean = step<detail::BooleanImpl>;

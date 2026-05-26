@@ -83,28 +83,28 @@ using StringField =
 using BoolField =
     Elem<scan::scalar | decode::boolean | store::assign, noop_encoder>;
 
-template <class T>
+template <class T, size_t N>
 using NumberArrayField =
-    Elem<scan::array |
-             decode::each<scan::scalar | decode::number<T> | store::push>,
+    Elem<scan::array | decode::each<scan::scalar | decode::number_into<T>, N>,
          noop_encoder>;
 
 using StringArrayField =
     Elem<scan::array |
-             decode::each<scan::scalar | decode::string_view | store::push>,
+             decode::each<scan::scalar | decode::string_view | store::assign, 4>,
          noop_encoder>;
 
-using V3ArrayField = Elem<
-    scan::array |
-        decode::collect<scan::array |
-                        decode::collect<scan::scalar | decode::number<double>>> |
-        store::assign,
-    noop_encoder>;
+using V3ArrayField =
+    Elem<scan::array |
+             decode::each<
+                 scan::array |
+                     decode::each<scan::scalar | decode::number_into<double>, 3>,
+                 3>,
+         noop_encoder>;
 
 struct FixedObjectSchema {
-  Entry<FieldKey<"int_array">, NumberArrayField<int>> int_array;
-  Entry<FieldKey<"float_array">, NumberArrayField<double>> float_array;
-  Entry<FieldKey<"double_array">, NumberArrayField<double>> double_array;
+  Entry<FieldKey<"int_array">, NumberArrayField<int, 7>> int_array;
+  Entry<FieldKey<"float_array">, NumberArrayField<double, 6>> float_array;
+  Entry<FieldKey<"double_array">, NumberArrayField<double, 9>> double_array;
 };
 
 struct FixedNameObjectSchema {
@@ -179,61 +179,43 @@ auto unquote_json_string(std::string_view value) -> std::string_view {
 auto make_stats(const RootSchema& root) -> Stats {
   Stats stats;
 
-  for (const auto value :
-       root.fixed_object.value().value().int_array.value().value()) {
+  for (const auto value : *root.fixed_object->int_array) {
     stats.int_sum += value;
   }
-  for (const auto value :
-       root.fixed_object.value().value().float_array.value().value()) {
+  for (const auto value : *root.fixed_object->float_array) {
     stats.float_sum += value;
   }
 
-  const auto& doubles =
-      root.fixed_object.value().value().double_array.value().value();
+  const auto& doubles = *root.fixed_object->double_array;
   stats.double_count = doubles.size();
   if (doubles.size() > 1) {
     stats.second_double = doubles[1];
   }
 
-  const auto& names = root.fixed_name_object.value().value();
-  stats.name_total_len +=
-      unquote_json_string(names.name0.value().value()).size();
-  stats.name_total_len +=
-      unquote_json_string(names.name1.value().value()).size();
-  stats.name_total_len +=
-      unquote_json_string(names.name2.value().value()).size();
-  stats.name_total_len +=
-      unquote_json_string(names.name3.value().value()).size();
-  stats.name_total_len +=
-      unquote_json_string(names.name4.value().value()).size();
+  const auto& names = *root.fixed_name_object;
+  stats.name_total_len += unquote_json_string(*names.name0).size();
+  stats.name_total_len += unquote_json_string(*names.name1).size();
+  stats.name_total_len += unquote_json_string(*names.name2).size();
+  stats.name_total_len += unquote_json_string(*names.name3).size();
+  stats.name_total_len += unquote_json_string(*names.name4).size();
 
-  for (const auto value : root.string_array.value().value()) {
+  for (const auto value : *root.string_array) {
     stats.string_array_total_len += unquote_json_string(value).size();
   }
 
-  for (const auto& row : root.another_object.value()
-                             .value()
-                             .nested_object.value()
-                             .value()
-                             .v3s.value()
-                             .value()) {
+  for (const auto& row : *root.another_object->nested_object->v3s) {
     for (const auto value : row) {
       stats.v3_sum += value;
     }
   }
 
-  stats.nested_id = std::string{unquote_json_string(root.another_object.value()
-                                                        .value()
-                                                        .nested_object.value()
-                                                        .value()
-                                                        .id.value()
-                                                        .value())};
-  stats.top_level_string =
-      std::string{unquote_json_string(root.string.value().value())};
-  stats.another_string = std::string{unquote_json_string(
-      root.another_object.value().value().another_string.value().value())};
-  stats.top_level_boolean = root.boolean.value().value();
-  stats.another_boolean = root.another_bool.value().value();
+  stats.nested_id =
+      std::string{unquote_json_string(*root.another_object->nested_object->id)};
+  stats.top_level_string = std::string{unquote_json_string(*root.string)};
+  stats.another_string =
+      std::string{unquote_json_string(*root.another_object->another_string)};
+  stats.top_level_boolean = *root.boolean;
+  stats.another_boolean = *root.another_bool;
   return stats;
 }
 

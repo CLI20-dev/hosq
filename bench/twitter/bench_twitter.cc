@@ -50,8 +50,8 @@ struct StatusSchema {
 };
 
 using StatusesField =
-    Elem<scan::array |
-             decode::each<scan::object | decode::to<StatusSchema> | store::push>,
+    Elem<scan::array | decode::each<scan::object | decode::to<StatusSchema> |
+                                    store::assign>,
          noop_encoder>;
 
 struct TwitterSchema {

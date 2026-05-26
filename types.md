@@ -1,3 +1,108 @@
+# Types
+
+## Json
+
+literal
+null | true | false | number | string
+
+
+## MsgPack
+
+nil
+positive fixint
+fixstr
+false
+true
+bin 8
+bin 16
+bin 32
+ext 8
+ext 16
+ext 32
+float 32
+float 64
+uint 8
+uint 16
+uint 32
+uint 64
+int 8
+int 16
+int 32
+int 64
+fixext 1
+fixext 2
+fixext 4
+fixext 8
+fixext 16
+str 8
+str 16
+str 32
+array 16
+array 32
+map 16
+map 32
+negative fixint
+
+## Cbor
+
+0	unsigned integer N	-
+1	negative integer -1-N	-
+2	byte string	N bytes
+3	text string	N bytes (UTF-8 text)
+4	array	N data items (elements)
+5	map	2N data items (key/value pairs)
+6	tag of number N	1 data item
+7	simple/float	-
+
+## BSON
+
+0x01 Double 64-bit IEEE 754 浮動小数点数
+
+0x02 String UTF-8 文字列
+
+0x03 Document / Object 埋め込みドキュメント
+
+0x04 Array 配列
+
+0x05 Binary バイナリデータ
+
+0x06 Undefined 非推奨
+
+0x07 ObjectId 12 byte の ObjectId
+
+0x08 Boolean true / false
+
+0x09 UTC DateTime Unix epoch からのミリ秒
+
+0x0A Null null
+
+0x0B Regex 正規表現
+
+0x0C DBPointer 非推奨
+
+0x0D JavaScript Code JavaScript コード
+
+0x0E Symbol 非推奨
+
+0x0F JavaScript Code with Scope 非推奨
+
+0x10 Int32 32-bit signed integer
+
+0x11 Timestamp MongoDB 内部用 timestamp
+
+0x12 Int64 64-bit signed integer
+
+0x13 Decimal128 128-bit decimal floating point
+
+0xFF MinKey 最小比較値
+
+0x7F MaxKey 最大比較値
+
+## Flatbuffer
+
+
+## Flexbuffer
+
 # Basic Pipelines
 
 ## scan

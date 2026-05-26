@@ -4,6 +4,7 @@
 #include <cctype>
 #include <concepts>
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -77,6 +78,10 @@ namespace hosq {
 template <auto... Fns>
   requires(sizeof...(Fns) > 0)
 struct Pipeline {
+  using additional_properties =
+      decltype(std::tuple_cat(std::declval<detail::get_additional_property_t<
+                                  std::remove_cvref_t<decltype(Fns)>>>()...));
+
   template <class Context, class Input>
   static consteval auto callable_with_const_context() -> bool {
     return detail::pipeline_callable_with_const_context_v<Pipeline, Context,

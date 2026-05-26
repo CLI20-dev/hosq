@@ -1,8 +1,8 @@
+#include <hosq/hosq.hh>
 #include <string_view>
 #include <vector>
 
 #include "hosq/detail/pipeline_analysis.hh"
-#include "hosq/hosq.hh"
 #include "hosq/json/simple_reader.hh"
 
 namespace {
@@ -28,7 +28,7 @@ using ArrayCollectPipeline =
 
 using ArrayEachPipeline =
     decltype(scan::array |
-             decode::each<scan::scalar | decode::number<int> | store::push>);
+             decode::each<scan::scalar | decode::number_into<int>>);
 
 using ObjectCollectPipeline =
     decltype(scan::object | decode::collect<scan::scalar | decode::string_view,
@@ -36,7 +36,7 @@ using ObjectCollectPipeline =
 
 using ObjectEachPipeline =
     decltype(scan::object |
-             decode::each<scan::scalar | decode::string_view | store::push,
+             decode::each<scan::scalar | decode::string_view | store::assign,
                           scan::scalar | decode::number<int> |
                               decode::custom<[](int) constexpr -> bool {
                                 return true;
@@ -68,12 +68,12 @@ using ObjectEachInfo = detail::pipeline_analysis_t<
     detail::PipelineVerificationMode::at_most_one_storage, ProbeContext<void>,
     void, ObjectEachPipeline>;
 
-static_assert(
-    std::same_as<detail::pipeline_storage_t<ObjectEachInfo>,
-                 Map<std::vector<std::string_view>, detail::NoStorage>>);
+static_assert(std::same_as<detail::pipeline_storage_t<ObjectEachInfo>,
+                           Map<std::vector<std::string_view>,
+                               std::vector<detail::NoStorage>>>);
 
 using ArrayEachStep =
-    decode::detail::EachImpl<scan::scalar | decode::number<int> | store::push>;
+    decode::detail::EachImpl<scan::scalar | decode::number_into<int>>;
 
 using ObjectCollectStep =
     decode::detail::CollectImpl<scan::scalar | decode::string_view,

@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <hosq/hosq.hh>
 #include <string_view>
 #include <type_traits>
 #include <vector>
 
-#include "hosq/hosq.hh"
 #include "hosq/json/simple_reader.hh"
 
 using namespace std::string_view_literals;
@@ -20,8 +20,7 @@ using IntArrayValue =
          noop_encoder>;
 
 using IntArrayEachValue =
-    Elem<scan::array |
-             decode::each<scan::scalar | decode::number<int> | store::push>,
+    Elem<scan::array | decode::each<scan::scalar | decode::number_into<int>>,
          noop_encoder>;
 
 using NumberObjectValue =
@@ -33,12 +32,12 @@ using NumberObjectValue =
 
 struct EvenPushImpl {
   template <class Input>
-  using storage_type = std::vector<std::remove_cvref_t<Input>>;
+  using storage_type = std::remove_cvref_t<Input>;
 
   template <class Input, class Context>
   auto operator()(Input value, Context& ctx) const -> bool {
     const auto is_even = value % 2 == 0;
-    ctx.elem().push_back(std::move(value));
+    ctx.value() = std::move(value);
     return is_even;
   }
 };
@@ -170,7 +169,7 @@ TEST(DecodeArray, EachAggregatesBoolAcrossElements) {
   const auto result = invoke_pipeline<pipeline>(values, "[2,4,5,8]"sv);
 
   EXPECT_FALSE(result);
-  EXPECT_EQ(values, (std::vector<int>{2, 4, 5}));
+  EXPECT_TRUE(values.empty());
 }
 
 TEST(DecodeArray, EachBoolReturnsTrueForEmptyArray) {
@@ -229,16 +228,18 @@ TEST(DecodeObjectCollect, CollectsEmptyObject) {
 TEST(DecodeObjectEach, AggregatesBoolAcrossMembers) {
   constexpr auto pipeline =
       scan::object |
-      decode::each<scan::scalar | decode::string_view | store::push,
+      decode::each<scan::scalar | decode::string_view | store::assign,
                    scan::scalar | decode::number<int> |
                        decode::custom<[](int value) constexpr -> bool {
                          return value > 0;
                        }>>;
 
-  auto object_state = Map<std::vector<std::string_view>, detail::NoStorage>{};
+  auto object_state =
+      Map<std::vector<std::string_view>, std::vector<detail::NoStorage>>{};
   const auto result =
       invoke_pipeline<pipeline>(object_state, R"({"x":1,"y":-2,"z":3})"sv);
 
   EXPECT_FALSE(result);
-  EXPECT_EQ(object_state.keys(), (std::vector<std::string_view>{"x"sv, "y"sv}));
+  EXPECT_TRUE(object_state.keys().empty());
+  EXPECT_TRUE(object_state.values().empty());
 }

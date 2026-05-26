@@ -78,10 +78,10 @@ struct FirstWinsImpl {
 inline constexpr auto assign = step<detail::AssignImpl>;
 
 /// Appends the decoded value via push_back; storage_type<T> = std::vector<T>.
-inline constexpr auto push = step<detail::PushImpl>;
+[[deprecated]] inline constexpr auto push = step<detail::PushImpl>;
 
 /// Discards the decoded value; storage_type<T> = ignored.
-inline constexpr auto ignore = step<detail::IgnoreImpl>;
+[[deprecated]] inline constexpr auto ignore = step<detail::IgnoreImpl>;
 
 /// Stores the decoded value once; errors with duplicate_member on subsequent
 /// stores.

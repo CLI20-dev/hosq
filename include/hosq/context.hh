@@ -91,23 +91,13 @@ struct DecodeContext<T, R, Phase> : private detail::DecodeContextBase<R> {
       : base_type(other.reader(), other.reader_state()), elem_(other.elem()) {}
 
   [[nodiscard]]
-  auto elem() noexcept -> T& {
-    return elem_.get();
-  }
-
-  [[nodiscard]]
-  auto elem() const noexcept -> T& {
-    return elem_.get();
-  }
-
-  [[nodiscard]]
   auto value() noexcept -> T& {
-    return elem();
+    return elem_.get();
   }
 
   [[nodiscard]]
   auto value() const noexcept -> T& {
-    return elem();
+    return elem_.get();
   }
 
  private:
