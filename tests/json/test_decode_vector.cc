@@ -144,6 +144,7 @@ TYPED_TEST(DecodeVectorTest, RequiresArrayBegin) {
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::type_mismatch);
+  EXPECT_EQ(result.detail, "scan::array expected array"sv);
 }
 
 TYPED_TEST(DecodeVectorTest, RejectsInvalidElement) {
@@ -153,6 +154,7 @@ TYPED_TEST(DecodeVectorTest, RejectsInvalidElement) {
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::invalid_number);
+  EXPECT_EQ(result.detail, "decode::number could not consume scalar token"sv);
 }
 
 TYPED_TEST(DecodeVectorTest, CollectsEmptyArrayValues) {

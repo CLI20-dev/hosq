@@ -298,7 +298,8 @@ TEST(CompactWriterError, EndWithNoRootWritten) {
   std::string out;
   CW w{out};
   ASSERT_FALSE(wr_end(w));
-  EXPECT_EQ(w.error().code, EC::unexpected_eof);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
+  EXPECT_EQ(w.error().kind(), hosq::ErrorKind::state);
 }
 
 TEST(CompactWriterError, WriteAfterEnd) {
@@ -307,7 +308,7 @@ TEST(CompactWriterError, WriteAfterEnd) {
   ASSERT_TRUE(wr_lit(w, "1"));
   ASSERT_TRUE(wr_end(w));
   ASSERT_FALSE(wr_lit(w, "2"));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, TwoRootValues) {
@@ -315,7 +316,7 @@ TEST(CompactWriterError, TwoRootValues) {
   CW w{out};
   ASSERT_TRUE(wr_lit(w, "1"));
   ASSERT_FALSE(wr_lit(w, "2"));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, EndWithOpenObject) {
@@ -323,7 +324,7 @@ TEST(CompactWriterError, EndWithOpenObject) {
   CW w{out};
   ASSERT_TRUE(wr_ob(w));
   ASSERT_FALSE(wr_end(w));
-  EXPECT_EQ(w.error().code, EC::unexpected_eof);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, EndWithOpenArray) {
@@ -331,7 +332,7 @@ TEST(CompactWriterError, EndWithOpenArray) {
   CW w{out};
   ASSERT_TRUE(wr_ab(w));
   ASSERT_FALSE(wr_end(w));
-  EXPECT_EQ(w.error().code, EC::unexpected_eof);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 // ── Error: commit ─────────────────────────────────────────────────────────────
@@ -340,7 +341,7 @@ TEST(CompactWriterError, CommitWithoutPending) {
   std::string out;
   CW w{out};
   ASSERT_FALSE(w.commit(0));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, CommitAfterEnd) {
@@ -349,7 +350,7 @@ TEST(CompactWriterError, CommitAfterEnd) {
   ASSERT_TRUE(wr_lit(w, "1"));
   ASSERT_TRUE(wr_end(w));
   ASSERT_FALSE(w.commit(0));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, CommitOverCapacity) {
@@ -360,7 +361,7 @@ TEST(CompactWriterError, CommitOverCapacity) {
                  .context = static_cast<uint8_t>(JTC::literal)});
   ASSERT_FALSE(w.error().has_error());
   ASSERT_FALSE(w.commit(4));  // 4 > 3
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_token);
 }
 
 // ── Error: write while pending ────────────────────────────────────────────────
@@ -374,7 +375,7 @@ TEST(CompactWriterError, WriteWhilePending) {
   ASSERT_FALSE(w.error().has_error());
   // second write without commit
   ASSERT_FALSE(wr_lit(w, "42"));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, ArrayEndWhilePending) {
@@ -387,7 +388,7 @@ TEST(CompactWriterError, ArrayEndWhilePending) {
                  .context = static_cast<uint8_t>(JTC::literal)});
   ASSERT_FALSE(w.error().has_error());
   ASSERT_FALSE(wr_ae(w));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, ObjectEndWhilePending) {
@@ -399,7 +400,7 @@ TEST(CompactWriterError, ObjectEndWhilePending) {
                  .context = static_cast<uint8_t>(JTC::string)});
   ASSERT_FALSE(w.error().has_error());
   ASSERT_FALSE(wr_oe(w));  // pending active → error
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 // ── Error: mismatched container close ─────────────────────────────────────────
@@ -408,14 +409,14 @@ TEST(CompactWriterError, ObjectEndWithoutOpen) {
   std::string out;
   CW w{out};
   ASSERT_FALSE(wr_oe(w));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, ArrayEndWithoutOpen) {
   std::string out;
   CW w{out};
   ASSERT_FALSE(wr_ae(w));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, ObjectEndInArray) {
@@ -423,7 +424,7 @@ TEST(CompactWriterError, ObjectEndInArray) {
   CW w{out};
   ASSERT_TRUE(wr_ab(w));
   ASSERT_FALSE(wr_oe(w));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, ArrayEndInObject) {
@@ -434,7 +435,7 @@ TEST(CompactWriterError, ArrayEndInObject) {
   // (expecting_key=true) Actually with empty object, expecting_key=true, so
   // ArrayEnd should mismatch on kind
   ASSERT_FALSE(wr_ae(w));
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 // ── Error: key/value ordering in objects ─────────────────────────────────────
@@ -445,7 +446,7 @@ TEST(CompactWriterError, LiteralAsObjectKey) {
   CW w{out};
   ASSERT_TRUE(wr_ob(w));
   ASSERT_FALSE(wr_lit(w, "42"));  // literal where key expected
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_token);
 }
 
 TEST(CompactWriterError, ArrayBeginWhenKeyExpected) {
@@ -454,7 +455,7 @@ TEST(CompactWriterError, ArrayBeginWhenKeyExpected) {
   CW w{out};
   ASSERT_TRUE(wr_ob(w));
   ASSERT_FALSE(wr_ab(w));  // array value where key expected
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, ObjectBeginWhenKeyExpected) {
@@ -462,7 +463,7 @@ TEST(CompactWriterError, ObjectBeginWhenKeyExpected) {
   CW w{out};
   ASSERT_TRUE(wr_ob(w));
   ASSERT_FALSE(wr_ob(w));  // nested object where key expected
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 TEST(CompactWriterError, ObjectEndAfterKeyNoValue) {
@@ -472,7 +473,7 @@ TEST(CompactWriterError, ObjectEndAfterKeyNoValue) {
   ASSERT_TRUE(wr_ob(w));
   ASSERT_TRUE(wr_str(w, "k"));  // key committed
   ASSERT_FALSE(wr_oe(w));       // value not written
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_state);
 }
 
 // ── Error: bad WriteRequest parameters ───────────────────────────────────────
@@ -484,7 +485,7 @@ TEST(CompactWriterError, ScalarBeginUnresolvedLength) {
                  .type = TT::Scalar,
                  .context = static_cast<uint8_t>(JTC::string)});
   ASSERT_TRUE(w.error().has_error());
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_token);
 }
 
 TEST(CompactWriterError, ScalarBeginContextNone) {
@@ -494,7 +495,7 @@ TEST(CompactWriterError, ScalarBeginContextNone) {
                  .type = TT::Scalar,
                  .context = static_cast<uint8_t>(JTC::none)});
   ASSERT_TRUE(w.error().has_error());
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_token);
 }
 
 TEST(CompactWriterError, ObjectBeginNonZeroContext) {
@@ -502,7 +503,7 @@ TEST(CompactWriterError, ObjectBeginNonZeroContext) {
   CW w{out};
   (void)w.write({.length = 0, .type = TT::ObjectBegin, .context = 1});
   ASSERT_TRUE(w.error().has_error());
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_token);
 }
 
 TEST(CompactWriterError, ObjectEndNonZeroLength) {
@@ -511,7 +512,7 @@ TEST(CompactWriterError, ObjectEndNonZeroLength) {
   ASSERT_TRUE(wr_ob(w));
   (void)w.write({.length = 1, .type = TT::ObjectEnd, .context = 0});
   ASSERT_TRUE(w.error().has_error());
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_token);
 }
 
 TEST(CompactWriterError, ArrayEndNonZeroContext) {
@@ -520,7 +521,7 @@ TEST(CompactWriterError, ArrayEndNonZeroContext) {
   ASSERT_TRUE(wr_ab(w));
   (void)w.write({.length = 0, .type = TT::ArrayEnd, .context = 1});
   ASSERT_TRUE(w.error().has_error());
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_token);
 }
 
 TEST(CompactWriterError, EndNonZeroLength) {
@@ -529,7 +530,7 @@ TEST(CompactWriterError, EndNonZeroLength) {
   ASSERT_TRUE(wr_lit(w, "1"));
   (void)w.write({.length = 1, .type = TT::End, .context = 0});
   ASSERT_TRUE(w.error().has_error());
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_token);
 }
 
 TEST(CompactWriterError, EndNonZeroContext) {
@@ -538,7 +539,7 @@ TEST(CompactWriterError, EndNonZeroContext) {
   ASSERT_TRUE(wr_lit(w, "1"));
   (void)w.write({.length = 0, .type = TT::End, .context = 1});
   ASSERT_TRUE(w.error().has_error());
-  EXPECT_EQ(w.error().code, EC::unexpected_token);
+  EXPECT_EQ(w.error().code, EC::invalid_token);
 }
 
 // ── Error: depth limit ────────────────────────────────────────────────────────
@@ -554,4 +555,5 @@ TEST(CompactWriterError, DepthLimitExceeded) {
   (void)w.write({.length = 0, .type = TT::ArrayBegin, .context = 0});
   ASSERT_TRUE(w.error().has_error());
   EXPECT_EQ(w.error().code, EC::depth_limit_exceeded);
+  EXPECT_EQ(w.error().kind(), hosq::ErrorKind::limit);
 }

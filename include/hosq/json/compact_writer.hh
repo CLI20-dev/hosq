@@ -34,7 +34,8 @@ class CompactWriter {
   [[nodiscard]]
   auto write(const WriteRequest& request) -> buffer_type {
     if (error_.has_error() || finished_ || pending_.active) [[unlikely]] {
-      return fail(ErrorCode::unexpected_token);
+      return fail(ErrorCode::invalid_state,
+                  "writer cannot accept token in current state");
     }
     switch (request.type) {
       case TokenType::ObjectBegin:
@@ -52,16 +53,18 @@ class CompactWriter {
       default:
         break;
     }
-    return fail(ErrorCode::unexpected_token);
+    return fail(ErrorCode::invalid_token);
   }
 
   [[nodiscard]]
   auto commit(std::size_t written) -> bool {
     if (error_.has_error() || finished_ || !pending_.active) [[unlikely]] {
-      return fail_bool(ErrorCode::unexpected_token);
+      return fail_bool(ErrorCode::invalid_state,
+                       "writer commit without pending scalar");
     }
     if (written > pending_.capacity) [[unlikely]] {
-      return fail_bool(ErrorCode::unexpected_token);
+      return fail_bool(ErrorCode::invalid_token,
+                       "writer commit exceeds reserved capacity");
     }
     output_.resize(pending_.begin + written);
     if (pending_.quoted) {
@@ -123,16 +126,17 @@ class CompactWriter {
     return stack_[depth_ - 1];
   }
 
-  auto fail(ErrorCode code) noexcept -> buffer_type {
+  auto fail(ErrorCode code, std::string_view detail = "") noexcept
+      -> buffer_type {
     if (!error_.has_error()) {
-      error_ = Error{.code = code, .offset = output_.size()};
+      error_ = Error{.code = code, .offset = output_.size(), .detail = detail};
     }
     return {};
   }
 
-  auto fail_bool(ErrorCode code) noexcept -> bool {
+  auto fail_bool(ErrorCode code, std::string_view detail = "") noexcept -> bool {
     if (!error_.has_error()) {
-      error_ = Error{.code = code, .offset = output_.size()};
+      error_ = Error{.code = code, .offset = output_.size(), .detail = detail};
     }
     return false;
   }
@@ -141,7 +145,8 @@ class CompactWriter {
   auto before_value() -> bool {
     if (depth_ == 0) {
       if (root_written_) [[unlikely]] {
-        return fail_bool(ErrorCode::unexpected_token);
+        return fail_bool(ErrorCode::invalid_state,
+                         "writer root value already written");
       }
       return true;
     }
@@ -153,7 +158,8 @@ class CompactWriter {
       return true;
     }
     if (current.expecting_key) [[unlikely]] {
-      return fail_bool(ErrorCode::unexpected_token);
+      return fail_bool(ErrorCode::invalid_state,
+                       "writer expected object key before value");
     }
     return true;
   }
@@ -162,7 +168,7 @@ class CompactWriter {
   auto before_key() -> bool {
     if (depth_ == 0 || frame().kind != FrameKind::object ||
         !frame().expecting_key) [[unlikely]] {
-      return fail_bool(ErrorCode::unexpected_token);
+      return fail_bool(ErrorCode::invalid_state, "writer expected object key");
     }
     if (frame().count != 0) {
       output_.push_back(',');
@@ -188,10 +194,12 @@ class CompactWriter {
   auto begin_container(const WriteRequest& request, FrameKind kind, char open)
       -> buffer_type {
     if (request.context != 0) [[unlikely]] {
-      return fail(ErrorCode::unexpected_token);
+      return fail(ErrorCode::invalid_token,
+                  "container token must not carry scalar context");
     }
     if (depth_ >= MaxDepth) [[unlikely]] {
-      return fail(ErrorCode::depth_limit_exceeded);
+      return fail(ErrorCode::depth_limit_exceeded,
+                  "writer container depth limit");
     }
     if (!before_value()) [[unlikely]] {
       return {};
@@ -209,13 +217,16 @@ class CompactWriter {
   auto end_container(const WriteRequest& request, FrameKind kind, char close)
       -> buffer_type {
     if (request.length != 0 || request.context != 0) [[unlikely]] {
-      return fail(ErrorCode::unexpected_token);
+      return fail(ErrorCode::invalid_token,
+                  "container end token must have zero length and no context");
     }
     if (depth_ == 0 || frame().kind != kind) [[unlikely]] {
-      return fail(ErrorCode::unexpected_token);
+      return fail(ErrorCode::invalid_state,
+                  "writer closing wrong container type");
     }
     if (kind == FrameKind::object && !frame().expecting_key) [[unlikely]] {
-      return fail(ErrorCode::unexpected_token);
+      return fail(ErrorCode::invalid_state,
+                  "writer cannot close object before member value");
     }
     output_.push_back(close);
     --depth_;
@@ -226,19 +237,22 @@ class CompactWriter {
   [[nodiscard]]
   auto begin_scalar(const WriteRequest& request) -> buffer_type {
     if (request.length == unresolved_length) [[unlikely]] {
-      return fail(ErrorCode::unexpected_token);
+      return fail(ErrorCode::invalid_token,
+                  "scalar token must have a resolved length");
     }
     const auto context = static_cast<JsonTokenContext>(request.context);
     if (context != JsonTokenContext::string &&
         context != JsonTokenContext::literal) [[unlikely]] {
-      return fail(ErrorCode::unexpected_token);
+      return fail(ErrorCode::invalid_token,
+                  "scalar token has invalid JSON context");
     }
     const bool is_string = context == JsonTokenContext::string;
     const bool is_key = depth_ != 0 && frame().kind == FrameKind::object &&
                         frame().expecting_key;
     if (is_key) {
       if (!is_string) [[unlikely]] {
-        return fail(ErrorCode::unexpected_token);
+        return fail(ErrorCode::invalid_token,
+                    "object key scalar must be a string");
       }
       if (!before_key()) [[unlikely]] {
         return {};
@@ -266,10 +280,12 @@ class CompactWriter {
   [[nodiscard]]
   auto end_document(const WriteRequest& request) -> buffer_type {
     if (request.length != 0 || request.context != 0) [[unlikely]] {
-      return fail(ErrorCode::unexpected_token);
+      return fail(ErrorCode::invalid_token,
+                  "end token must have zero length and no context");
     }
     if (depth_ != 0 || !root_written_) [[unlikely]] {
-      return fail(ErrorCode::unexpected_eof);
+      return fail(ErrorCode::invalid_state,
+                  "document ended before writer stack closed");
     }
     finished_ = true;
     return {};

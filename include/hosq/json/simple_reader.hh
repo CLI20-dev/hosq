@@ -183,18 +183,22 @@ class SimpleReader {
                                            s.size()) == 0;
   }
 
-  auto fail(StateType& st, ErrorCode code) const -> bool {
+  auto fail(StateType& st, ErrorCode code, std::string_view detail = "") const
+      -> bool {
     st.last_error = Error{
         .code = code,
         .offset = st.pos,
+        .detail = detail,
     };
     return false;
   }
 
-  auto fail(StateType& st, ErrorCode code, std::size_t offset) const -> bool {
+  auto fail(StateType& st, ErrorCode code, std::size_t offset,
+            std::string_view detail = "") const -> bool {
     st.last_error = Error{
         .code = code,
         .offset = offset,
+        .detail = detail,
     };
     return false;
   }
@@ -204,7 +208,8 @@ class SimpleReader {
       skip_ws(st);
 
       if (st.end_done) [[unlikely]] {
-        return fail(st, ErrorCode::invalid_state);
+        return fail(st, ErrorCode::invalid_state,
+                    "simple reader next_token called after end");
       }
 
       if (st.stack.empty()) {
@@ -213,7 +218,8 @@ class SimpleReader {
           return value(st, st.current);
         }
         if (st.pos != st.input.size()) [[unlikely]] {
-          return fail(st, ErrorCode::trailing_data);
+          return fail(st, ErrorCode::trailing_data,
+                      "non-whitespace data after root value");
         }
 
         st.end_done = true;
@@ -244,7 +250,7 @@ class SimpleReader {
     skip_ws(st);
 
     if (st.pos >= st.input.size()) [[unlikely]] {
-      fail(st, ErrorCode::unexpected_eof);
+      fail(st, ErrorCode::unexpected_eof, "expected object key or end");
       return StepResult::error;
     }
 
@@ -256,7 +262,8 @@ class SimpleReader {
         }
 
         if (st.input[st.pos] != '"') {
-          fail(st, ErrorCode::unexpected_token);
+          fail(st, ErrorCode::unexpected_token,
+               "expected object key string or object end");
           return StepResult::error;
         }
 
@@ -268,7 +275,7 @@ class SimpleReader {
 
       case StateType::Expect::colon:
         if (st.input[st.pos] != ':') {
-          fail(st, ErrorCode::unexpected_token);
+          fail(st, ErrorCode::unexpected_token, "expected ':' after object key");
           return StepResult::error;
         }
 
@@ -295,15 +302,17 @@ class SimpleReader {
           return StepResult::emitted;
         }
 
-        fail(st, ErrorCode::unexpected_token);
+        fail(st, ErrorCode::unexpected_token,
+             "expected comma or object end after member");
         return StepResult::error;
 
       case StateType::Expect::value_or_end:
-        fail(st, ErrorCode::invalid_state);
+        fail(st, ErrorCode::invalid_state,
+             "simple reader object frame cannot expect value_or_end");
         return StepResult::error;
     }
 
-    fail(st, ErrorCode::invalid_state);
+    fail(st, ErrorCode::invalid_state, "unknown simple reader object state");
     return StepResult::error;
   }
 
@@ -312,7 +321,7 @@ class SimpleReader {
     skip_ws(st);
 
     if (st.pos >= st.input.size()) [[unlikely]] {
-      fail(st, ErrorCode::unexpected_eof);
+      fail(st, ErrorCode::unexpected_eof, "expected array value or end");
       return StepResult::error;
     }
 
@@ -341,17 +350,19 @@ class SimpleReader {
           return StepResult::emitted;
         }
 
-        fail(st, ErrorCode::unexpected_token);
+        fail(st, ErrorCode::unexpected_token,
+             "expected comma or array end after element");
         return StepResult::error;
 
       case StateType::Expect::key_or_end:
       case StateType::Expect::colon:
       case StateType::Expect::value:
-        fail(st, ErrorCode::invalid_state);
+        fail(st, ErrorCode::invalid_state,
+             "simple reader array frame used object expectation");
         return StepResult::error;
     }
 
-    fail(st, ErrorCode::invalid_state);
+    fail(st, ErrorCode::invalid_state, "unknown simple reader array state");
     return StepResult::error;
   }
 
@@ -359,7 +370,7 @@ class SimpleReader {
     skip_ws(st);
 
     if (st.pos >= st.input.size()) [[unlikely]] {
-      return fail(st, ErrorCode::unexpected_eof);
+      return fail(st, ErrorCode::unexpected_eof, "expected JSON value");
     }
     const auto offset = st.pos;
     const char c = st.input[st.pos];
@@ -411,7 +422,7 @@ class SimpleReader {
         }
         break;
     }
-    return fail(st, ErrorCode::unexpected_token);
+    return fail(st, ErrorCode::unexpected_token, "expected JSON value");
   }
 
   auto close(StateType& st, TokenType type, Token& out) const -> bool {
@@ -434,12 +445,14 @@ class SimpleReader {
       }
       if (c == '\\') {
         if (st.pos >= st.input.size()) [[unlikely]] {
-          return fail(st, ErrorCode::unexpected_eof);
+          return fail(st, ErrorCode::unexpected_eof,
+                      "unterminated escape in string");
         }
         ++st.pos;
       }
     }
-    return fail(st, ErrorCode::unexpected_eof, quote_offset);
+    return fail(st, ErrorCode::unexpected_eof, quote_offset,
+                "unterminated string");
   }
 
   auto number(StateType& st, Token& out) const -> bool {

@@ -19,6 +19,7 @@ struct ScanScalar {
       reader.report_error(state, Error{
                                      .code = ErrorCode::type_mismatch,
                                      .offset = tok.offset,
+                                     .detail = "scan::scalar expected scalar",
                                  });
     }
     return {};
@@ -36,6 +37,7 @@ struct ScanObject {
       reader.report_error(state, Error{
                                      .code = ErrorCode::type_mismatch,
                                      .offset = tok.offset,
+                                     .detail = "scan::object expected object",
                                  });
     }
     return {};
@@ -54,6 +56,7 @@ struct ScanArray {
       reader.report_error(state, Error{
                                      .code = ErrorCode::type_mismatch,
                                      .offset = tok.offset,
+                                     .detail = "scan::array expected array",
                                  });
     }
     return {};

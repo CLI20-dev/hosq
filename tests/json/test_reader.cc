@@ -98,6 +98,17 @@ static void expect_error_at(std::string_view input, EC code,
   EXPECT_EQ(err.offset, offset);
 }
 
+template <class Reader>
+static void expect_error_detail(std::string_view input, EC code,
+                                std::string_view detail) {
+  auto result = read_all<Reader>(input);
+  ASSERT_TRUE(std::holds_alternative<hosq::Error>(result))
+      << "Expected error but parsing succeeded";
+  const auto& err = std::get<hosq::Error>(result);
+  EXPECT_EQ(err.code, code);
+  EXPECT_EQ(err.detail, detail);
+}
+
 }  // namespace
 
 template <class Reader>
@@ -293,6 +304,7 @@ TYPED_TEST(ReaderJsonTest, WhitespaceAroundObject) {
 
 TYPED_TEST(ReaderJsonTest, EmptyInput) {
   expect_error_at<TypeParam>("", EC::unexpected_eof, 0);
+  expect_error_detail<TypeParam>("", EC::unexpected_eof, "expected JSON value");
 }
 
 TYPED_TEST(ReaderJsonTest, WhitespaceOnly) {
@@ -336,6 +348,8 @@ TYPED_TEST(ReaderJsonTest, DoubleOpenBraceSpaced) {
 TYPED_TEST(ReaderJsonTest, TrailingDataAfterObject) {
   // Top-level trailing bytes are reported after the root value completes.
   expect_error_at<TypeParam>("{}a", EC::trailing_data, 2);
+  expect_error_detail<TypeParam>("{}a", EC::trailing_data,
+                                 "non-whitespace data after root value");
 }
 
 TYPED_TEST(ReaderJsonTest, TrailingDataAfterObjectSpaced) {
@@ -447,11 +461,16 @@ TYPED_TEST(ReaderJsonTest, UnclosedNestedObject) {
 TEST(FastReaderError, DepthLimitExceededObject) {
   auto result = read_all<hosq::json::FastReader<2>>(R"({"a":{"b":{"c":1}}})");
   ASSERT_TRUE(std::holds_alternative<hosq::Error>(result));
-  EXPECT_EQ(std::get<hosq::Error>(result).code, EC::depth_limit_exceeded);
+  const auto& err = std::get<hosq::Error>(result);
+  EXPECT_EQ(err.code, EC::depth_limit_exceeded);
+  EXPECT_EQ(err.kind(), hosq::ErrorKind::limit);
+  EXPECT_EQ(err.detail, "fast reader container depth limit"sv);
 }
 
 TEST(FastReaderError, DepthLimitExceededArray) {
   auto result = read_all<hosq::json::FastReader<2>>("[[[1]]]");
   ASSERT_TRUE(std::holds_alternative<hosq::Error>(result));
-  EXPECT_EQ(std::get<hosq::Error>(result).code, EC::depth_limit_exceeded);
+  const auto& err = std::get<hosq::Error>(result);
+  EXPECT_EQ(err.code, EC::depth_limit_exceeded);
+  EXPECT_EQ(err.detail, "fast reader container depth limit"sv);
 }

@@ -52,6 +52,7 @@ struct OnceImpl {
           Error{
               .code = ErrorCode::duplicate_member,
               .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+              .detail = "store::once already has a value",
           });
       return;
     }

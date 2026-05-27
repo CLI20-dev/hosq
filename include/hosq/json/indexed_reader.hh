@@ -139,7 +139,9 @@ class JsonReader {
         if (c == '"') {
           const size_t cl = string_close();
           if (cl >= data_.size())
-            return unexpected(Error{.code = ErrorCode::unexpected_eof});
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_eof,
+                      .detail = "indexed reader unterminated string"});
           return Token{.offset = pos + 1,
                        .length = cl > pos + 1 ? cl - pos - 1 : 0,
                        .type = TokenType::SCALAR};
@@ -206,7 +208,9 @@ class JsonReader {
         case '"': {
           const size_t cl = string_close();
           if (cl >= data_.size())
-            return unexpected(Error{.code = ErrorCode::unexpected_eof});
+            return unexpected(
+                Error{.code = ErrorCode::unexpected_eof,
+                      .detail = "indexed reader unterminated string"});
           return Token{.offset = pos + 1,
                        .length = cl > pos + 1 ? cl - pos - 1 : 0,
                        .type = TokenType::SCALAR};

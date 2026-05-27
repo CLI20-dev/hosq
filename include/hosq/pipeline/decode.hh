@@ -57,7 +57,10 @@ struct DecodeSkipValue {
       return skip_nested(ctx);
     }
     reader.report_error(
-        state, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+        state,
+        Error{.code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "decode::skip expected scalar, array, or object"});
   }
 
  private:
@@ -103,6 +106,7 @@ struct DecodeNumber {
           Error{
               .code = ErrorCode::out_of_range,
               .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+              .detail = "decode::number result out of range",
           });
       return static_cast<Value>(0);
     }
@@ -113,6 +117,7 @@ struct DecodeNumber {
           Error{
               .code = ErrorCode::invalid_number,
               .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+              .detail = "decode::number could not consume scalar token",
           });
       return static_cast<Value>(0);
     }
@@ -138,6 +143,7 @@ struct DecodeNumberInto {
           Error{
               .code = ErrorCode::out_of_range,
               .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+              .detail = "decode::number_into result out of range",
           });
       return;
     }
@@ -147,6 +153,7 @@ struct DecodeNumberInto {
           Error{
               .code = ErrorCode::invalid_number,
               .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+              .detail = "decode::number_into could not consume scalar token",
           });
       return;
     }
@@ -361,10 +368,12 @@ struct EachImpl<Pipeline, N> {
       }
       const auto& tok = reader.current_token(state);
       if (tok.type == TokenType::ArrayEnd) {
-        reader.report_error(state, Error{
-                                       .code = ErrorCode::invalid_length,
-                                       .offset = tok.offset,
-                                   });
+        reader.report_error(
+            state, Error{
+                       .code = ErrorCode::invalid_length,
+                       .offset = tok.offset,
+                       .detail = "fixed-size decode::each array ended early",
+                   });
         return hosq::detail::terminal_return<terminal_type>(false);
       }
       auto elem_ctx =
@@ -386,10 +395,12 @@ struct EachImpl<Pipeline, N> {
     if (tok.type == TokenType::ArrayEnd) {
       return hosq::detail::terminal_return<terminal_type>(true);
     }
-    reader.report_error(state, Error{
-                                   .code = ErrorCode::invalid_length,
-                                   .offset = reader.current_token(state).offset,
-                               });
+    reader.report_error(
+        state, Error{
+                   .code = ErrorCode::invalid_length,
+                   .offset = reader.current_token(state).offset,
+                   .detail = "fixed-size decode::each array has extra element",
+               });
     return hosq::detail::terminal_return<terminal_type>(false);
   }
 };
@@ -607,10 +618,12 @@ struct EachImpl<KeyPipeline, ValuePipeline, N> {
       }
       const auto& tok = reader.current_token(state);
       if (tok.type == TokenType::ObjectEnd) {
-        reader.report_error(state, Error{
-                                       .code = ErrorCode::invalid_length,
-                                       .offset = tok.offset,
-                                   });
+        reader.report_error(
+            state, Error{
+                       .code = ErrorCode::invalid_length,
+                       .offset = tok.offset,
+                       .detail = "fixed-size decode::each object ended early",
+                   });
         return hosq::detail::terminal_return<pipeline_output_type>(false);
       }
       auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
@@ -644,10 +657,12 @@ struct EachImpl<KeyPipeline, ValuePipeline, N> {
     if (tok.type == TokenType::ObjectEnd) {
       return hosq::detail::terminal_return<pipeline_output_type>(true);
     }
-    reader.report_error(state, Error{
-                                   .code = ErrorCode::invalid_length,
-                                   .offset = tok.offset,
-                               });
+    reader.report_error(
+        state, Error{
+                   .code = ErrorCode::invalid_length,
+                   .offset = tok.offset,
+                   .detail = "fixed-size decode::each object has extra member",
+               });
     return hosq::detail::terminal_return<pipeline_output_type>(false);
   }
 };
@@ -764,10 +779,12 @@ struct CollectImpl<Pipeline, N> {
 
       const auto& tok = reader.current_token(state);
       if (tok.type == TokenType::ArrayEnd) {
-        reader.report_error(state, Error{
-                                       .code = ErrorCode::invalid_length,
-                                       .offset = tok.offset,
-                                   });
+        reader.report_error(
+            state, Error{
+                       .code = ErrorCode::invalid_length,
+                       .offset = tok.offset,
+                       .detail = "fixed-size decode::collect array ended early",
+                   });
         return ret;
       }
 
@@ -785,10 +802,13 @@ struct CollectImpl<Pipeline, N> {
       return ret;
     }
 
-    reader.report_error(state, Error{
-                                   .code = ErrorCode::invalid_length,
-                                   .offset = tok.offset,
-                               });
+    reader.report_error(
+        state,
+        Error{
+            .code = ErrorCode::invalid_length,
+            .offset = tok.offset,
+            .detail = "fixed-size decode::collect array has extra element",
+        });
     return ret;
   }
 };
@@ -968,10 +988,12 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
 
       const auto& tok = reader.current_token(state);
       if (tok.type == TokenType::ObjectEnd) {
-        reader.report_error(state, Error{
-                                       .code = ErrorCode::invalid_length,
-                                       .offset = tok.offset,
-                                   });
+        reader.report_error(
+            state, Error{
+                       .code = ErrorCode::invalid_length,
+                       .offset = tok.offset,
+                       .detail = "fixed-size decode::collect object ended early",
+                   });
         return ret;
       }
 
@@ -997,10 +1019,13 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
       return ret;
     }
 
-    reader.report_error(state, Error{
-                                   .code = ErrorCode::invalid_length,
-                                   .offset = tok.offset,
-                               });
+    reader.report_error(
+        state,
+        Error{
+            .code = ErrorCode::invalid_length,
+            .offset = tok.offset,
+            .detail = "fixed-size decode::collect object has extra member",
+        });
     return ret;
   }
 };
@@ -1020,6 +1045,7 @@ struct BooleanImpl {
         Error{
             .code = ErrorCode::type_mismatch,
             .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+            .detail = "decode::boolean expected true or false literal",
         });
     return false;
   }

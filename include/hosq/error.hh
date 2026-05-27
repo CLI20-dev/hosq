@@ -50,6 +50,8 @@ enum class ErrorCode {
 enum class ErrorKind {
   input,       ///< The input itself or configured input limits caused failure.
   output,      ///< Writing output or configured output limits caused failure.
+  limit,       ///< A configured size/depth limit was exceeded.
+  state,       ///< The reader/writer was used in an invalid state.
   syntax,      ///< Text/binary representation is malformed.
   schema,      ///< The value structure did not match the declared schema.
   conversion,  ///< A value could not be converted to the requested C++ type.
@@ -62,21 +64,21 @@ enum class ErrorKind {
   switch (code) {
     case ErrorCode::unexpected_eof:
     case ErrorCode::trailing_data:
-    case ErrorCode::depth_limit_exceeded:
-    case ErrorCode::input_too_large:
       return ErrorKind::input;
-    case ErrorCode::output_too_large:
     case ErrorCode::write_failed:
       return ErrorKind::output;
+    case ErrorCode::depth_limit_exceeded:
+    case ErrorCode::input_too_large:
+    case ErrorCode::output_too_large:
+      return ErrorKind::limit;
     case ErrorCode::invalid_state:
+      return ErrorKind::state;
     case ErrorCode::invalid_token:
     case ErrorCode::unexpected_token:
     case ErrorCode::invalid_escape:
     case ErrorCode::invalid_utf8:
     case ErrorCode::invalid_number:
     case ErrorCode::invalid_type_marker:
-    case ErrorCode::invalid_length:
-    case ErrorCode::size_mismatch:
     case ErrorCode::unsupported_feature:
       return ErrorKind::syntax;
     case ErrorCode::unknown_member:
@@ -84,6 +86,8 @@ enum class ErrorKind {
     case ErrorCode::duplicate_member:
     case ErrorCode::type_mismatch:
     case ErrorCode::unsupported_type:
+    case ErrorCode::invalid_length:
+    case ErrorCode::size_mismatch:
       return ErrorKind::schema;
     case ErrorCode::conversion_error:
     case ErrorCode::out_of_range:
@@ -170,9 +174,10 @@ enum class ErrorKind {
 struct Error {
   ErrorCode code{ErrorCode::unknown_error};
   size_t offset{0};
+  std::string_view detail{};
 
   [[nodiscard]] static constexpr auto ok() noexcept -> Error {
-    return Error{.code = ErrorCode::ok, .offset = 0};
+    return Error{.code = ErrorCode::ok, .offset = 0, .detail = ""};
   }
 
   [[nodiscard]] constexpr auto is_ok() const noexcept -> bool {

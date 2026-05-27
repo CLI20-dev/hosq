@@ -107,6 +107,8 @@ TYPED_TEST(DecodeJsonTest, RejectsUnknownFields) {
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::unknown_member);
+  EXPECT_EQ(result.kind(), ErrorKind::schema);
+  EXPECT_EQ(result.detail, "no try entry candidate matched object member"sv);
 }
 
 TYPED_TEST(DecodeJsonTest, WrongTopLevelTypeErrors) {
@@ -116,6 +118,7 @@ TYPED_TEST(DecodeJsonTest, WrongTopLevelTypeErrors) {
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::type_mismatch);
+  EXPECT_EQ(result.detail, "expected object while decoding try entry tuple"sv);
 }
 
 TYPED_TEST(DecodeJsonTest, SingleStringField) {
@@ -143,6 +146,7 @@ TYPED_TEST(DecodeJsonTest, OnceRejectsDuplicateMembers) {
 
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::duplicate_member);
+  EXPECT_EQ(result.detail, "store::once already has a value"sv);
   ASSERT_TRUE(json.id.value().value().has_value());
   EXPECT_EQ(*json.id.value().value(), 1);
 }

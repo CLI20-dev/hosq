@@ -180,7 +180,8 @@ class FastReader {
         ++p;
       }
       st.last_error = {.code = ErrorCode::unexpected_eof,
-                       .offset = static_cast<std::size_t>(st.end - st.begin)};
+                       .offset = static_cast<std::size_t>(st.end - st.begin),
+                       .detail = "unterminated string while skipping scalar"};
       return false;
     } else {
       // literal
@@ -243,7 +244,8 @@ class FastReader {
       -> bool {
     if (st.ctx_size >= MaxDepth) [[unlikely]] {
       st.last_error = {.code = ErrorCode::depth_limit_exceeded,
-                       .offset = err_off};
+                       .offset = err_off,
+                       .detail = "fast reader container depth limit"};
       return false;
     }
     st.ctx_stack[st.ctx_size++] = kind;
@@ -275,7 +277,8 @@ class FastReader {
         case JsonFastExpect::comma_delimiter:
           return read_comma_or_close(st, out);
       }
-    st.last_error = Error{.code = ErrorCode::invalid_state};
+    st.last_error = Error{.code = ErrorCode::invalid_state,
+                          .detail = "unknown fast reader expectation state"};
     return false;
   }
 
@@ -284,8 +287,9 @@ class FastReader {
 
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error =
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error = Error{.code = ErrorCode::unexpected_eof,
+                            .offset = off(st, p),
+                            .detail = "expected JSON value"};
       return false;
     }
 
@@ -347,7 +351,9 @@ class FastReader {
 
     const auto o = off(st, p);
     st.pos = p;
-    st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+    st.last_error = Error{.code = ErrorCode::unexpected_token,
+                          .offset = o,
+                          .detail = "expected JSON value"};
     return false;
   }
 
@@ -356,8 +362,9 @@ class FastReader {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error =
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error = Error{.code = ErrorCode::unexpected_eof,
+                            .offset = off(st, p),
+                            .detail = "expected array value or end"};
       return false;
     }
     if (*p == ']') {
@@ -376,8 +383,9 @@ class FastReader {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error =
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error = Error{.code = ErrorCode::unexpected_eof,
+                            .offset = off(st, p),
+                            .detail = "expected object key or end"};
       return false;
     }
 
@@ -400,7 +408,9 @@ class FastReader {
     }
 
     st.pos = p;
-    st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+    st.last_error = Error{.code = ErrorCode::unexpected_token,
+                          .offset = o,
+                          .detail = "expected object key string or object end"};
     return false;
   }
 
@@ -413,14 +423,16 @@ class FastReader {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error =
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error = Error{.code = ErrorCode::unexpected_eof,
+                            .offset = off(st, p),
+                            .detail = "expected ':' after object key"};
       return false;
     }
     if (*p != ':') [[unlikely]] {
       st.pos = p;
-      st.last_error =
-          Error{.code = ErrorCode::unexpected_token, .offset = off(st, p)};
+      st.last_error = Error{.code = ErrorCode::unexpected_token,
+                            .offset = off(st, p),
+                            .detail = "expected ':' after object key"};
       return false;
     }
     ++p;
@@ -442,8 +454,9 @@ class FastReader {
         out = make_tok(off(st, p), 0, TokenType::End, kNoneCtx);
         return true;
       }
-      st.last_error =
-          Error{.code = ErrorCode::unexpected_eof, .offset = off(st, p)};
+      st.last_error = Error{.code = ErrorCode::unexpected_eof,
+                            .offset = off(st, p),
+                            .detail = "expected comma or container end"};
       return false;
     }
 
@@ -452,7 +465,9 @@ class FastReader {
 
     if (st.ctx_size == 0) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::trailing_data, .offset = o};
+      st.last_error = Error{.code = ErrorCode::trailing_data,
+                            .offset = o,
+                            .detail = "non-whitespace data after root value"};
       return false;
     }
 
@@ -468,7 +483,9 @@ class FastReader {
     if (c == '}') {
       if (!in_object(st)) [[unlikely]] {
         st.pos = p;
-        st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+        st.last_error = Error{.code = ErrorCode::unexpected_token,
+                              .offset = o,
+                              .detail = "expected array end, found object end"};
         return false;
       }
       pop_ctx(st);
@@ -481,7 +498,9 @@ class FastReader {
     if (c == ']') {
       if (in_object(st)) [[unlikely]] {
         st.pos = p;
-        st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+        st.last_error = Error{.code = ErrorCode::unexpected_token,
+                              .offset = o,
+                              .detail = "expected object end, found array end"};
         return false;
       }
       pop_ctx(st);
@@ -492,7 +511,9 @@ class FastReader {
     }
 
     st.pos = p;
-    st.last_error = Error{.code = ErrorCode::unexpected_token, .offset = o};
+    st.last_error = Error{.code = ErrorCode::unexpected_token,
+                          .offset = o,
+                          .detail = "expected comma or container end"};
     return false;
   }
 };
@@ -530,7 +551,9 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth>> {
 
     if (tok.type != TokenType::Scalar) [[unlikely]] {
       reader.report_error(
-          st, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+          st, Error{.code = ErrorCode::type_mismatch,
+                    .offset = tok.offset,
+                    .detail = "fast scan scalar expected scalar token"});
       return {};
     }
 
@@ -585,7 +608,9 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth>> {
       return;
     } else {
       reader.report_error(
-          st, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+          st, Error{.code = ErrorCode::type_mismatch,
+                    .offset = tok.offset,
+                    .detail = "fast scalar resolver found unknown context"});
       return;
     }
 
@@ -593,6 +618,7 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth>> {
         st, Error{
                 .code = ErrorCode::unexpected_eof,
                 .offset = static_cast<std::size_t>(st.end - st.begin),
+                .detail = "unterminated string while resolving scalar",
             });
   }
 };
@@ -643,7 +669,10 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
       return;
     }
     reader.report_error(
-        st, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+        st,
+        Error{.code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "fast decode::skip expected scalar, array, or object"});
   }
 
  private:
@@ -670,7 +699,9 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
     const auto& tok = reader.current_token(st);
     if (tok.type != expected_type) [[unlikely]] {
       reader.report_error(
-          st, Error{.code = ErrorCode::type_mismatch, .offset = tok.offset});
+          st, Error{.code = ErrorCode::type_mismatch,
+                    .offset = tok.offset,
+                    .detail = "fast skip_container got wrong opening token"});
       return;
     }
 
@@ -714,6 +745,7 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
       st.last_error = {
           .code = ErrorCode::depth_limit_exceeded,
           .offset = static_cast<std::size_t>((p - 1) - st.begin),
+          .detail = "fast skip object depth limit",
       };
       return;
     }
@@ -725,6 +757,7 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
       st.last_error = {
           .code = ErrorCode::depth_limit_exceeded,
           .offset = static_cast<std::size_t>((p - 1) - st.begin),
+          .detail = "fast skip array depth limit",
       };
       return;
     }
@@ -736,6 +769,7 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
       st.last_error = {
           .code = ErrorCode::unexpected_token,
           .offset = static_cast<std::size_t>((p - 1) - st.begin),
+          .detail = "fast skip found mismatched container close",
       };
       return;
     }
@@ -753,6 +787,7 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
     st.last_error = {
         .code = ErrorCode::unexpected_eof,
         .offset = static_cast<std::size_t>(st.end - st.begin),
+        .detail = "fast skip reached EOF inside container",
     };
   }
 };

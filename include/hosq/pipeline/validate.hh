@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -12,12 +13,14 @@ namespace hosq::validate {
 namespace detail {
 
 template <class Context>
-void report_validation_error(Context& ctx, ErrorCode code) {
+void report_validation_error(Context& ctx, ErrorCode code,
+                             std::string_view detail) {
   ctx.reader().report_error(
       ctx.reader_state(),
       Error{
           .code = code,
           .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+          .detail = detail,
       });
 }
 
@@ -26,7 +29,8 @@ struct MatchImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value != V) {
-      report_validation_error(ctx, ErrorCode::invalid_choice);
+      report_validation_error(ctx, ErrorCode::invalid_choice,
+                              "validate::match value mismatch");
     }
     return std::forward<T>(value);
   }
@@ -37,7 +41,8 @@ struct MatchImpl<V> {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value != V.view()) {
-      report_validation_error(ctx, ErrorCode::invalid_choice);
+      report_validation_error(ctx, ErrorCode::invalid_choice,
+                              "validate::match string mismatch");
     }
     return std::forward<T>(value);
   }
@@ -48,7 +53,8 @@ struct OneOfImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (!((value == Vs) || ...)) {
-      report_validation_error(ctx, ErrorCode::invalid_choice);
+      report_validation_error(ctx, ErrorCode::invalid_choice,
+                              "validate::one_of value not allowed");
     }
     return std::forward<T>(value);
   }
@@ -59,7 +65,8 @@ struct RangeImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value < Min || value > Max) {
-      report_validation_error(ctx, ErrorCode::out_of_range);
+      report_validation_error(ctx, ErrorCode::out_of_range,
+                              "validate::range value outside bounds");
     }
     return std::forward<T>(value);
   }
@@ -70,7 +77,8 @@ struct MinImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value < Min) {
-      report_validation_error(ctx, ErrorCode::out_of_range);
+      report_validation_error(ctx, ErrorCode::out_of_range,
+                              "validate::min value below minimum");
     }
     return std::forward<T>(value);
   }
@@ -81,7 +89,8 @@ struct MaxImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value > Max) {
-      report_validation_error(ctx, ErrorCode::out_of_range);
+      report_validation_error(ctx, ErrorCode::out_of_range,
+                              "validate::max value above maximum");
     }
     return std::forward<T>(value);
   }
@@ -91,7 +100,8 @@ struct NonEmptyImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value.empty()) {
-      report_validation_error(ctx, ErrorCode::validation_failed);
+      report_validation_error(ctx, ErrorCode::validation_failed,
+                              "validate::non_empty value is empty");
     }
     return std::forward<T>(value);
   }
@@ -102,7 +112,8 @@ struct SizeImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value.size() != N) {
-      report_validation_error(ctx, ErrorCode::size_mismatch);
+      report_validation_error(ctx, ErrorCode::validation_failed,
+                              "validate::size value has wrong size");
     }
     return std::forward<T>(value);
   }
@@ -113,7 +124,8 @@ struct SizeRangeImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (value.size() < Min || value.size() > Max) {
-      report_validation_error(ctx, ErrorCode::validation_failed);
+      report_validation_error(ctx, ErrorCode::validation_failed,
+                              "validate::size_range value outside bounds");
     }
     return std::forward<T>(value);
   }
@@ -124,7 +136,8 @@ struct PredicateImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
     if (!F(value)) {
-      report_validation_error(ctx, ErrorCode::validation_failed);
+      report_validation_error(ctx, ErrorCode::validation_failed,
+                              "validate::predicate returned false");
     }
     return std::forward<T>(value);
   }
@@ -138,7 +151,8 @@ struct CustomImpl {
       using R = std::remove_cvref_t<decltype(F(std::forward<T>(value), ctx))>;
       if constexpr (std::same_as<R, bool>) {
         if (!F(value, ctx)) {
-          report_validation_error(ctx, ErrorCode::validation_failed);
+          report_validation_error(ctx, ErrorCode::validation_failed,
+                                  "validate::custom(ctx) returned false");
         }
         return std::forward<T>(value);
       } else if constexpr (std::same_as<R, void>) {
@@ -151,7 +165,8 @@ struct CustomImpl {
       using R = std::remove_cvref_t<decltype(F(std::forward<T>(value)))>;
       if constexpr (std::same_as<R, bool>) {
         if (!F(value)) {
-          report_validation_error(ctx, ErrorCode::validation_failed);
+          report_validation_error(ctx, ErrorCode::validation_failed,
+                                  "validate::custom returned false");
         }
         return std::forward<T>(value);
       } else if constexpr (std::same_as<R, void>) {
@@ -200,7 +215,7 @@ inline constexpr auto max = step<detail::MaxImpl<Max>>;
 inline constexpr auto non_empty = step<detail::NonEmptyImpl>;
 
 /// Checks that the decoded container/string has exactly size N; reports
-/// size_mismatch otherwise.
+/// validation_failed otherwise.
 template <std::size_t N>
 inline constexpr auto size = step<detail::SizeImpl<N>>;
 

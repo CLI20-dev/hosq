@@ -171,8 +171,8 @@ volatile double g_sink = 0.0;  // NOLINT
   for (const auto value : *root.fixed_object->double_array) {
     sum += value;
   }
-  sum += root.string->size();
-  sum += root.another_object->string->size();
+  sum += static_cast<double>(root.string->size());
+  sum += static_cast<double>(root.another_object->string->size());
   sum += *root.boolean ? 1.0 : 0.0;
   sum += *root.another_bool ? 1.0 : 0.0;
   return sum;

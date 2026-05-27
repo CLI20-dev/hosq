@@ -91,6 +91,7 @@ class Decoder<R> {
       return Error{
           .code = ErrorCode::type_mismatch,
           .offset = reader.current_token(reader_state).offset,
+          .detail = "expected array while decoding tuple",
       };
     }
     std::apply(
@@ -115,6 +116,7 @@ class Decoder<R> {
       return Error{
           .code = ErrorCode::size_mismatch,
           .offset = tok.offset,
+          .detail = "tuple has fewer elements than input array",
       };
     }
     return Error::ok();
@@ -147,6 +149,7 @@ class Decoder<R> {
       return Error{
           .code = ErrorCode::type_mismatch,
           .offset = reader.current_token(reader_state).offset,
+          .detail = "expected object while decoding entry tuple",
       };
     }
     std::apply(
@@ -169,6 +172,7 @@ class Decoder<R> {
       return Error{
           .code = ErrorCode::size_mismatch,
           .offset = reader.current_token(reader_state).offset,
+          .detail = "entry tuple has fewer members than input object",
       };
     }
     return Error::ok();
@@ -183,6 +187,7 @@ class Decoder<R> {
       return Error{
           .code = ErrorCode::type_mismatch,
           .offset = tok.offset,
+          .detail = "expected array while decoding try tuple",
       };
     }
     auto tuple = detail::as_tuple(t);
@@ -225,6 +230,7 @@ class Decoder<R> {
     return Error{
         .code = ErrorCode::unknown_member,
         .offset = reader.current_token(reader_state).offset,
+        .detail = "no try tuple candidate matched array element",
     };
   }
 
@@ -484,6 +490,7 @@ class Decoder<R> {
       return Error{
           .code = ErrorCode::type_mismatch,
           .offset = tok.offset,
+          .detail = "expected object while decoding try entry tuple",
       };
     }
 
@@ -530,6 +537,7 @@ class Decoder<R> {
     return Error{
         .code = ErrorCode::unknown_member,
         .offset = reader.current_token(reader_state).offset,
+        .detail = "no try entry candidate matched object member",
     };
   }
 
