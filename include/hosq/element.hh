@@ -27,15 +27,17 @@ struct Elem {
                 "Encoder must be a hosq::Pipeline");
 };
 
-/// A single decoded/encoded field backed by a Decoder and Encoder pipeline pair.
-///
-/// `storage_type` is derived from the decoder's `storage_type<Input>`
-/// declaration.
-///
-/// - `decoder_const_invokable<Context>` is `true` when the decoder pipeline
-///   can run with a `const Context&`, i.e. no step requires a mutable Context&.
-/// - `encoder_const_invokable<Context>` is `true` when the encoder pipeline
-///   can run with a `const Context&`.
+/**
+ * A single decoded/encoded field backed by a Decoder and Encoder pipeline pair.
+ *
+ * `storage_type` is derived from the decoder's `storage_type<Input>`
+ * declaration.
+ *
+ * - `decoder_const_invokable<Context>` is `true` when the decoder pipeline
+ *   can run with a `const Context&`, i.e. no step requires a mutable Context&.
+ * - `encoder_const_invokable<Context>` is `true` when the encoder pipeline
+ *   can run with a `const Context&`.
+ */
 template <auto Decoder, auto Encoder>
   requires detail::PipelineObject<decltype(Decoder)> &&
            detail::PipelineObject<decltype(Encoder)>
@@ -46,6 +48,7 @@ struct Elem<Decoder, Encoder> {
   using decoder_info = detail::pipeline_analysis_t<
       detail::PipelineVerificationMode::at_most_one_storage,
       detail::PipelineDecodeAnalysisContext, void, decoder_type>;
+
   using storage_type = detail::pipeline_storage_t<decoder_info>;
   using decoder_terminal = detail::pipeline_terminal_t<decoder_info>;
 

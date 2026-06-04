@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <iostream>
 #include <string_view>
 #include <vector>
 
@@ -73,10 +72,6 @@ class SimpleReader {
     };
 
     [[nodiscard]] auto checkpoint() const -> Checkpoint {
-      // std::cout << "Checkpointing at pos " << pos << ", stack size "
-      //           << stack.size() << ", root_done " << root_done << ", end_done
-      //           "
-      //           << end_done << "\n";
       return Checkpoint{
           .pos = pos,
           .current = current,
