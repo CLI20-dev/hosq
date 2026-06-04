@@ -19,444 +19,437 @@ class SimpleReader {
 
   SimpleReader() = default;
 
-  struct StateType {
-    StateType() { stack.reserve(32); };
-    input_type input{};
-    std::size_t pos{0};
-    Token current{
-        .offset = 0,
-        .length = 0,
-        .type = TokenType::End,
-        .context = static_cast<std::uint8_t>(JsonTokenContext::none),
-    };
+  enum class Context : uint8_t {
+    None = 0b0000'0000,
+    ArrayValue = 0b0000'0010,
+    ArrayValue2 = 0b0000'0011,
+    ObjectKey = 0b0000'0100,
+    ObjectVlaue = 0b0000'0101,
+  };
 
-    enum class Kind : std::uint8_t {
-      object,
-      array,
-    };
+  struct state_type {  // NOLINT
+    std::string_view input = {};
+    size_t pos = 0;
+    bool end_flag = false;
+    std::vector<Context> context;
+    Token token{.offset = 0, .length = 0, .type = TokenType::End, .context = 0};
 
-    enum class Expect : std::uint8_t {
-      key_or_end,
-      colon,
-      value_or_end,
-      value,
-      comma_or_end,
-    };
-
-    struct Frame {
-      Kind kind;
-      Expect expect;
-    };
-
-    std::vector<Frame> stack{};
-
-    bool root_done{false};
-    bool end_done{false};
-
-    mutable Error last_error{Error::ok()};
-    mutable bool error_flag{false};
-
-    mutable Token error_token{
-        .offset = 0,
-        .length = 0,
-        .type = TokenType::Error,
-        .context = 0,
-    };
+    mutable bool has_error = false;
+    mutable Error error;
 
     struct Checkpoint {
-      std::size_t pos;
-      Token current;
-      std::vector<Frame> stack;
-      bool root_done;
-      bool end_done;
+      size_t pos;
+      std::vector<Context> context;
+      Token token;
     };
 
     [[nodiscard]] auto checkpoint() const -> Checkpoint {
-      return Checkpoint{
-          .pos = pos,
-          .current = current,
-          .stack = stack,
-          .root_done = root_done,
-          .end_done = end_done,
-      };
+      return Checkpoint{.pos = pos, .context = context, .token = token};
     }
 
-    auto rollback(const Checkpoint& cp) -> void {
-      pos = cp.pos;
-      current = cp.current;
-      stack = cp.stack;
-      root_done = cp.root_done;
-      end_done = cp.end_done;
-      // error_flag and last_error intentionally NOT restored
+    auto rollback(Checkpoint checkpoint) -> void {
+      pos = checkpoint.pos;
+      context = std::move(checkpoint.context);
+      token = checkpoint.token;
     }
   };
 
-  using state_type = StateType;
+  static_assert(ReaderStateConcept<state_type>);
 
-  void reset(StateType& st, input_type input) {
-    st = {};
-    st.input = input;
-    st.last_error = Error::ok();
+  auto reset(state_type& state, input_type input) -> void {
+    state.input = input;
   }
 
-  auto next_token(StateType& st) -> bool {
-    if (st.error_flag) [[unlikely]] {
+  [[nodiscard]]
+  auto next_token(state_type& state) -> bool {
+    if (state.has_error) [[unlikely]] {
       return false;
     }
-    if (!next(st)) {
+    if (state.end_flag) [[unlikely]] {
+      state.end_flag = false;
+      if (static_cast<uint8_t>(state.context.back()) & 0b0000'0010) {
+        // Array End
+        state.token.type = TokenType::ArrayEnd;
+        state.token.length = 1;
+        state.token.offset = state.pos;
+        state.token.context = 0;
+        state.context.pop_back();
+        state.pos++;
+        return true;
+      } else if (static_cast<uint8_t>(state.context.back()) & 0b0000'0100) {
+        // Object End
+        state.token.type = TokenType::ObjectEnd;
+        state.token.length = 1;
+        state.token.offset = state.pos;
+        state.token.context = 0;
+        state.context.pop_back();
+        state.pos++;
+        return true;
+      }
       return false;
     }
-    st.last_error = Error::ok();
-    return true;
-  }
 
-  void report_error(const StateType& st, Error err) const {
-    if (!st.error_flag) {
-      st.last_error = err;
-      st.error_flag = true;
-    }
-  }
+    while (state.pos < state.input.size()) {
+      switch (state.input[state.pos]) {
+        case '{':
+          state.token.offset = state.pos;
+          state.token.length = 1;
+          state.token.type = TokenType::ObjectBegin;
+          state.token.context = 0;
+          state.context.push_back(Context::ObjectKey);
 
-  [[nodiscard]] auto current_token(const StateType& st) const -> const Token& {
-    if (st.error_flag) {
-      return st.error_token;
-    }
-    return st.current;
-  }
+          do {  // NOLINT
+            state.pos++;
+            if (state.pos >= state.input.size()) [[unlikely]] {
+              state.has_error = true;
+              state.error = Error{
+                  .code = ErrorCode::unexpected_eof,
+                  .offset = state.pos,
+                  .detail = "Unexpected end of input after '{'",
+              };
+              return false;
+            }
+          } while (is_ws(state.input[state.pos]));
 
-  [[nodiscard]] auto error(const StateType& st) const -> Error {
-    return st.last_error;
-  }
+          if (state.input[state.pos] == '}') {
+            state.end_flag = true;
+          }
 
-  [[nodiscard]] auto input(const StateType& st) const -> BytesView {
-    return BytesView::from_string_view(st.input);
-  }
-
- private:
-  enum class StepResult : std::uint8_t {
-    emitted,
-    consumed,
-    error,
-  };
-
-  static auto context(JsonTokenContext c) -> std::uint8_t {
-    return static_cast<std::uint8_t>(c);
-  }
-
-  static auto is_ws(char c) -> bool {
-    return c == ' ' || c == '\n' || c == '\r' || c == '\t';
-  }
-
-  static auto is_digit(char c) -> bool { return '0' <= c && c <= '9'; }
-
-  static auto is_number_char(char c) -> bool {
-    return is_digit(c) || c == '-' || c == '+' || c == '.' || c == 'e' ||
-           c == 'E';
-  }
-
-  static auto emit(Token& out, std::size_t offset, std::size_t length,
-                   TokenType type, JsonTokenContext ctx) -> bool {
-    out = Token{
-        .offset = offset,
-        .length = length,
-        .type = type,
-        .context = context(ctx),
-    };
-    return true;
-  }
-
-  static void skip_ws(StateType& st) {
-    while (st.pos < st.input.size() && is_ws(st.input[st.pos])) {
-      ++st.pos;
-    }
-  }
-
-  static auto starts_with(const StateType& st, std::string_view s) -> bool {
-    const auto rest = st.input.size() - st.pos;
-    return rest >= s.size() &&
-           std::char_traits<char>::compare(st.input.data() + st.pos, s.data(),
-                                           s.size()) == 0;
-  }
-
-  auto fail(StateType& st, ErrorCode code, std::string_view detail = "") const
-      -> bool {
-    st.last_error = Error{
-        .code = code,
-        .offset = st.pos,
-        .detail = detail,
-    };
-    return false;
-  }
-
-  auto fail(StateType& st, ErrorCode code, std::size_t offset,
-            std::string_view detail = "") const -> bool {
-    st.last_error = Error{
-        .code = code,
-        .offset = offset,
-        .detail = detail,
-    };
-    return false;
-  }
-
-  auto next(StateType& st) const -> bool {
-    while (true) {
-      skip_ws(st);
-
-      if (st.end_done) [[unlikely]] {
-        return fail(st, ErrorCode::invalid_state,
-                    "simple reader next_token called after end");
-      }
-
-      if (st.stack.empty()) {
-        if (!st.root_done) {
-          st.root_done = true;
-          return value(st, st.current);
-        }
-        if (st.pos != st.input.size()) [[unlikely]] {
-          return fail(st, ErrorCode::trailing_data,
-                      "non-whitespace data after root value");
-        }
-
-        st.end_done = true;
-
-        return emit(st.current, st.pos, 0, TokenType::End,
-                    JsonTokenContext::none);
-      }
-      auto& frame = st.stack.back();
-      const auto result = frame.kind == StateType::Kind::object
-                              ? object_step(st, frame, st.current)
-                              : array_step(st, frame, st.current);
-
-      switch (result) {
-        case StepResult::emitted:
           return true;
-
-        case StepResult::consumed:
-          continue;
-
-        case StepResult::error:
+        case '}':
+          // This should not be happened because the end_flag should be set when
+          // we encounter '}' in parse_string or parse_literal, thus this is
+          // unexpected token.
+          state.has_error = true;
+          state.error = Error{
+              .code = ErrorCode::invalid_token,
+              .offset = state.pos,
+              .detail = "Unexpected token '}'",
+          };
           return false;
+        case '[':
+          state.token.offset = state.pos;
+          state.token.length = 1;
+          state.token.type = TokenType::ArrayBegin;
+          state.token.context = 0;
+          state.context.push_back(Context::ArrayValue);
+
+          do {  // NOLINT
+            state.pos++;
+            if (state.pos >= state.input.size()) [[unlikely]] {
+              state.has_error = true;
+              state.error = Error{
+                  .code = ErrorCode::unexpected_eof,
+                  .offset = state.pos,
+                  .detail = "Unexpected end of input after '['",
+              };
+              return false;
+            }
+          } while (is_ws(state.input[state.pos]));
+
+          if (state.input[state.pos] == ']') {
+            state.end_flag = true;
+          }
+
+          return true;
+        case ']':
+          // This should not be happened because the end_flag should be set when
+          // we encounter ']' in parse_string or parse_literal, thus this is
+          // unexpected token.
+          state.has_error = true;
+          state.error = Error{
+              .code = ErrorCode::invalid_token,
+              .offset = state.pos,
+              .detail = "Unexpected token ']'",
+          };
+          return false;
+        default:
+          state.token.offset = state.pos;
+          if (!parse_value(state)) [[unlikely]] {
+            return false;
+          }
+          break;
       }
+
+      state.pos++;
     }
+    return true;
   }
 
-  auto object_step(StateType& st, StateType::Frame& frame, Token& out) const
-      -> StepResult {
-    skip_ws(st);
-
-    if (st.pos >= st.input.size()) [[unlikely]] {
-      fail(st, ErrorCode::unexpected_eof, "expected object key or end");
-      return StepResult::error;
-    }
-
-    switch (frame.expect) {
-      case StateType::Expect::key_or_end:
-        if (st.input[st.pos] == '}') {
-          close(st, TokenType::ObjectEnd, out);
-          return StepResult::emitted;
-        }
-
-        if (st.input[st.pos] != '"') {
-          fail(st, ErrorCode::unexpected_token,
-               "expected object key string or object end");
-          return StepResult::error;
-        }
-
-        frame.expect = StateType::Expect::colon;
-        if (!string(st, out)) {
-          return StepResult::error;
-        }
-        return StepResult::emitted;
-
-      case StateType::Expect::colon:
-        if (st.input[st.pos] != ':') {
-          fail(st, ErrorCode::unexpected_token, "expected ':' after object key");
-          return StepResult::error;
-        }
-
-        ++st.pos;
-        frame.expect = StateType::Expect::value;
-        return StepResult::consumed;
-
-      case StateType::Expect::value:
-        frame.expect = StateType::Expect::comma_or_end;
-        if (!value(st, out)) {
-          return StepResult::error;
-        }
-        return StepResult::emitted;
-
-      case StateType::Expect::comma_or_end:
-        if (st.input[st.pos] == ',') {
-          ++st.pos;
-          frame.expect = StateType::Expect::key_or_end;
-          return StepResult::consumed;
-        }
-
-        if (st.input[st.pos] == '}') {
-          close(st, TokenType::ObjectEnd, out);
-          return StepResult::emitted;
-        }
-
-        fail(st, ErrorCode::unexpected_token,
-             "expected comma or object end after member");
-        return StepResult::error;
-
-      case StateType::Expect::value_or_end:
-        fail(st, ErrorCode::invalid_state,
-             "simple reader object frame cannot expect value_or_end");
-        return StepResult::error;
-    }
-
-    fail(st, ErrorCode::invalid_state, "unknown simple reader object state");
-    return StepResult::error;
+  [[nodiscard]] auto current_token(const state_type& state) const
+      -> const Token& {
+    return state.token;
   }
 
-  auto array_step(StateType& st, StateType::Frame& frame, Token& out) const
-      -> StepResult {
-    skip_ws(st);
-
-    if (st.pos >= st.input.size()) [[unlikely]] {
-      fail(st, ErrorCode::unexpected_eof, "expected array value or end");
-      return StepResult::error;
-    }
-
-    switch (frame.expect) {
-      case StateType::Expect::value_or_end:
-        if (st.input[st.pos] == ']') {
-          close(st, TokenType::ArrayEnd, out);
-          return StepResult::emitted;
-        }
-
-        frame.expect = StateType::Expect::comma_or_end;
-        if (!value(st, out)) {
-          return StepResult::error;
-        }
-        return StepResult::emitted;
-
-      case StateType::Expect::comma_or_end:
-        if (st.input[st.pos] == ',') {
-          ++st.pos;
-          frame.expect = StateType::Expect::value_or_end;
-          return StepResult::consumed;
-        }
-
-        if (st.input[st.pos] == ']') {
-          close(st, TokenType::ArrayEnd, out);
-          return StepResult::emitted;
-        }
-
-        fail(st, ErrorCode::unexpected_token,
-             "expected comma or array end after element");
-        return StepResult::error;
-
-      case StateType::Expect::key_or_end:
-      case StateType::Expect::colon:
-      case StateType::Expect::value:
-        fail(st, ErrorCode::invalid_state,
-             "simple reader array frame used object expectation");
-        return StepResult::error;
-    }
-
-    fail(st, ErrorCode::invalid_state, "unknown simple reader array state");
-    return StepResult::error;
+  [[nodiscard]] auto is_ws(char c) const -> bool {
+    return c == ' ' || c == '\n' || c == '\t' || c == '\r';
   }
 
-  auto value(StateType& st, Token& out) const -> bool {
-    skip_ws(st);
-
-    if (st.pos >= st.input.size()) [[unlikely]] {
-      return fail(st, ErrorCode::unexpected_eof, "expected JSON value");
+  auto parse_value(state_type& state) -> bool {
+    while (is_ws(state.input[state.pos])) {
+      state.pos++;
+      if (state.pos >= state.input.size()) [[unlikely]] {
+        state.has_error = true;
+        return false;
+      }
+      state.token.offset = state.pos;
     }
-    const auto offset = st.pos;
-    const char c = st.input[st.pos];
-    switch (c) {
-      case '{':
-        ++st.pos;
-        st.stack.push_back({
-            StateType::Kind::object,
-            StateType::Expect::key_or_end,
-        });
-        return emit(out, offset, 1, TokenType::ObjectBegin,
-                    JsonTokenContext::none);
-      case '[':
-        ++st.pos;
-        st.stack.push_back({
-            StateType::Kind::array,
-            StateType::Expect::value_or_end,
-        });
-        return emit(out, offset, 1, TokenType::ArrayBegin,
-                    JsonTokenContext::none);
+    switch (state.input[state.pos]) {
       case '"':
-        return string(st, out);
-      case 't':
-        if (starts_with(st, "true")) {
-          st.pos += 4;
-          return emit(out, offset, 4, TokenType::Scalar,
-                      JsonTokenContext::literal);
-        }
-        break;
-      case 'f':
-        if (starts_with(st, "false")) {
-          st.pos += 5;
-          return emit(out, offset, 5, TokenType::Scalar,
-                      JsonTokenContext::literal);
-        }
-        break;
-      case 'n':
-        if (starts_with(st, "null")) {
-          st.pos += 4;
-          return emit(out, offset, 4, TokenType::Scalar,
-                      JsonTokenContext::literal);
-        }
-        break;
-      case '-':
-        return number(st, out);
+        state.pos++;
+        state.token.offset = state.pos;
+        return parse_string(state);
       default:
-        if (is_digit(c)) {
-          return number(st, out);
-        }
-        break;
+        return parse_literal(state);
     }
-    return fail(st, ErrorCode::unexpected_token, "expected JSON value");
   }
 
-  auto close(StateType& st, TokenType type, Token& out) const -> bool {
-    const auto offset = st.pos;
-    ++st.pos;
-    st.stack.pop_back();
-    return emit(out, offset, 1, type, JsonTokenContext::none);
-  }
-
-  auto string(StateType& st, Token& out) const -> bool {
-    const auto quote_offset = st.pos;
-    ++st.pos;  // opening quote
-    const auto content_offset = st.pos;
-    while (st.pos < st.input.size()) {
-      const char c = st.input[st.pos++];
-      if (c == '"') {
-        const auto closing_quote_offset = st.pos - 1;
-        return emit(out, content_offset, closing_quote_offset - content_offset,
-                    TokenType::Scalar, JsonTokenContext::string);
+  auto parse_string(state_type& state) -> bool {
+    while (state.pos < state.input.size()) [[likely]] {
+      switch (state.input[state.pos]) {
+        case '"':
+          state.token.length = state.pos - state.token.offset;
+          do {  // NOLINT
+            state.pos++;
+            if (state.pos >= state.input.size()) [[unlikely]] {
+              state.has_error = true;
+              state.error = Error{
+                  .code = ErrorCode::unexpected_eof,
+                  .offset = state.pos,
+                  .detail = "Unexpected end of input after string",
+              };
+              return false;
+            }
+          } while (is_ws(state.input[state.pos]));
+          switch (state.input[state.pos]) {
+            case ':':
+              state.pos++;
+              if (state.context.back() != Context::ObjectKey) [[unlikely]] {
+                state.has_error = true;
+                state.error = Error{
+                    .code = ErrorCode::invalid_token,
+                    .offset = state.pos,
+                    .detail = "Unexpected token ':' after string",
+                };
+                return false;
+              }
+              state.context.back() = static_cast<Context>(
+                  static_cast<uint8_t>(state.context.back()) ^
+                  1);  // ObjectKey -> ObjectValue
+              break;
+            case ',':
+              state.pos++;
+              if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0011) ==
+                  0) [[unlikely]] {
+                state.has_error = true;
+                state.error = Error{
+                    .code = ErrorCode::invalid_token,
+                    .offset = state.pos,
+                    .detail = "Unexpected token ',' after string",
+                };
+                return false;
+              }
+              state.context.back() = static_cast<Context>(
+                  static_cast<uint8_t>(state.context.back()) ^
+                  1);  // ObjectKey -> ObjectValue
+              break;
+            case ']':
+              if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) ==
+                  0) [[unlikely]] {
+                state.has_error = true;
+                state.error = Error{
+                    .code = ErrorCode::invalid_token,
+                    .offset = state.pos,
+                    .detail = "Unexpected token ']' after string",
+                };
+                return false;
+              }
+              state.end_flag = true;
+              break;
+            case '}':
+              if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0100) ==
+                  0) [[unlikely]] {
+                state.has_error = true;
+                state.error = Error{
+                    .code = ErrorCode::invalid_token,
+                    .offset = state.pos,
+                    .detail = "Unexpected token '}' after string",
+                };
+                return false;
+              }
+              state.end_flag = true;
+              break;
+            default:
+              state.has_error = true;
+              state.error = Error{
+                  .code = ErrorCode::invalid_token,
+                  .offset = state.pos,
+                  .detail = "Invalid token after string",
+              };
+              return false;
+          }
+          return true;
+        case '\\':
+          state.pos += 2;
+          break;
+        default:
+          state.pos++;
+          break;
       }
-      if (c == '\\') {
-        if (st.pos >= st.input.size()) [[unlikely]] {
-          return fail(st, ErrorCode::unexpected_eof,
-                      "unterminated escape in string");
-        }
-        ++st.pos;
-      }
     }
-    return fail(st, ErrorCode::unexpected_eof, quote_offset,
-                "unterminated string");
+    state.has_error = true;
+    state.error = Error{
+        .code = ErrorCode::unexpected_eof,
+        .offset =
+            state.pos > state.input.size() ? state.input.size() : state.pos,
+        .detail = "Unexpected end of input while parsing string",
+    };
+    return false;
   }
 
-  auto number(StateType& st, Token& out) const -> bool {
-    const auto offset = st.pos;
-    while (st.pos < st.input.size() && is_number_char(st.input[st.pos])) {
-      ++st.pos;
+  auto report_error(const state_type& state, Error error) const -> void {
+    state.has_error = true;
+    state.error = std::move(error);
+  }
+
+  [[nodiscard]] auto error(const state_type& state) const -> Error {
+    return state.error;
+  }
+
+  [[nodiscard]] auto input(const state_type& state) const -> BytesView {
+    return BytesView::from_string_view(state.input);
+  }
+
+  auto parse_literal(state_type& state) -> bool {
+    while (state.pos < state.input.size()) {
+      switch (state.input[state.pos]) {
+        case ']':
+          if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) == 0)
+              [[unlikely]] {
+            state.has_error = true;
+            state.error = Error{
+                .code = ErrorCode::invalid_token,
+                .offset = state.pos,
+                .detail = "Unexpected token ']' after literal",
+            };
+            return false;
+          }
+          state.token.length = state.pos - state.token.offset;
+          state.end_flag = true;
+          return true;
+        case '}':
+          if (static_cast<uint8_t>(state.context.back()) & 0b0000'0010)
+              [[unlikely]] {
+            state.has_error = true;
+            state.error = Error{
+                .code = ErrorCode::invalid_token,
+                .offset = state.pos,
+                .detail = "Unexpected token '}' after literal",
+            };
+            return false;
+          }
+          state.token.length = state.pos - state.token.offset;
+          state.end_flag = true;
+          return true;
+        case ',':
+          if (state.context.back() == Context::ObjectKey) [[unlikely]] {
+            state.has_error = true;
+            state.error = Error{
+                .code = ErrorCode::invalid_token,
+                .offset = state.pos,
+                .detail = "Unexpected token ',' after literal",
+            };
+            return false;
+          }
+          state.token.length = state.pos - state.token.offset;
+          state.pos++;
+          state.context.back() = static_cast<Context>(
+              static_cast<uint8_t>(state.context.back()) ^
+              1);  // ArrayValue -> ArrayValue2, ObjectValue -> ObjectKey
+          return true;
+        case ' ':
+        case '\n':
+        case '\t':
+        case '\r':
+          state.token.length = state.pos - state.token.offset;
+          do {  // NOLINT
+            state.pos++;
+            if (state.pos >= state.input.size()) [[unlikely]] {
+              state.has_error = true;
+              state.error = Error{
+                  .code = ErrorCode::unexpected_eof,
+                  .offset = state.pos,
+                  .detail = "Unexpected end of input while parsing literal",
+              };
+              return false;
+            }
+          } while (is_ws(state.input[state.pos]));
+          switch (state.input[state.pos]) {
+            case ']':
+              if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) ==
+                  0) [[unlikely]] {
+                state.has_error = true;
+                state.error = Error{
+                    .code = ErrorCode::invalid_token,
+                    .offset = state.pos,
+                    .detail = "Unexpected token ']' after literal",
+                };
+
+                return false;
+              }
+              state.token.length = state.pos - state.token.offset;
+              state.end_flag = true;
+              return true;
+            case '}':
+              if (static_cast<uint8_t>(state.context.back()) & 0b0000'0010)
+                  [[unlikely]] {
+                state.has_error = true;
+                state.error = Error{
+                    .code = ErrorCode::invalid_token,
+                    .offset = state.pos,
+                    .detail = "Unexpected token '}' after literal",
+                };
+                return false;
+              }
+              state.token.length = state.pos - state.token.offset;
+              state.end_flag = true;
+              return true;
+            case ',':
+              if (state.context.back() == Context::ObjectKey) [[unlikely]] {
+                state.has_error = true;
+                state.error = Error{
+                    .code = ErrorCode::invalid_token,
+                    .offset = state.pos,
+                    .detail = "Unexpected token ',' after literal",
+                };
+                return false;
+              }
+              state.pos++;
+              state.context.back() = static_cast<Context>(
+                  static_cast<uint8_t>(state.context.back()) ^
+                  1);  // ArrayValue -> ArrayValue2, ObjectValue -> ObjectKey
+              return true;
+            default:
+              state.has_error = true;
+              state.error = Error{
+                  .code = ErrorCode::invalid_token,
+                  .offset = state.pos,
+                  .detail = "Invalid token after literal",
+              };
+              return false;
+          }
+        default:
+          break;
+      }
+      state.pos++;
     }
-    return emit(out, offset, st.pos - offset, TokenType::Scalar,
-                JsonTokenContext::literal);
+    state.has_error = true;
+    state.error = Error{
+        .code = ErrorCode::unexpected_eof,
+        .offset = state.pos,
+        .detail = "Unexpected end of input while parsing literal",
+    };
+    return false;
   }
 };
 
