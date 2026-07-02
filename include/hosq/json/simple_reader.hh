@@ -39,16 +39,19 @@ class SimpleReader {
 
     struct Checkpoint {
       size_t pos;
+      bool end_flag;
       std::vector<Context> context;
       Token token;
     };
 
     [[nodiscard]] auto checkpoint() const -> Checkpoint {
-      return Checkpoint{.pos = pos, .context = context, .token = token};
+      return Checkpoint{
+          .pos = pos, .end_flag = end_flag, .context = context, .token = token};
     }
 
     auto rollback(Checkpoint checkpoint) -> void {
       pos = checkpoint.pos;
+      end_flag = checkpoint.end_flag;
       context = std::move(checkpoint.context);
       token = checkpoint.token;
     }
@@ -58,6 +61,16 @@ class SimpleReader {
 
   auto reset(state_type& state, input_type input) -> void {
     state.input = input;
+    state.pos = 0;
+    state.end_flag = false;
+    state.context.clear();
+    state.token = Token{.offset = 0,
+                        .length = 0,
+                        .type = TokenType::End,
+                        .context = static_cast<uint8_t>(
+                            JsonTokenContext::none)};
+    state.has_error = false;
+    state.error = Error::ok();
   }
 
   [[nodiscard]]
@@ -75,7 +88,7 @@ class SimpleReader {
         state.token.context = 0;
         state.context.pop_back();
         state.pos++;
-        return true;
+        return after_container_end(state);
       } else if (static_cast<uint8_t>(state.context.back()) & 0b0000'0100) {
         // Object End
         state.token.type = TokenType::ObjectEnd;
@@ -84,14 +97,54 @@ class SimpleReader {
         state.token.context = 0;
         state.context.pop_back();
         state.pos++;
+        return after_container_end(state);
+      }
+      return false;
+    }
+
+    while (state.pos < state.input.size() && is_ws(state.input[state.pos])) {
+      state.pos++;
+    }
+
+    if (state.pos >= state.input.size()) {
+      if (state.token.type == TokenType::End) {
+        state.has_error = true;
+        state.error = Error{
+            .code = ErrorCode::unexpected_eof,
+            .offset = state.pos,
+            .detail = "expected JSON value",
+        };
+        return false;
+      }
+      if (state.context.empty()) {
+        state.token = Token{.offset = state.pos,
+                            .length = 0,
+                            .type = TokenType::End,
+                            .context = 0};
         return true;
       }
+      state.has_error = true;
+      state.error = Error{
+          .code = ErrorCode::unexpected_eof,
+          .offset = state.pos,
+          .detail = "Unexpected end of input",
+      };
       return false;
     }
 
     while (state.pos < state.input.size()) {
       switch (state.input[state.pos]) {
         case '{':
+          if (!state.context.empty() &&
+              state.context.back() == Context::ObjectKey) [[unlikely]] {
+            state.has_error = true;
+            state.error = Error{
+                .code = ErrorCode::unexpected_token,
+                .offset = state.pos,
+                .detail = "Unexpected token '{'",
+            };
+            return false;
+          }
           state.token.offset = state.pos;
           state.token.length = 1;
           state.token.type = TokenType::ObjectBegin;
@@ -122,12 +175,22 @@ class SimpleReader {
           // unexpected token.
           state.has_error = true;
           state.error = Error{
-              .code = ErrorCode::invalid_token,
+              .code = ErrorCode::unexpected_token,
               .offset = state.pos,
               .detail = "Unexpected token '}'",
           };
           return false;
         case '[':
+          if (!state.context.empty() &&
+              state.context.back() == Context::ObjectKey) [[unlikely]] {
+            state.has_error = true;
+            state.error = Error{
+                .code = ErrorCode::unexpected_token,
+                .offset = state.pos,
+                .detail = "Unexpected token '['",
+            };
+            return false;
+          }
           state.token.offset = state.pos;
           state.token.length = 1;
           state.token.type = TokenType::ArrayBegin;
@@ -158,7 +221,7 @@ class SimpleReader {
           // unexpected token.
           state.has_error = true;
           state.error = Error{
-              .code = ErrorCode::invalid_token,
+              .code = ErrorCode::unexpected_token,
               .offset = state.pos,
               .detail = "Unexpected token ']'",
           };
@@ -170,9 +233,10 @@ class SimpleReader {
           }
           break;
       }
-
-      state.pos++;
+      return true;
     }
+    state.token = Token{
+        .offset = state.pos, .length = 0, .type = TokenType::End, .context = 0};
     return true;
   }
 
@@ -198,8 +262,23 @@ class SimpleReader {
       case '"':
         state.pos++;
         state.token.offset = state.pos;
+        state.token.type = TokenType::Scalar;
+        state.token.context = static_cast<uint8_t>(JsonTokenContext::string);
         return parse_string(state);
+      case ',':
+      case ':':
+      case ']':
+      case '}':
+        state.has_error = true;
+        state.error = Error{
+            .code = ErrorCode::unexpected_token,
+            .offset = state.pos,
+            .detail = "Unexpected token while parsing value",
+        };
+        return false;
       default:
+        state.token.type = TokenType::Scalar;
+        state.token.context = static_cast<uint8_t>(JsonTokenContext::literal);
         return parse_literal(state);
     }
   }
@@ -209,9 +288,19 @@ class SimpleReader {
       switch (state.input[state.pos]) {
         case '"':
           state.token.length = state.pos - state.token.offset;
+          if (state.context.empty()) {
+            do {  // NOLINT
+              state.pos++;
+            } while (state.pos < state.input.size() &&
+                     is_ws(state.input[state.pos]));
+            return true;
+          }
           do {  // NOLINT
             state.pos++;
             if (state.pos >= state.input.size()) [[unlikely]] {
+              if (state.context.empty()) {
+                return true;
+              }
               state.has_error = true;
               state.error = Error{
                   .code = ErrorCode::unexpected_eof,
@@ -223,32 +312,32 @@ class SimpleReader {
           } while (is_ws(state.input[state.pos]));
           switch (state.input[state.pos]) {
             case ':':
-              state.pos++;
               if (state.context.back() != Context::ObjectKey) [[unlikely]] {
                 state.has_error = true;
                 state.error = Error{
-                    .code = ErrorCode::invalid_token,
+                    .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ':' after string",
                 };
                 return false;
               }
+              state.pos++;
               state.context.back() = static_cast<Context>(
                   static_cast<uint8_t>(state.context.back()) ^
                   1);  // ObjectKey -> ObjectValue
               break;
             case ',':
-              state.pos++;
               if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0011) ==
                   0) [[unlikely]] {
                 state.has_error = true;
                 state.error = Error{
-                    .code = ErrorCode::invalid_token,
+                    .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ',' after string",
                 };
                 return false;
               }
+              state.pos++;
               state.context.back() = static_cast<Context>(
                   static_cast<uint8_t>(state.context.back()) ^
                   1);  // ObjectKey -> ObjectValue
@@ -258,7 +347,7 @@ class SimpleReader {
                   0) [[unlikely]] {
                 state.has_error = true;
                 state.error = Error{
-                    .code = ErrorCode::invalid_token,
+                    .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ']' after string",
                 };
@@ -267,11 +356,12 @@ class SimpleReader {
               state.end_flag = true;
               break;
             case '}':
-              if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0100) ==
-                  0) [[unlikely]] {
+              if (state.context.back() == Context::ObjectKey ||
+                  (static_cast<uint8_t>(state.context.back()) & 0b0000'0100) ==
+                      0) [[unlikely]] {
                 state.has_error = true;
                 state.error = Error{
-                    .code = ErrorCode::invalid_token,
+                    .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token '}' after string",
                 };
@@ -282,7 +372,7 @@ class SimpleReader {
             default:
               state.has_error = true;
               state.error = Error{
-                  .code = ErrorCode::invalid_token,
+                  .code = ErrorCode::unexpected_token,
                   .offset = state.pos,
                   .detail = "Invalid token after string",
               };
@@ -320,6 +410,83 @@ class SimpleReader {
     return BytesView::from_string_view(state.input);
   }
 
+  auto after_container_end(state_type& state) -> bool {
+    while (state.pos < state.input.size() && is_ws(state.input[state.pos])) {
+      state.pos++;
+    }
+    if (state.context.empty()) {
+      if (state.pos < state.input.size()) {
+        state.has_error = true;
+        state.error = Error{
+            .code = ErrorCode::trailing_data,
+            .offset = state.pos,
+            .detail = "non-whitespace data after root value",
+        };
+        return false;
+      }
+      return true;
+    }
+    if (state.pos >= state.input.size()) [[unlikely]] {
+      state.has_error = true;
+      state.error = Error{
+          .code = ErrorCode::unexpected_eof,
+          .offset = state.pos,
+          .detail = "Unexpected end of input after container",
+      };
+      return false;
+    }
+    switch (state.input[state.pos]) {
+      case ',':
+        if (state.context.back() == Context::ObjectKey) [[unlikely]] {
+          state.has_error = true;
+          state.error = Error{
+              .code = ErrorCode::unexpected_token,
+              .offset = state.pos,
+              .detail = "Unexpected token ',' after container",
+          };
+          return false;
+        }
+        state.pos++;
+        state.context.back() = static_cast<Context>(
+            static_cast<uint8_t>(state.context.back()) ^ 1);
+        return true;
+      case ']':
+        if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) == 0)
+            [[unlikely]] {
+          state.has_error = true;
+          state.error = Error{
+              .code = ErrorCode::unexpected_token,
+              .offset = state.pos,
+              .detail = "Unexpected token ']' after container",
+          };
+          return false;
+        }
+        state.end_flag = true;
+        return true;
+      case '}':
+        if (static_cast<uint8_t>(state.context.back()) & 0b0000'0010)
+            [[unlikely]] {
+          state.has_error = true;
+          state.error = Error{
+              .code = ErrorCode::unexpected_token,
+              .offset = state.pos,
+              .detail = "Unexpected token '}' after container",
+          };
+          return false;
+        }
+        state.end_flag = true;
+        return true;
+      default:
+        state.has_error = true;
+        state.error = Error{
+            .code = ErrorCode::unexpected_token,
+            .offset = state.pos,
+            .detail = "Invalid token after container",
+        };
+        return false;
+    }
+  }
+
   auto parse_literal(state_type& state) -> bool {
     while (state.pos < state.input.size()) {
       switch (state.input[state.pos]) {
@@ -328,7 +495,7 @@ class SimpleReader {
               [[unlikely]] {
             state.has_error = true;
             state.error = Error{
-                .code = ErrorCode::invalid_token,
+                .code = ErrorCode::unexpected_token,
                 .offset = state.pos,
                 .detail = "Unexpected token ']' after literal",
             };
@@ -342,7 +509,7 @@ class SimpleReader {
               [[unlikely]] {
             state.has_error = true;
             state.error = Error{
-                .code = ErrorCode::invalid_token,
+                .code = ErrorCode::unexpected_token,
                 .offset = state.pos,
                 .detail = "Unexpected token '}' after literal",
             };
@@ -355,7 +522,7 @@ class SimpleReader {
           if (state.context.back() == Context::ObjectKey) [[unlikely]] {
             state.has_error = true;
             state.error = Error{
-                .code = ErrorCode::invalid_token,
+                .code = ErrorCode::unexpected_token,
                 .offset = state.pos,
                 .detail = "Unexpected token ',' after literal",
             };
@@ -372,6 +539,13 @@ class SimpleReader {
         case '\t':
         case '\r':
           state.token.length = state.pos - state.token.offset;
+          if (state.context.empty()) {
+            do {  // NOLINT
+              state.pos++;
+            } while (state.pos < state.input.size() &&
+                     is_ws(state.input[state.pos]));
+            return true;
+          }
           do {  // NOLINT
             state.pos++;
             if (state.pos >= state.input.size()) [[unlikely]] {
@@ -390,14 +564,13 @@ class SimpleReader {
                   0) [[unlikely]] {
                 state.has_error = true;
                 state.error = Error{
-                    .code = ErrorCode::invalid_token,
+                    .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ']' after literal",
                 };
 
                 return false;
               }
-              state.token.length = state.pos - state.token.offset;
               state.end_flag = true;
               return true;
             case '}':
@@ -405,20 +578,19 @@ class SimpleReader {
                   [[unlikely]] {
                 state.has_error = true;
                 state.error = Error{
-                    .code = ErrorCode::invalid_token,
+                    .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token '}' after literal",
                 };
                 return false;
               }
-              state.token.length = state.pos - state.token.offset;
               state.end_flag = true;
               return true;
             case ',':
               if (state.context.back() == Context::ObjectKey) [[unlikely]] {
                 state.has_error = true;
                 state.error = Error{
-                    .code = ErrorCode::invalid_token,
+                    .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ',' after literal",
                 };
@@ -432,7 +604,7 @@ class SimpleReader {
             default:
               state.has_error = true;
               state.error = Error{
-                  .code = ErrorCode::invalid_token,
+                  .code = ErrorCode::unexpected_token,
                   .offset = state.pos,
                   .detail = "Invalid token after literal",
               };
@@ -442,6 +614,10 @@ class SimpleReader {
           break;
       }
       state.pos++;
+    }
+    if (state.context.empty()) {
+      state.token.length = state.pos - state.token.offset;
+      return true;
     }
     state.has_error = true;
     state.error = Error{

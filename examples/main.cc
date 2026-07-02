@@ -12,4 +12,7 @@
 //       a;
 // };
 
+template <class T>
+class ReaderBase {};
+
 auto main() -> int { return 0; }
