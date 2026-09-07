@@ -1,0 +1,17 @@
+{
+  "command": [
+    "/private/tmp/hosq-comparison-build/hosq_comparison",
+    "/private/tmp/hosq-comparison-fixtures",
+    "--benchmark_enable_random_interleaving=true",
+    "--benchmark_repetitions=5",
+    "--benchmark_min_time=0.1s",
+    "--benchmark_out_format=json",
+    "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/minimal-suite/final1/results.json"
+  ],
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "started": "2026-09-07T15:10:01+0900",
+  "power_before": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=24379491)\t87%; discharging; 4:57 remaining present: true\n",
+  "executable_sha256": "d0584c377e6e0c3d51afe21e83aaedd01041122b25169cdd05da91ad2f885e69",
+  "power_after": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=24379491)\t87%; discharging; 4:57 remaining present: true\n",
+  "exit_code": 0
+}

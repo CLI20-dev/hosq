@@ -1,0 +1,14 @@
+{
+  "source_revision": "ed54f74dd4d9a6cd05a15e342ff58f00a70558eb",
+  "compiler": "Clang 21.1.8 (C and C++), Release -O3 -DNDEBUG",
+  "yyjson": "0.12.0",
+  "fast_float": "8.2.10 enabled",
+  "google_benchmark": "1.9.5",
+  "sha256": {
+    "bench/comparison/comparison.cc": "55a4510e4b5c8516714f94ddb7ffdef861cf6564d1d4df0f9056c408f961d270",
+    "bench/comparison/generate.py": "68e653bbaf675fa0119d4c7eb6b6875bf8569fe658212283810c7b8a862e69c8",
+    "bench/comparison/CMakeLists.txt": "77ddb0156cdf55f424873d49482d48e2df0f8ccde1529ed1627c674469aadf6b",
+    "/tmp/hosq-comparison-yyjson/yyjson.c": "ac2e9bbb2e2d9149d90878d40506a1d624fa0b33c979a11b61075c54782c6d6a",
+    "/tmp/hosq-comparison-yyjson/yyjson.h": "175867c5493a5df648cec566717fa1c29aa2f6096f5f0cf1efad0b65e1f6d7b3"
+  }
+}
