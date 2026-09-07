@@ -1,0 +1,561 @@
+{
+  "mode": "fresh process per case/implementation",
+  "seed": 20260908,
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "started": "2026-09-07T15:42:22+0900",
+  "power_before": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=24379491)\t85%; charging; 0:39 remaining present: true\n",
+  "executable_sha256": "bcd785d09d264624f6f128e6df47dd27af85eb957b1e665a7e9ad3bd2ddb94fa",
+  "jobs": [
+    {
+      "case": "small/all",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^small/all/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-00.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "small/all",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^small/all/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-01.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "small/all",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^small/all/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-02.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "wide_first/sparse",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^wide_first/sparse/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-03.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "wide_first/sparse",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^wide_first/sparse/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-04.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "wide_first/sparse",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^wide_first/sparse/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-05.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "small/sparse",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^small/sparse/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-06.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "small/sparse",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^small/sparse/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-07.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "small/sparse",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^small/sparse/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-08.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "large/sparse",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^large/sparse/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-09.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "large/sparse",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^large/sparse/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-10.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "large/sparse",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^large/sparse/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-11.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "deep/all",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^deep/all/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-12.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "deep/all",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^deep/all/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-13.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "deep/all",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^deep/all/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-14.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "wide_last/sparse",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^wide_last/sparse/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-15.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "wide_last/sparse",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^wide_last/sparse/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-16.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "wide_last/sparse",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^wide_last/sparse/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-17.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "numbers/all",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^numbers/all/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-18.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "numbers/all",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^numbers/all/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-19.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "numbers/all",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^numbers/all/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-20.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "strings_utf8/all",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^strings_utf8/all/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-21.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "strings_utf8/all",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^strings_utf8/all/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-22.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "strings_utf8/all",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^strings_utf8/all/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-23.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "medium/sparse",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^medium/sparse/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-24.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "medium/sparse",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^medium/sparse/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-25.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "medium/sparse",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^medium/sparse/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-26.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "large/all",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^large/all/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-27.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "large/all",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^large/all/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-28.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "large/all",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^large/all/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-29.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "strings_escaped/all",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^strings_escaped/all/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-30.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "strings_escaped/all",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^strings_escaped/all/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-31.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "strings_escaped/all",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^strings_escaped/all/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-32.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "medium/all",
+      "engine": "Glazetyped",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^medium/all/Glazetyped$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-33.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "medium/all",
+      "engine": "HOSQtyped",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^medium/all/HOSQtyped$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-34.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "medium/all",
+      "engine": "HOSQ",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^medium/all/HOSQ$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-35.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "medium/all",
+      "engine": "Glaze",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^medium/all/Glaze$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-36.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "medium/all",
+      "engine": "yyjson",
+      "command": [
+        "/private/tmp/hosq-comparison-build/hosq_comparison",
+        "/private/tmp/hosq-comparison-fixtures",
+        "--benchmark_filter=^medium/all/yyjson$",
+        "--benchmark_repetitions=5",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out_format=json",
+        "--benchmark_out=/Users/gen/.codex/.chatgpt-projects/g-p-6a9cc6821b5081919cbee4cf1391832e/hosq-yyjson-comparison/glaze-suite/isolated2/part-37.json"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "benchmark_context": {
+    "date": "2026-09-07T15:42:23+09:00",
+    "host_name": "gen740",
+    "executable": "/private/tmp/hosq-comparison-build/hosq_comparison",
+    "num_cpus": 14,
+    "mhz_per_cpu": 24,
+    "cpu_scaling_enabled": false,
+    "caches": [],
+    "load_avg": [
+      2.08154,
+      3.05127,
+      3.66211
+    ],
+    "library_version": "v1.9.5",
+    "library_build_type": "release",
+    "json_schema_version": 1
+  },
+  "power_after": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=24379491)\t86%; charging; 0:40 remaining present: true\n",
+  "exit_code": 0
+}

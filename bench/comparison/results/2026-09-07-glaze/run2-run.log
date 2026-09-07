@@ -1,0 +1,760 @@
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified small/all bytes=109 leaves=10
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:23+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.08, 3.05, 3.66
+---------------------------------------------------------------------------------
+Benchmark                       Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------
+small/all/Glaze               828 ns          824 ns       173045 bytes_per_second=126.129Mi/s
+small/all/Glaze               825 ns          823 ns       173045 bytes_per_second=126.267Mi/s
+small/all/Glaze               832 ns          828 ns       173045 bytes_per_second=125.598Mi/s
+small/all/Glaze               826 ns          824 ns       173045 bytes_per_second=126.176Mi/s
+small/all/Glaze               828 ns          828 ns       173045 bytes_per_second=125.523Mi/s
+small/all/Glaze_mean          828 ns          825 ns            5 bytes_per_second=125.939Mi/s
+small/all/Glaze_median        828 ns          824 ns            5 bytes_per_second=126.129Mi/s
+small/all/Glaze_stddev       2.69 ns         2.29 ns            5 bytes_per_second=357.982Ki/s
+small/all/Glaze_cv           0.33 %          0.28 %             5 bytes_per_second=0.28%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified small/all bytes=109 leaves=10
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:25+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.08, 3.05, 3.66
+--------------------------------------------------------------------------------
+Benchmark                      Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------
+small/all/HOSQ               183 ns          183 ns       765864 bytes_per_second=569.576Mi/s input_bytes=109
+small/all/HOSQ               185 ns          185 ns       765864 bytes_per_second=560.813Mi/s input_bytes=109
+small/all/HOSQ               182 ns          182 ns       765864 bytes_per_second=571.338Mi/s input_bytes=109
+small/all/HOSQ               182 ns          182 ns       765864 bytes_per_second=570.81Mi/s input_bytes=109
+small/all/HOSQ               183 ns          183 ns       765864 bytes_per_second=567.534Mi/s input_bytes=109
+small/all/HOSQ_mean          183 ns          183 ns            5 bytes_per_second=568.014Mi/s input_bytes=109
+small/all/HOSQ_median        183 ns          183 ns            5 bytes_per_second=569.576Mi/s input_bytes=109
+small/all/HOSQ_stddev       1.31 ns         1.39 ns            5 bytes_per_second=4.28321Mi/s input_bytes=0
+small/all/HOSQ_cv           0.71 %          0.76 %             5 bytes_per_second=0.75% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified small/all bytes=109 leaves=10
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:27+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.08, 3.05, 3.66
+----------------------------------------------------------------------------------
+Benchmark                        Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------
+small/all/yyjson               178 ns          178 ns       792707 bytes_per_second=584.273Mi/s input_bytes=109
+small/all/yyjson               178 ns          178 ns       792707 bytes_per_second=583.433Mi/s input_bytes=109
+small/all/yyjson               180 ns          180 ns       792707 bytes_per_second=577.451Mi/s input_bytes=109
+small/all/yyjson               180 ns          180 ns       792707 bytes_per_second=577.937Mi/s input_bytes=109
+small/all/yyjson               180 ns          179 ns       792707 bytes_per_second=579.188Mi/s input_bytes=109
+small/all/yyjson_mean          179 ns          179 ns            5 bytes_per_second=580.456Mi/s input_bytes=109
+small/all/yyjson_median        180 ns          179 ns            5 bytes_per_second=579.188Mi/s input_bytes=109
+small/all/yyjson_stddev      0.969 ns        0.979 ns            5 bytes_per_second=3.17831Mi/s input_bytes=0
+small/all/yyjson_cv           0.54 %          0.55 %             5 bytes_per_second=0.55% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified wide_first/sparse bytes=298515 leaves=128
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:29+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.07, 3.03, 3.65
+------------------------------------------------------------------------------------------
+Benchmark                                Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------------
+wide_first/sparse/yyjson            108820 ns       108819 ns         1317 bytes_per_second=2.55484Gi/s input_bytes=298.515k
+wide_first/sparse/yyjson            107980 ns       107965 ns         1317 bytes_per_second=2.57503Gi/s input_bytes=298.515k
+wide_first/sparse/yyjson            109478 ns       109472 ns         1317 bytes_per_second=2.5396Gi/s input_bytes=298.515k
+wide_first/sparse/yyjson            109551 ns       109460 ns         1317 bytes_per_second=2.53986Gi/s input_bytes=298.515k
+wide_first/sparse/yyjson            108975 ns       108925 ns         1317 bytes_per_second=2.55235Gi/s input_bytes=298.515k
+wide_first/sparse/yyjson_mean       108961 ns       108928 ns            5 bytes_per_second=2.55234Gi/s input_bytes=298.515k
+wide_first/sparse/yyjson_median     108975 ns       108925 ns            5 bytes_per_second=2.55235Gi/s input_bytes=298.515k
+wide_first/sparse/yyjson_stddev        632 ns          616 ns            5 bytes_per_second=14.8328Mi/s input_bytes=0
+wide_first/sparse/yyjson_cv           0.58 %          0.57 %             5 bytes_per_second=0.57% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified wide_first/sparse bytes=298515 leaves=128
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:30+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.07, 3.03, 3.65
+----------------------------------------------------------------------------------------
+Benchmark                              Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------------
+wide_first/sparse/HOSQ            311558 ns       311531 ns          448 bytes_per_second=913.828Mi/s input_bytes=298.515k
+wide_first/sparse/HOSQ            312444 ns       312397 ns          448 bytes_per_second=911.295Mi/s input_bytes=298.515k
+wide_first/sparse/HOSQ            313140 ns       313109 ns          448 bytes_per_second=909.222Mi/s input_bytes=298.515k
+wide_first/sparse/HOSQ            311596 ns       311496 ns          448 bytes_per_second=913.933Mi/s input_bytes=298.515k
+wide_first/sparse/HOSQ            312879 ns       312750 ns          448 bytes_per_second=910.267Mi/s input_bytes=298.515k
+wide_first/sparse/HOSQ_mean       312323 ns       312257 ns            5 bytes_per_second=911.709Mi/s input_bytes=298.515k
+wide_first/sparse/HOSQ_median     312444 ns       312397 ns            5 bytes_per_second=911.295Mi/s input_bytes=298.515k
+wide_first/sparse/HOSQ_stddev        726 ns          724 ns            5 bytes_per_second=2.11371Mi/s input_bytes=0
+wide_first/sparse/HOSQ_cv           0.23 %          0.23 %             5 bytes_per_second=0.23% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified wide_first/sparse bytes=298515 leaves=128
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:32+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.07, 3.03, 3.65
+-----------------------------------------------------------------------------------------
+Benchmark                               Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------------
+wide_first/sparse/Glaze            221824 ns       221694 ns          638 bytes_per_second=1.25404Gi/s
+wide_first/sparse/Glaze            227719 ns       227552 ns          638 bytes_per_second=1.22176Gi/s
+wide_first/sparse/Glaze            220943 ns       220840 ns          638 bytes_per_second=1.25889Gi/s
+wide_first/sparse/Glaze            226766 ns       226721 ns          638 bytes_per_second=1.22624Gi/s
+wide_first/sparse/Glaze            221875 ns       221832 ns          638 bytes_per_second=1.25326Gi/s
+wide_first/sparse/Glaze_mean       223825 ns       223728 ns            5 bytes_per_second=1.24284Gi/s
+wide_first/sparse/Glaze_median     221875 ns       221832 ns            5 bytes_per_second=1.25326Gi/s
+wide_first/sparse/Glaze_stddev       3159 ns         3148 ns            5 bytes_per_second=17.8224Mi/s
+wide_first/sparse/Glaze_cv           1.41 %          1.41 %             5 bytes_per_second=1.40%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified small/sparse bytes=109 leaves=1
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:34+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.07, 3.02, 3.64
+-----------------------------------------------------------------------------------
+Benchmark                         Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------
+small/sparse/HOSQ               102 ns          101 ns      1418353 bytes_per_second=1.00445Gi/s input_bytes=109
+small/sparse/HOSQ              99.4 ns         99.4 ns      1418353 bytes_per_second=1.02168Gi/s input_bytes=109
+small/sparse/HOSQ              98.0 ns         98.0 ns      1418353 bytes_per_second=1.03616Gi/s input_bytes=109
+small/sparse/HOSQ              97.8 ns         97.8 ns      1418353 bytes_per_second=1.03814Gi/s input_bytes=109
+small/sparse/HOSQ              97.7 ns         97.7 ns      1418353 bytes_per_second=1.03859Gi/s input_bytes=109
+small/sparse/HOSQ_mean         98.9 ns         98.8 ns            5 bytes_per_second=1.0278Gi/s input_bytes=109
+small/sparse/HOSQ_median       98.0 ns         98.0 ns            5 bytes_per_second=1.03616Gi/s input_bytes=109
+small/sparse/HOSQ_stddev       1.75 ns         1.44 ns            5 bytes_per_second=15.1537Mi/s input_bytes=0
+small/sparse/HOSQ_cv           1.77 %          1.46 %             5 bytes_per_second=1.44% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified small/sparse bytes=109 leaves=1
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:36+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.07, 3.02, 3.64
+------------------------------------------------------------------------------------
+Benchmark                          Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------
+small/sparse/Glaze               115 ns          115 ns      1252684 bytes_per_second=906.337Mi/s
+small/sparse/Glaze               114 ns          114 ns      1252684 bytes_per_second=912.274Mi/s
+small/sparse/Glaze               114 ns          114 ns      1252684 bytes_per_second=915.623Mi/s
+small/sparse/Glaze               113 ns          113 ns      1252684 bytes_per_second=916.087Mi/s
+small/sparse/Glaze               114 ns          114 ns      1252684 bytes_per_second=910.711Mi/s
+small/sparse/Glaze_mean          114 ns          114 ns            5 bytes_per_second=912.206Mi/s
+small/sparse/Glaze_median        114 ns          114 ns            5 bytes_per_second=912.274Mi/s
+small/sparse/Glaze_stddev      0.497 ns        0.498 ns            5 bytes_per_second=3.9816Mi/s
+small/sparse/Glaze_cv           0.44 %          0.44 %             5 bytes_per_second=0.44%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified small/sparse bytes=109 leaves=1
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:37+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 1.98, 2.98, 3.63
+-------------------------------------------------------------------------------------
+Benchmark                           Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------
+small/sparse/yyjson               148 ns          148 ns       949024 bytes_per_second=703.709Mi/s input_bytes=109
+small/sparse/yyjson               148 ns          148 ns       949024 bytes_per_second=704.251Mi/s input_bytes=109
+small/sparse/yyjson               147 ns          147 ns       949024 bytes_per_second=705.556Mi/s input_bytes=109
+small/sparse/yyjson               148 ns          148 ns       949024 bytes_per_second=702.316Mi/s input_bytes=109
+small/sparse/yyjson               147 ns          147 ns       949024 bytes_per_second=706.253Mi/s input_bytes=109
+small/sparse/yyjson_mean          148 ns          148 ns            5 bytes_per_second=704.417Mi/s input_bytes=109
+small/sparse/yyjson_median        148 ns          148 ns            5 bytes_per_second=704.251Mi/s input_bytes=109
+small/sparse/yyjson_stddev      0.326 ns        0.325 ns            5 bytes_per_second=1.55005Mi/s input_bytes=0
+small/sparse/yyjson_cv           0.22 %          0.22 %             5 bytes_per_second=0.22% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified large/sparse bytes=30006521 leaves=262144
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:39+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 1.98, 2.98, 3.63
+-------------------------------------------------------------------------------------
+Benchmark                           Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------
+large/sparse/yyjson          19589399 ns     19589429 ns            7 bytes_per_second=1.42657Gi/s input_bytes=30.0065M
+large/sparse/yyjson          19166101 ns     19166143 ns            7 bytes_per_second=1.45808Gi/s input_bytes=30.0065M
+large/sparse/yyjson          19370976 ns     19371000 ns            7 bytes_per_second=1.44266Gi/s input_bytes=30.0065M
+large/sparse/yyjson          19193845 ns     19193857 ns            7 bytes_per_second=1.45597Gi/s input_bytes=30.0065M
+large/sparse/yyjson          19273351 ns     19273714 ns            7 bytes_per_second=1.44994Gi/s input_bytes=30.0065M
+large/sparse/yyjson_mean     19318735 ns     19318829 ns            5 bytes_per_second=1.44665Gi/s input_bytes=30.0065M
+large/sparse/yyjson_median   19273351 ns     19273714 ns            5 bytes_per_second=1.44994Gi/s input_bytes=30.0065M
+large/sparse/yyjson_stddev     170984 ns       170962 ns            5 bytes_per_second=13.0273Mi/s input_bytes=0
+large/sparse/yyjson_cv           0.89 %          0.88 %             5 bytes_per_second=0.88% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified large/sparse bytes=30006521 leaves=262144
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:41+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 1.98, 2.98, 3.63
+-----------------------------------------------------------------------------------
+Benchmark                         Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------
+large/sparse/HOSQ          24696333 ns     24695667 ns            6 bytes_per_second=1.13161Gi/s input_bytes=30.0065M
+large/sparse/HOSQ          24794333 ns     24794333 ns            6 bytes_per_second=1.1271Gi/s input_bytes=30.0065M
+large/sparse/HOSQ          24706570 ns     24706667 ns            6 bytes_per_second=1.1311Gi/s input_bytes=30.0065M
+large/sparse/HOSQ          24588410 ns     24588500 ns            6 bytes_per_second=1.13654Gi/s input_bytes=30.0065M
+large/sparse/HOSQ          24566604 ns     24566000 ns            6 bytes_per_second=1.13758Gi/s input_bytes=30.0065M
+large/sparse/HOSQ_mean     24670450 ns     24670233 ns            5 bytes_per_second=1.13279Gi/s input_bytes=30.0065M
+large/sparse/HOSQ_median   24696333 ns     24695667 ns            5 bytes_per_second=1.13161Gi/s input_bytes=30.0065M
+large/sparse/HOSQ_stddev      93322 ns        93434 ns            5 bytes_per_second=4.39173Mi/s input_bytes=0
+large/sparse/HOSQ_cv           0.38 %          0.38 %             5 bytes_per_second=0.38% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified large/sparse bytes=30006521 leaves=262144
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:43+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.06, 2.98, 3.62
+------------------------------------------------------------------------------------
+Benchmark                          Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------
+large/sparse/Glaze          25187820 ns     25187833 ns            6 bytes_per_second=1.10949Gi/s
+large/sparse/Glaze          25321125 ns     25321333 ns            6 bytes_per_second=1.10364Gi/s
+large/sparse/Glaze          25208646 ns     25207500 ns            6 bytes_per_second=1.10863Gi/s
+large/sparse/Glaze          25412611 ns     25412667 ns            6 bytes_per_second=1.09968Gi/s
+large/sparse/Glaze          25355208 ns     25355167 ns            6 bytes_per_second=1.10217Gi/s
+large/sparse/Glaze_mean     25297082 ns     25296900 ns            5 bytes_per_second=1.10472Gi/s
+large/sparse/Glaze_median   25321125 ns     25321333 ns            5 bytes_per_second=1.10364Gi/s
+large/sparse/Glaze_stddev      96259 ns        96542 ns            5 bytes_per_second=4.31839Mi/s
+large/sparse/Glaze_cv           0.38 %          0.38 %             5 bytes_per_second=0.38%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified deep/all bytes=1031083 leaves=4096
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:45+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.06, 2.98, 3.62
+--------------------------------------------------------------------------------
+Benchmark                      Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------
+deep/all/Glaze          11025663 ns     11025667 ns           12 bytes_per_second=89.1844Mi/s
+deep/all/Glaze          10744062 ns     10744333 ns           12 bytes_per_second=91.5196Mi/s
+deep/all/Glaze          10744743 ns     10744750 ns           12 bytes_per_second=91.5161Mi/s
+deep/all/Glaze          10784781 ns     10784833 ns           12 bytes_per_second=91.1759Mi/s
+deep/all/Glaze          10638764 ns     10638750 ns           12 bytes_per_second=92.4279Mi/s
+deep/all/Glaze_mean     10787603 ns     10787667 ns            5 bytes_per_second=91.1648Mi/s
+deep/all/Glaze_median   10744743 ns     10744750 ns            5 bytes_per_second=91.5161Mi/s
+deep/all/Glaze_stddev     143672 ns       143656 ns            5 bytes_per_second=1.20072Mi/s
+deep/all/Glaze_cv           1.33 %          1.33 %             5 bytes_per_second=1.32%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified deep/all bytes=1031083 leaves=4096
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:46+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.06, 2.98, 3.62
+---------------------------------------------------------------------------------
+Benchmark                       Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------
+deep/all/yyjson           1031399 ns      1031370 ns          100 bytes_per_second=953.409Mi/s input_bytes=1.03108M
+deep/all/yyjson           1023917 ns      1023850 ns          100 bytes_per_second=960.412Mi/s input_bytes=1.03108M
+deep/all/yyjson           1013655 ns      1013650 ns          100 bytes_per_second=970.076Mi/s input_bytes=1.03108M
+deep/all/yyjson           1012356 ns      1012300 ns          100 bytes_per_second=971.37Mi/s input_bytes=1.03108M
+deep/all/yyjson           1023883 ns      1023620 ns          100 bytes_per_second=960.627Mi/s input_bytes=1.03108M
+deep/all/yyjson_mean      1021042 ns      1020958 ns            5 bytes_per_second=963.179Mi/s input_bytes=1.03108M
+deep/all/yyjson_median    1023883 ns      1023620 ns            5 bytes_per_second=960.627Mi/s input_bytes=1.03108M
+deep/all/yyjson_stddev       7963 ns         7941 ns            5 bytes_per_second=7.48791Mi/s input_bytes=0
+deep/all/yyjson_cv           0.78 %          0.78 %             5 bytes_per_second=0.78% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified deep/all bytes=1031083 leaves=4096
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:48+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.14, 2.98, 3.62
+-------------------------------------------------------------------------------
+Benchmark                     Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------
+deep/all/HOSQ           2090071 ns      2090072 ns           69 bytes_per_second=470.47Mi/s input_bytes=1.03108M
+deep/all/HOSQ           2111529 ns      2111246 ns           69 bytes_per_second=465.752Mi/s input_bytes=1.03108M
+deep/all/HOSQ           2142074 ns      2142072 ns           69 bytes_per_second=459.05Mi/s input_bytes=1.03108M
+deep/all/HOSQ           2161380 ns      2161377 ns           69 bytes_per_second=454.95Mi/s input_bytes=1.03108M
+deep/all/HOSQ           2135082 ns      2134449 ns           69 bytes_per_second=460.689Mi/s input_bytes=1.03108M
+deep/all/HOSQ_mean      2128027 ns      2127843 ns            5 bytes_per_second=462.182Mi/s input_bytes=1.03108M
+deep/all/HOSQ_median    2135082 ns      2134449 ns            5 bytes_per_second=460.689Mi/s input_bytes=1.03108M
+deep/all/HOSQ_stddev      27714 ns        27716 ns            5 bytes_per_second=6.03726Mi/s input_bytes=0
+deep/all/HOSQ_cv           1.30 %          1.30 %             5 bytes_per_second=1.31% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified wide_last/sparse bytes=298515 leaves=128
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:50+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.14, 2.98, 3.62
+---------------------------------------------------------------------------------------
+Benchmark                             Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------
+wide_last/sparse/HOSQ            307172 ns       307172 ns          454 bytes_per_second=926.798Mi/s input_bytes=298.515k
+wide_last/sparse/HOSQ            306372 ns       306289 ns          454 bytes_per_second=929.47Mi/s input_bytes=298.515k
+wide_last/sparse/HOSQ            305212 ns       305002 ns          454 bytes_per_second=933.39Mi/s input_bytes=298.515k
+wide_last/sparse/HOSQ            310802 ns       310348 ns          454 bytes_per_second=917.312Mi/s input_bytes=298.515k
+wide_last/sparse/HOSQ            310474 ns       310315 ns          454 bytes_per_second=917.41Mi/s input_bytes=298.515k
+wide_last/sparse/HOSQ_mean       308006 ns       307825 ns            5 bytes_per_second=924.876Mi/s input_bytes=298.515k
+wide_last/sparse/HOSQ_median     307172 ns       307172 ns            5 bytes_per_second=926.798Mi/s input_bytes=298.515k
+wide_last/sparse/HOSQ_stddev       2504 ns         2415 ns            5 bytes_per_second=7.24983Mi/s input_bytes=0
+wide_last/sparse/HOSQ_cv           0.81 %          0.78 %             5 bytes_per_second=0.78% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified wide_last/sparse bytes=298515 leaves=128
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:52+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.14, 2.98, 3.62
+-----------------------------------------------------------------------------------------
+Benchmark                               Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------------
+wide_last/sparse/yyjson            141263 ns       141181 ns          999 bytes_per_second=1.9692Gi/s input_bytes=298.515k
+wide_last/sparse/yyjson            146109 ns       145805 ns          999 bytes_per_second=1.90675Gi/s input_bytes=298.515k
+wide_last/sparse/yyjson            143419 ns       143274 ns          999 bytes_per_second=1.94043Gi/s input_bytes=298.515k
+wide_last/sparse/yyjson            142971 ns       142714 ns          999 bytes_per_second=1.94805Gi/s input_bytes=298.515k
+wide_last/sparse/yyjson            143444 ns       143251 ns          999 bytes_per_second=1.94074Gi/s input_bytes=298.515k
+wide_last/sparse/yyjson_mean       143441 ns       143245 ns            5 bytes_per_second=1.94104Gi/s input_bytes=298.515k
+wide_last/sparse/yyjson_median     143419 ns       143251 ns            5 bytes_per_second=1.94074Gi/s input_bytes=298.515k
+wide_last/sparse/yyjson_stddev       1738 ns         1665 ns            5 bytes_per_second=23.0008Mi/s input_bytes=0
+wide_last/sparse/yyjson_cv           1.21 %          1.16 %             5 bytes_per_second=1.16% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified wide_last/sparse bytes=298515 leaves=128
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:53+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.21, 2.98, 3.62
+----------------------------------------------------------------------------------------
+Benchmark                              Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------------
+wide_last/sparse/Glaze            229787 ns       229777 ns          646 bytes_per_second=1.20993Gi/s
+wide_last/sparse/Glaze            222624 ns       222582 ns          646 bytes_per_second=1.24904Gi/s
+wide_last/sparse/Glaze            207251 ns       207251 ns          646 bytes_per_second=1.34144Gi/s
+wide_last/sparse/Glaze            220713 ns       220714 ns          646 bytes_per_second=1.25961Gi/s
+wide_last/sparse/Glaze            206309 ns       206254 ns          646 bytes_per_second=1.34792Gi/s
+wide_last/sparse/Glaze_mean       217337 ns       217315 ns            5 bytes_per_second=1.28159Gi/s
+wide_last/sparse/Glaze_median     220713 ns       220714 ns            5 bytes_per_second=1.25961Gi/s
+wide_last/sparse/Glaze_stddev      10219 ns        10225 ns            5 bytes_per_second=61.9906Mi/s
+wide_last/sparse/Glaze_cv           4.70 %          4.71 %             5 bytes_per_second=4.72%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified numbers/all bytes=652030 leaves=57344
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:55+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.21, 2.98, 3.62
+----------------------------------------------------------------------------------
+Benchmark                        Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------
+numbers/all/HOSQ           1002699 ns      1000490 ns          100 bytes_per_second=621.52Mi/s input_bytes=652.03k
+numbers/all/HOSQ            989650 ns       989330 ns          100 bytes_per_second=628.531Mi/s input_bytes=652.03k
+numbers/all/HOSQ            972426 ns       972420 ns          100 bytes_per_second=639.461Mi/s input_bytes=652.03k
+numbers/all/HOSQ            960431 ns       960430 ns          100 bytes_per_second=647.444Mi/s input_bytes=652.03k
+numbers/all/HOSQ            984955 ns       984920 ns          100 bytes_per_second=631.345Mi/s input_bytes=652.03k
+numbers/all/HOSQ_mean       982032 ns       981518 ns            5 bytes_per_second=633.66Mi/s input_bytes=652.03k
+numbers/all/HOSQ_median     984955 ns       984920 ns            5 bytes_per_second=631.345Mi/s input_bytes=652.03k
+numbers/all/HOSQ_stddev      16222 ns        15492 ns            5 bytes_per_second=10.0336Mi/s input_bytes=0
+numbers/all/HOSQ_cv           1.65 %          1.58 %             5 bytes_per_second=1.58% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified numbers/all bytes=652030 leaves=57344
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:57+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.21, 2.98, 3.62
+-----------------------------------------------------------------------------------
+Benchmark                         Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------
+numbers/all/Glaze           3772386 ns      3772216 ns           37 bytes_per_second=164.843Mi/s
+numbers/all/Glaze           3740870 ns      3740027 ns           37 bytes_per_second=166.262Mi/s
+numbers/all/Glaze           3786187 ns      3783378 ns           37 bytes_per_second=164.357Mi/s
+numbers/all/Glaze           3791383 ns      3788865 ns           37 bytes_per_second=164.119Mi/s
+numbers/all/Glaze           3802131 ns      3797757 ns           37 bytes_per_second=163.735Mi/s
+numbers/all/Glaze_mean      3778591 ns      3776449 ns            5 bytes_per_second=164.663Mi/s
+numbers/all/Glaze_median    3786187 ns      3783378 ns            5 bytes_per_second=164.357Mi/s
+numbers/all/Glaze_stddev      23647 ns        22364 ns            5 bytes_per_second=1003.42Ki/s
+numbers/all/Glaze_cv           0.63 %          0.59 %             5 bytes_per_second=0.60%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified numbers/all bytes=652030 leaves=57344
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:42:58+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.43, 3.02, 3.62
+------------------------------------------------------------------------------------
+Benchmark                          Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------
+numbers/all/yyjson            550549 ns       550512 ns          256 bytes_per_second=1.10307Gi/s input_bytes=652.03k
+numbers/all/yyjson            545467 ns       545223 ns          256 bytes_per_second=1.11377Gi/s input_bytes=652.03k
+numbers/all/yyjson            531466 ns       531469 ns          256 bytes_per_second=1.14259Gi/s input_bytes=652.03k
+numbers/all/yyjson            532121 ns       532070 ns          256 bytes_per_second=1.1413Gi/s input_bytes=652.03k
+numbers/all/yyjson            540041 ns       539992 ns          256 bytes_per_second=1.12455Gi/s input_bytes=652.03k
+numbers/all/yyjson_mean       539929 ns       539853 ns            5 bytes_per_second=1.12505Gi/s input_bytes=652.03k
+numbers/all/yyjson_median     540041 ns       539992 ns            5 bytes_per_second=1.12455Gi/s input_bytes=652.03k
+numbers/all/yyjson_stddev       8307 ns         8266 ns            5 bytes_per_second=17.6064Mi/s input_bytes=0
+numbers/all/yyjson_cv           1.54 %          1.53 %             5 bytes_per_second=1.53% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified strings_utf8/all bytes=527251 leaves=256
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:00+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.43, 3.02, 3.62
+-----------------------------------------------------------------------------------------
+Benchmark                               Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------------
+strings_utf8/all/yyjson            630314 ns       630198 ns          222 bytes_per_second=797.885Mi/s input_bytes=527.251k
+strings_utf8/all/yyjson            629544 ns       629545 ns          222 bytes_per_second=798.713Mi/s input_bytes=527.251k
+strings_utf8/all/yyjson            632130 ns       632000 ns          222 bytes_per_second=795.61Mi/s input_bytes=527.251k
+strings_utf8/all/yyjson            629363 ns       629149 ns          222 bytes_per_second=799.216Mi/s input_bytes=527.251k
+strings_utf8/all/yyjson            629152 ns       629140 ns          222 bytes_per_second=799.228Mi/s input_bytes=527.251k
+strings_utf8/all/yyjson_mean       630101 ns       630006 ns            5 bytes_per_second=798.13Mi/s input_bytes=527.251k
+strings_utf8/all/yyjson_median     629544 ns       629545 ns            5 bytes_per_second=798.713Mi/s input_bytes=527.251k
+strings_utf8/all/yyjson_stddev       1217 ns         1195 ns            5 bytes_per_second=1.51102Mi/s input_bytes=0
+strings_utf8/all/yyjson_cv           0.19 %          0.19 %             5 bytes_per_second=0.19% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified strings_utf8/all bytes=527251 leaves=256
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:02+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.43, 3.02, 3.62
+----------------------------------------------------------------------------------------
+Benchmark                              Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------------
+strings_utf8/all/Glaze            665293 ns       664757 ns          210 bytes_per_second=756.405Mi/s
+strings_utf8/all/Glaze            669506 ns       668757 ns          210 bytes_per_second=751.881Mi/s
+strings_utf8/all/Glaze            660475 ns       660419 ns          210 bytes_per_second=761.374Mi/s
+strings_utf8/all/Glaze            658848 ns       658776 ns          210 bytes_per_second=763.272Mi/s
+strings_utf8/all/Glaze            665787 ns       665081 ns          210 bytes_per_second=756.037Mi/s
+strings_utf8/all/Glaze_mean       663982 ns       663558 ns            5 bytes_per_second=757.794Mi/s
+strings_utf8/all/Glaze_median     665293 ns       664757 ns            5 bytes_per_second=756.405Mi/s
+strings_utf8/all/Glaze_stddev       4305 ns         3985 ns            5 bytes_per_second=4.54998Mi/s
+strings_utf8/all/Glaze_cv           0.65 %          0.60 %             5 bytes_per_second=0.60%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified strings_utf8/all bytes=527251 leaves=256
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:04+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.32, 2.98, 3.61
+---------------------------------------------------------------------------------------
+Benchmark                             Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------
+strings_utf8/all/HOSQ            547578 ns       547543 ns          254 bytes_per_second=918.331Mi/s input_bytes=527.251k
+strings_utf8/all/HOSQ            546356 ns       546358 ns          254 bytes_per_second=920.322Mi/s input_bytes=527.251k
+strings_utf8/all/HOSQ            544102 ns       544102 ns          254 bytes_per_second=924.138Mi/s input_bytes=527.251k
+strings_utf8/all/HOSQ            547317 ns       547307 ns          254 bytes_per_second=918.727Mi/s input_bytes=527.251k
+strings_utf8/all/HOSQ            547812 ns       547795 ns          254 bytes_per_second=917.908Mi/s input_bytes=527.251k
+strings_utf8/all/HOSQ_mean       546633 ns       546621 ns            5 bytes_per_second=919.885Mi/s input_bytes=527.251k
+strings_utf8/all/HOSQ_median     547317 ns       547307 ns            5 bytes_per_second=918.727Mi/s input_bytes=527.251k
+strings_utf8/all/HOSQ_stddev       1519 ns         1509 ns            5 bytes_per_second=2.54686Mi/s input_bytes=0
+strings_utf8/all/HOSQ_cv           0.28 %          0.28 %             5 bytes_per_second=0.28% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified medium/sparse bytes=230031 leaves=2048
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:05+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.32, 2.98, 3.61
+------------------------------------------------------------------------------------
+Benchmark                          Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------
+medium/sparse/HOSQ            196017 ns       195986 ns          726 bytes_per_second=1.0931Gi/s input_bytes=230.031k
+medium/sparse/HOSQ            192967 ns       192961 ns          726 bytes_per_second=1.11024Gi/s input_bytes=230.031k
+medium/sparse/HOSQ            193016 ns       193015 ns          726 bytes_per_second=1.10993Gi/s input_bytes=230.031k
+medium/sparse/HOSQ            193384 ns       193386 ns          726 bytes_per_second=1.1078Gi/s input_bytes=230.031k
+medium/sparse/HOSQ            193301 ns       193291 ns          726 bytes_per_second=1.10835Gi/s input_bytes=230.031k
+medium/sparse/HOSQ_mean       193737 ns       193728 ns            5 bytes_per_second=1.10588Gi/s input_bytes=230.031k
+medium/sparse/HOSQ_median     193301 ns       193291 ns            5 bytes_per_second=1.10835Gi/s input_bytes=230.031k
+medium/sparse/HOSQ_stddev       1287 ns         1275 ns            5 bytes_per_second=7.39167Mi/s input_bytes=0
+medium/sparse/HOSQ_cv           0.66 %          0.66 %             5 bytes_per_second=0.65% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified medium/sparse bytes=230031 leaves=2048
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:07+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.32, 2.98, 3.61
+--------------------------------------------------------------------------------------
+Benchmark                            Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------------
+medium/sparse/yyjson            130018 ns       130018 ns         1076 bytes_per_second=1.64772Gi/s input_bytes=230.031k
+medium/sparse/yyjson            130704 ns       130701 ns         1076 bytes_per_second=1.63911Gi/s input_bytes=230.031k
+medium/sparse/yyjson            128948 ns       128948 ns         1076 bytes_per_second=1.66139Gi/s input_bytes=230.031k
+medium/sparse/yyjson            128785 ns       128785 ns         1076 bytes_per_second=1.66349Gi/s input_bytes=230.031k
+medium/sparse/yyjson            128034 ns       128034 ns         1076 bytes_per_second=1.67325Gi/s input_bytes=230.031k
+medium/sparse/yyjson_mean       129298 ns       129297 ns            5 bytes_per_second=1.65699Gi/s input_bytes=230.031k
+medium/sparse/yyjson_median     128948 ns       128948 ns            5 bytes_per_second=1.66139Gi/s input_bytes=230.031k
+medium/sparse/yyjson_stddev       1058 ns         1057 ns            5 bytes_per_second=13.8469Mi/s input_bytes=0
+medium/sparse/yyjson_cv           0.82 %          0.82 %             5 bytes_per_second=0.82% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified medium/sparse bytes=230031 leaves=2048
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:09+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.21, 2.95, 3.59
+-------------------------------------------------------------------------------------
+Benchmark                           Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------
+medium/sparse/Glaze            352998 ns       217036 ns          699 bytes_per_second=1010.78Mi/s
+medium/sparse/Glaze            198956 ns       198518 ns          699 bytes_per_second=1.07916Gi/s
+medium/sparse/Glaze            193948 ns       193860 ns          699 bytes_per_second=1.10509Gi/s
+medium/sparse/Glaze            195634 ns       195625 ns          699 bytes_per_second=1.09512Gi/s
+medium/sparse/Glaze            193935 ns       193924 ns          699 bytes_per_second=1.10473Gi/s
+medium/sparse/Glaze_mean       227094 ns       199793 ns            5 bytes_per_second=1.07424Gi/s
+medium/sparse/Glaze_median     195634 ns       195625 ns            5 bytes_per_second=1.09512Gi/s
+medium/sparse/Glaze_stddev      70412 ns         9823 ns            5 bytes_per_second=51.0391Mi/s
+medium/sparse/Glaze_cv          31.01 %          4.92 %             5 bytes_per_second=4.64%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified large/all bytes=30006521 leaves=2621440
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:11+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.21, 2.95, 3.59
+----------------------------------------------------------------------------------
+Benchmark                        Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------
+large/all/yyjson          25050937 ns     25019333 ns            6 bytes_per_second=1.11697Gi/s input_bytes=30.0065M
+large/all/yyjson          25084910 ns     25045333 ns            6 bytes_per_second=1.11581Gi/s input_bytes=30.0065M
+large/all/yyjson          25093833 ns     25071833 ns            6 bytes_per_second=1.11463Gi/s input_bytes=30.0065M
+large/all/yyjson          25472882 ns     25434167 ns            6 bytes_per_second=1.09875Gi/s input_bytes=30.0065M
+large/all/yyjson          25720340 ns     25692000 ns            6 bytes_per_second=1.08772Gi/s input_bytes=30.0065M
+large/all/yyjson_mean     25284581 ns     25252533 ns            5 bytes_per_second=1.10677Gi/s input_bytes=30.0065M
+large/all/yyjson_median   25093833 ns     25071833 ns            5 bytes_per_second=1.11463Gi/s input_bytes=30.0065M
+large/all/yyjson_stddev     298407 ns       298366 ns            5 bytes_per_second=13.2976Mi/s input_bytes=0
+large/all/yyjson_cv           1.18 %          1.18 %             5 bytes_per_second=1.17% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified large/all bytes=30006521 leaves=2621440
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:13+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.19, 2.93, 3.58
+--------------------------------------------------------------------------------
+Benchmark                      Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------
+large/all/HOSQ          45804375 ns     45798000 ns            3 bytes_per_second=624.841Mi/s input_bytes=30.0065M
+large/all/HOSQ          45831695 ns     45828333 ns            3 bytes_per_second=624.427Mi/s input_bytes=30.0065M
+large/all/HOSQ          45761861 ns     45744000 ns            3 bytes_per_second=625.578Mi/s input_bytes=30.0065M
+large/all/HOSQ          46140736 ns     46131333 ns            3 bytes_per_second=620.326Mi/s input_bytes=30.0065M
+large/all/HOSQ          46306111 ns     46273333 ns            3 bytes_per_second=618.422Mi/s input_bytes=30.0065M
+large/all/HOSQ_mean     45968956 ns     45955000 ns            5 bytes_per_second=622.719Mi/s input_bytes=30.0065M
+large/all/HOSQ_median   45831695 ns     45828333 ns            5 bytes_per_second=624.427Mi/s input_bytes=30.0065M
+large/all/HOSQ_stddev     240831 ns       233262 ns            5 bytes_per_second=3.15379Mi/s input_bytes=0
+large/all/HOSQ_cv           0.52 %          0.51 %             5 bytes_per_second=0.51% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified large/all bytes=30006521 leaves=2621440
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:15+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.19, 2.93, 3.58
+---------------------------------------------------------------------------------
+Benchmark                       Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------
+large/all/Glaze         194846416 ns    194752000 ns            1 bytes_per_second=146.938Mi/s
+large/all/Glaze         189093250 ns    189080000 ns            1 bytes_per_second=151.346Mi/s
+large/all/Glaze         184763167 ns    184732000 ns            1 bytes_per_second=154.908Mi/s
+large/all/Glaze         184158208 ns    184146000 ns            1 bytes_per_second=155.401Mi/s
+large/all/Glaze         184261583 ns    184257000 ns            1 bytes_per_second=155.307Mi/s
+large/all/Glaze_mean    187424525 ns    187393400 ns            5 bytes_per_second=152.78Mi/s
+large/all/Glaze_median  184763167 ns    184732000 ns            5 bytes_per_second=154.908Mi/s
+large/all/Glaze_stddev    4626688 ns      4595086 ns            5 bytes_per_second=3.67326Mi/s
+large/all/Glaze_cv           2.47 %          2.45 %             5 bytes_per_second=2.40%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified strings_escaped/all bytes=1084307 leaves=256
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:17+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.19, 2.93, 3.58
+------------------------------------------------------------------------------------------
+Benchmark                                Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------------
+strings_escaped/all/HOSQ           1306307 ns      1306112 ns          107 bytes_per_second=791.72Mi/s input_bytes=1.08431M
+strings_escaped/all/HOSQ           1316817 ns      1316234 ns          107 bytes_per_second=785.632Mi/s input_bytes=1.08431M
+strings_escaped/all/HOSQ           1304643 ns      1304411 ns          107 bytes_per_second=792.753Mi/s input_bytes=1.08431M
+strings_escaped/all/HOSQ           1308449 ns      1308206 ns          107 bytes_per_second=790.454Mi/s input_bytes=1.08431M
+strings_escaped/all/HOSQ           1305058 ns      1304869 ns          107 bytes_per_second=792.475Mi/s input_bytes=1.08431M
+strings_escaped/all/HOSQ_mean      1308255 ns      1307966 ns            5 bytes_per_second=790.607Mi/s input_bytes=1.08431M
+strings_escaped/all/HOSQ_median    1306307 ns      1306112 ns            5 bytes_per_second=791.72Mi/s input_bytes=1.08431M
+strings_escaped/all/HOSQ_stddev       5010 ns         4850 ns            5 bytes_per_second=2.91991Mi/s input_bytes=0
+strings_escaped/all/HOSQ_cv           0.38 %          0.37 %             5 bytes_per_second=0.37% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified strings_escaped/all bytes=1084307 leaves=256
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:19+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.18, 2.92, 3.57
+-------------------------------------------------------------------------------------------
+Benchmark                                 Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------------
+strings_escaped/all/Glaze           1314814 ns      1314817 ns          109 bytes_per_second=786.479Mi/s
+strings_escaped/all/Glaze           1316877 ns      1316881 ns          109 bytes_per_second=785.246Mi/s
+strings_escaped/all/Glaze           1317124 ns      1317119 ns          109 bytes_per_second=785.104Mi/s
+strings_escaped/all/Glaze           1319529 ns      1319523 ns          109 bytes_per_second=783.674Mi/s
+strings_escaped/all/Glaze           1299711 ns      1299596 ns          109 bytes_per_second=795.69Mi/s
+strings_escaped/all/Glaze_mean      1313611 ns      1313587 ns            5 bytes_per_second=787.239Mi/s
+strings_escaped/all/Glaze_median    1316877 ns      1316881 ns            5 bytes_per_second=785.246Mi/s
+strings_escaped/all/Glaze_stddev       7948 ns         7997 ns            5 bytes_per_second=4.82789Mi/s
+strings_escaped/all/Glaze_cv           0.61 %          0.61 %             5 bytes_per_second=0.61%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified strings_escaped/all bytes=1084307 leaves=256
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:20+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.18, 2.92, 3.57
+--------------------------------------------------------------------------------------------
+Benchmark                                  Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------------------
+strings_escaped/all/yyjson            837250 ns       837249 ns          169 bytes_per_second=1.20614Gi/s input_bytes=1.08431M
+strings_escaped/all/yyjson            826102 ns       825527 ns          169 bytes_per_second=1.22327Gi/s input_bytes=1.08431M
+strings_escaped/all/yyjson            826410 ns       825615 ns          169 bytes_per_second=1.22314Gi/s input_bytes=1.08431M
+strings_escaped/all/yyjson            833722 ns       833680 ns          169 bytes_per_second=1.2113Gi/s input_bytes=1.08431M
+strings_escaped/all/yyjson            836081 ns       836089 ns          169 bytes_per_second=1.20781Gi/s input_bytes=1.08431M
+strings_escaped/all/yyjson_mean       831913 ns       831632 ns            5 bytes_per_second=1.21433Gi/s input_bytes=1.08431M
+strings_escaped/all/yyjson_median     833722 ns       833680 ns            5 bytes_per_second=1.2113Gi/s input_bytes=1.08431M
+strings_escaped/all/yyjson_stddev       5319 ns         5681 ns            5 bytes_per_second=8.50749Mi/s input_bytes=0
+strings_escaped/all/yyjson_cv           0.64 %          0.68 %             5 bytes_per_second=0.68% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified medium/all bytes=230031 leaves=20480
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:22+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.18, 2.92, 3.57
+---------------------------------------------------------------------------------------
+Benchmark                             Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------
+medium/all/Glazetyped            132576 ns       132541 ns         1055 bytes_per_second=1.61635Gi/s
+medium/all/Glazetyped            134251 ns       133874 ns         1055 bytes_per_second=1.60026Gi/s
+medium/all/Glazetyped            134922 ns       134742 ns         1055 bytes_per_second=1.58995Gi/s
+medium/all/Glazetyped            132690 ns       132524 ns         1055 bytes_per_second=1.61656Gi/s
+medium/all/Glazetyped            132564 ns       132536 ns         1055 bytes_per_second=1.61642Gi/s
+medium/all/Glazetyped_mean       133401 ns       133243 ns            5 bytes_per_second=1.60791Gi/s
+medium/all/Glazetyped_median     132690 ns       132541 ns            5 bytes_per_second=1.61635Gi/s
+medium/all/Glazetyped_stddev       1109 ns         1019 ns            5 bytes_per_second=12.5373Mi/s
+medium/all/Glazetyped_cv           0.83 %          0.76 %             5 bytes_per_second=0.76%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified medium/all bytes=230031 leaves=20480
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:24+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.40, 2.95, 3.58
+--------------------------------------------------------------------------------------
+Benchmark                            Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------------
+medium/all/HOSQtyped            348517 ns       348520 ns          398 bytes_per_second=629.446Mi/s
+medium/all/HOSQtyped            347507 ns       347508 ns          398 bytes_per_second=631.28Mi/s
+medium/all/HOSQtyped            346123 ns       345673 ns          398 bytes_per_second=634.63Mi/s
+medium/all/HOSQtyped            346836 ns       346108 ns          398 bytes_per_second=633.833Mi/s
+medium/all/HOSQtyped            350657 ns       350538 ns          398 bytes_per_second=625.823Mi/s
+medium/all/HOSQtyped_mean       347928 ns       347669 ns            5 bytes_per_second=631.003Mi/s
+medium/all/HOSQtyped_median     347507 ns       347508 ns            5 bytes_per_second=631.28Mi/s
+medium/all/HOSQtyped_stddev       1762 ns         1962 ns            5 bytes_per_second=3.5529Mi/s
+medium/all/HOSQtyped_cv           0.51 %          0.56 %             5 bytes_per_second=0.56%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified medium/all bytes=230031 leaves=20480
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:26+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.40, 2.95, 3.58
+---------------------------------------------------------------------------------
+Benchmark                       Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------
+medium/all/HOSQ            354834 ns       354835 ns          395 bytes_per_second=618.243Mi/s input_bytes=230.031k
+medium/all/HOSQ            355991 ns       355992 ns          395 bytes_per_second=616.234Mi/s input_bytes=230.031k
+medium/all/HOSQ            355980 ns       355980 ns          395 bytes_per_second=616.256Mi/s input_bytes=230.031k
+medium/all/HOSQ            355196 ns       355068 ns          395 bytes_per_second=617.838Mi/s input_bytes=230.031k
+medium/all/HOSQ            355776 ns       355572 ns          395 bytes_per_second=616.962Mi/s input_bytes=230.031k
+medium/all/HOSQ_mean       355555 ns       355490 ns            5 bytes_per_second=617.107Mi/s input_bytes=230.031k
+medium/all/HOSQ_median     355776 ns       355572 ns            5 bytes_per_second=616.962Mi/s input_bytes=230.031k
+medium/all/HOSQ_stddev        517 ns          526 ns            5 bytes_per_second=934.659Ki/s input_bytes=0
+medium/all/HOSQ_cv           0.15 %          0.15 %             5 bytes_per_second=0.15% input_bytes=0.00%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified medium/all bytes=230031 leaves=20480
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:27+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.40, 2.95, 3.58
+----------------------------------------------------------------------------------
+Benchmark                        Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------
+medium/all/Glaze           1420361 ns      1420131 ns           99 bytes_per_second=154.475Mi/s
+medium/all/Glaze           1408948 ns      1408596 ns           99 bytes_per_second=155.74Mi/s
+medium/all/Glaze           1424998 ns      1424838 ns           99 bytes_per_second=153.965Mi/s
+medium/all/Glaze           1417864 ns      1417485 ns           99 bytes_per_second=154.763Mi/s
+medium/all/Glaze           1410338 ns      1410182 ns           99 bytes_per_second=155.565Mi/s
+medium/all/Glaze_mean      1416502 ns      1416246 ns            5 bytes_per_second=154.902Mi/s
+medium/all/Glaze_median    1417864 ns      1417485 ns            5 bytes_per_second=154.763Mi/s
+medium/all/Glaze_stddev       6782 ns         6815 ns            5 bytes_per_second=763.178Ki/s
+medium/all/Glaze_cv           0.48 %          0.48 %             5 bytes_per_second=0.48%
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+verified medium/all bytes=230031 leaves=20480
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-09-07T15:43:29+09:00
+Running /private/tmp/hosq-comparison-build/hosq_comparison
+Run on (14 X 24 MHz CPU s)
+Load Average: 2.29, 2.92, 3.57
+-----------------------------------------------------------------------------------
+Benchmark                         Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------
+medium/all/yyjson            194724 ns       194724 ns          732 bytes_per_second=1.10019Gi/s input_bytes=230.031k
+medium/all/yyjson            194337 ns       194331 ns          732 bytes_per_second=1.10242Gi/s input_bytes=230.031k
+medium/all/yyjson            194868 ns       194855 ns          732 bytes_per_second=1.09945Gi/s input_bytes=230.031k
+medium/all/yyjson            194472 ns       194473 ns          732 bytes_per_second=1.10161Gi/s input_bytes=230.031k
+medium/all/yyjson            194415 ns       194415 ns          732 bytes_per_second=1.10194Gi/s input_bytes=230.031k
+medium/all/yyjson_mean       194563 ns       194560 ns            5 bytes_per_second=1.10112Gi/s input_bytes=230.031k
+medium/all/yyjson_median     194472 ns       194473 ns            5 bytes_per_second=1.10161Gi/s input_bytes=230.031k
+medium/all/yyjson_stddev        224 ns          221 ns            5 bytes_per_second=1.27986Mi/s input_bytes=0
+medium/all/yyjson_cv           0.11 %          0.11 %             5 bytes_per_second=0.11% input_bytes=0.00%

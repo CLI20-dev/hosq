@@ -4,6 +4,7 @@
 #include <array>
 #include <bit>
 #include <fstream>
+#include <glaze/glaze.hpp>
 #include <hosq/hosq.hh>
 #include <hosq/json/fast_reader.hh>
 #include <iostream>
@@ -316,6 +317,8 @@ struct Fixture {
   bool sparse;
   Stats expected;
 };
+#include "glaze_adapter.hh"
+
 std::vector<Fixture> fixtures;
 Stats hosq_run(const Fixture& f) {
   R r;
@@ -383,6 +386,15 @@ int main(int argc, char** argv) {
     std::cerr << "usage: comparison FIXTURE_DIRECTORY [benchmark options]\n";
     return 2;
   }
+  const auto env = [](const char* key) -> std::string {
+    const auto* value = std::getenv(key);
+    return value ? value : "";
+  };
+  const auto selected_case = env("HOSQ_COMPARE_CASE");
+  const auto selected_engine = env("HOSQ_COMPARE_ENGINE");
+  const auto check_engine = [&](std::string_view engine) {
+    return selected_engine.empty() || engine == selected_engine;
+  };
   std::string dir = argv[1];
   std::ifstream manifest(dir + "/manifest.txt");
   std::string name, file;
@@ -393,27 +405,33 @@ int main(int argc, char** argv) {
     f.sparse = sparse;
     for (auto& n : f.expected.v)
       if (!(manifest >> n)) return 3;
+    if (!selected_case.empty() && name != selected_case) continue;
     std::ifstream input(dir + "/" + file, std::ios::binary);
     f.input.assign(std::istreambuf_iterator<char>(input), {});
     if (f.input.empty()) return 4;
     fixtures.push_back(std::move(f));
   }
-  if (fixtures.size() != 12) {
+  if (fixtures.size() != (selected_case.empty() ? 12 : 1)) {
     std::cerr << "Expected 12 cases\n";
     return 5;
   }
   for (size_t i = 0; i < fixtures.size(); ++i) {
-    const auto& f = fixtures[i];
-    auto h = hosq_run(f), y = yy_run(f);
-    if (h != f.expected || y != f.expected) {
+    auto& f = fixtures[i];
+    const auto original_input = f.input;
+    if ((check_engine("Glaze") && glaze_bench::run(f) != f.expected) ||
+        (check_engine("HOSQ") && hosq_run(f) != f.expected) ||
+        (check_engine("yyjson") && yy_run(f) != f.expected) ||
+        f.input != original_input) {
       std::cerr << "Mismatch " << f.name << "\n";
       return 6;
     }
     std::cout << "verified " << f.name << " bytes=" << f.input.size()
-              << " leaves=" << h.v[0] << "\n";
+              << " leaves=" << f.expected.v[0] << "\n";
 
     if (f.name == "medium/all") {
-      if (typed_run(f) != f.expected) {
+      if ((check_engine("HOSQtyped") && typed_run(f) != f.expected) ||
+          (check_engine("Glazetyped") &&
+           glaze_bench::typed_run(f) != f.expected)) {
         std::cerr << "Typed mismatch\n";
         return 8;
       }
@@ -421,6 +439,24 @@ int main(int argc, char** argv) {
           "medium/all/HOSQtyped", [i](benchmark::State& s) {
             for (auto _ : s) {
               auto out = typed_run(fixtures[i]);
+              benchmark::DoNotOptimize(out);
+            }
+            s.SetBytesProcessed(s.iterations() * fixtures[i].input.size());
+          });
+    }
+    benchmark::RegisterBenchmark(
+        (f.name + "/Glaze").c_str(), [i](benchmark::State& s) {
+          for (auto _ : s) {
+            auto out = glaze_bench::run(fixtures[i]);
+            benchmark::DoNotOptimize(out);
+          }
+          s.SetBytesProcessed(s.iterations() * fixtures[i].input.size());
+        });
+    if (f.name == "medium/all") {
+      benchmark::RegisterBenchmark(
+          "medium/all/Glazetyped", [i](benchmark::State& s) {
+            for (auto _ : s) {
+              auto out = glaze_bench::typed_run(fixtures[i]);
               benchmark::DoNotOptimize(out);
             }
             s.SetBytesProcessed(s.iterations() * fixtures[i].input.size());
