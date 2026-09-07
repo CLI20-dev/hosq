@@ -48,6 +48,13 @@ target_include_directories(hosq
 
 target_compile_features(hosq INTERFACE cxx_std_20)
 
+option(CXX_HOSQ_USE_FAST_FLOAT "Use fast_float for float/double decoding" OFF)
+if(CXX_HOSQ_USE_FAST_FLOAT)
+  find_package(FastFloat CONFIG REQUIRED)
+  target_link_libraries(hosq INTERFACE FastFloat::fast_float)
+  target_compile_definitions(hosq INTERFACE HOSQ_USE_FAST_FLOAT=1)
+endif()
+
 set(HOSQ_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/hosq")
 set(HOSQ_TARGETS_EXPORT_NAME hosqTargets)
 

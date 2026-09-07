@@ -1,28 +1,53 @@
 #pragma once
 
 #include <array>
+#include <charconv>
+#include <bit>
+#include <cstring>
+
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
 
 #include "hosq/context.hh"
+#include "hosq/meta_match.hh"
 #include "hosq/error.hh"
 #include "hosq/pipeline/scan.hh"
+#include "hosq/pipeline/decode.hh"
 #include "hosq/reader_base.hh"
 
 #if defined(__GNUC__) || defined(__clang__)
 #define HOSQ_ALWAYS_INLINE_ATTR __attribute__((always_inline))
+#define HOSQ_READER_NOINLINE __attribute__((noinline))
 #define HOSQ_FUNCTION_ALWAYS_INLINE inline __attribute__((always_inline))
 #elif defined(_MSC_VER)
 #define HOSQ_ALWAYS_INLINE_ATTR __forceinline
+#define HOSQ_READER_NOINLINE __declspec(noinline)
 #define HOSQ_FUNCTION_ALWAYS_INLINE __forceinline
 #else
 #define HOSQ_ALWAYS_INLINE_ATTR
+#define HOSQ_READER_NOINLINE
 #define HOSQ_FUNCTION_ALWAYS_INLINE inline
 #endif
 
+namespace hosq::json::detail {
+// Bit 0: JSON whitespace. Bit 1: an unquoted scalar terminator.
+// Preserve the existing structural-skip contract, including control bytes.
+inline constexpr auto fast_byte_classes = [] {
+  std::array<unsigned char, 256> flags{};
+  flags[9] = flags[10] = flags[13] = flags[32] = 1;
+  for (int i = 0; i <= 32; ++i) flags[i] |= 2;
+  for (int i : {44, 125, 93, 58}) flags[i] |= 2;
+  return flags;
+}();
+}
+
 namespace hosq {
 namespace json {
+
+// Padded modes require the named number of readable zero bytes after the
+// logical input. No address alignment, mutation or ownership is required.
+enum class InputPadding : std::uint8_t { none = 0, zero_padded_4 = 4, zero_padded_8 = 8 };
 
 enum class JsonFastExpect : std::uint8_t {
   value,
@@ -83,9 +108,11 @@ struct JsonFastReaderState {
   }
 };
 
-template <std::size_t MaxDepth = 128>
-class FastReader {
+template <std::size_t MaxDepth = 128, InputPadding Padding = InputPadding::none>
+class FastReader : public ReaderBase<FastReader<MaxDepth, Padding>> {
  public:
+  static constexpr auto input_padding = Padding;
+  static constexpr std::size_t padding_bytes = static_cast<std::size_t>(Padding);
   using input_type = std::string_view;
   using state_type = JsonFastReaderState<MaxDepth>;
 
@@ -110,7 +137,7 @@ class FastReader {
     };
   }
 
-  HOSQ_FUNCTION_ALWAYS_INLINE auto next_token(state_type& st) const noexcept
+  HOSQ_FUNCTION_ALWAYS_INLINE auto next_token_impl(state_type& st) const noexcept
       -> bool {
     if (st.error_flag) [[unlikely]]
       return false;
@@ -123,6 +150,198 @@ class FastReader {
     return true;
   }
 
+  // A hint only selects a fast path. A custom pipeline may have advanced the
+  // reader itself, so unexpected states still use the original state machine.
+  template <Expect E, JsonTokenContext Kind = JsonTokenContext::none>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto next_token_impl(state_type& st) const noexcept
+      -> bool {
+    if (st.error_flag) [[unlikely]] return false;
+    Token tok{};
+    bool ok;
+    if constexpr (E == Expect::value) {
+      ok = st.expect == JsonFastExpect::value ? read_value<Kind>(st, tok)
+                                             : read_one(st, tok);
+    } else if constexpr (E == Expect::member_value) {
+      ok = st.expect == JsonFastExpect::colon_delimiter
+               ? read_colon_then_value<Kind>(st, tok) : read_one(st, tok);
+    } else if constexpr (E == Expect::next_member_or_end) {
+      if (st.expect == JsonFastExpect::key_or_end)
+        ok = read_key(st, true, tok);
+      else if (st.expect == JsonFastExpect::comma_delimiter)
+        ok = read_comma_or_close<Kind>(st, tok);
+      else
+        ok = read_one(st, tok);
+    } else if constexpr (E == Expect::next_element_or_end) {
+      if (st.expect == JsonFastExpect::value_or_end)
+        ok = read_value_or_array_end<Kind>(st, tok);
+      else if (st.expect == JsonFastExpect::comma_delimiter)
+        ok = read_comma_or_close<Kind>(st, tok);
+      else
+        ok = read_one(st, tok);
+    } else {
+      ok = st.expect == JsonFastExpect::comma_delimiter
+               ? read_comma_or_close<Kind>(st, tok) : read_one(st, tok);
+    }
+    if (!ok) [[unlikely]] return false;
+    st.current = tok;
+    st.last_error = Error::ok();
+    return true;
+  }
+
+  // These callers have a static position proof. Validate the input directly;
+  // there is no runtime expect load, switch, or advisory-state guard here.
+  template <ReadPosition Position>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto next_token_impl(state_type& st) const noexcept
+      -> bool {
+    if (st.error_flag) [[unlikely]] return false;
+    Token tok{};
+    bool ok;
+    if constexpr (Position == ReadPosition::value)
+      ok = read_value(st, tok);
+    else
+      ok = read_colon_then_value(st, tok);
+    if (!ok) [[unlikely]] return false;
+    st.current = tok;
+    st.last_error = Error::ok();
+    return true;
+  }
+
+  template <class... Handlers, class ScanKey, bool DeferredKey>
+  HOSQ_FUNCTION_ALWAYS_INLINE bool match_const_key(
+      state_type& st, std::tuple<Handlers...>& handlers, ScanKey scan_key,
+      std::bool_constant<DeferredKey>) const {
+    constexpr bool plain_keys = [] {
+      return (([] {
+        for (unsigned char c : Handlers::view()) {
+          if (c < 0x20 || c >= 0x80 || c == '"' || c == '\\') return false;
+        }
+        return true;
+      }()) && ...);
+    }();
+    if constexpr (plain_keys) {
+      auto& tok = st.current;
+      if (!st.error_flag && tok.type == TokenType::Scalar &&
+          tok.context == kStrCtx && tok.length == unresolved_length) {
+        const char* first = st.begin + tok.offset;
+        auto commit = [&](std::size_t length) {
+          tok.length = length;
+          st.pos = first + length + 1;
+        };
+        if (meta::match_terminated<'"'>(
+                std::string_view(first, st.end - first), handlers, commit)) return true;
+        // Custom fallbacks observe a resolved key. A standard skip pair
+        // may instead resolve it once, when its key scan actually executes.
+        if constexpr (!DeferredKey) (void)scan_key();
+        return false;
+      }
+    }
+    return meta::match(scan_key(), handlers);
+  }
+
+  // Consume integer digits in bounded groups, retaining from_chars as the
+  // cold fallback for overflow/invalid input and for floating-point types.
+  template <class T>
+  static HOSQ_FUNCTION_ALWAYS_INLINE auto parse_number(const char* first,
+                                                       const char* end, T& out)
+      -> std::from_chars_result {
+    if constexpr (std::integral<T> && sizeof(T) <= sizeof(uint64_t)) {
+      const char* p = first;
+      bool negative = false;
+      if constexpr (std::is_signed_v<T>) {
+        if (p != end && *p == '-') { negative = true; ++p; }
+      }
+      const char* digits = p;
+      const uint64_t limit = uint64_t(std::numeric_limits<T>::max()) +
+                             uint64_t(negative);
+      uint64_t number = 0;
+      if constexpr (sizeof(T) >= 4 && std::endian::native == std::endian::little) {
+        while (padding_bytes >= 8 || end - p >= 8) {
+          uint64_t bytes;
+          std::memcpy(&bytes, p, 8);
+          if (((bytes + 0x4646464646464646ULL) |
+               (bytes - 0x3030303030303030ULL)) & 0x8080808080808080ULL)
+            break;
+          uint64_t group = bytes & 0x0f0f0f0f0f0f0f0fULL;
+          group = (group * 10 + (group >> 8)) & 0x00ff00ff00ff00ffULL;
+          group = (group * 100 + (group >> 16)) & 0x0000ffff0000ffffULL;
+          group = (group * 10000 + (group >> 32)) & 0xffffffffULL;
+          if (number > (limit - group) / 100000000ULL)
+            return std::from_chars(first, end, out);
+          number = number * 100000000ULL + group;
+          p += 8;
+        }
+      }
+      while (Padding != InputPadding::none || p != end) {
+        const auto digit = unsigned(static_cast<unsigned char>(*p)) - '0';
+        if (digit > 9) break;
+        if (number > limit / 10 ||
+            (number == limit / 10 && digit > limit % 10))
+          return std::from_chars(first, end, out);
+        number = number * 10 + digit;
+        ++p;
+      }
+      if (p == digits) return std::from_chars(first, end, out);
+      if constexpr (std::is_signed_v<T>) {
+        if (negative && number != 0)
+          out = T(-static_cast<T>(number - 1) - 1);
+        else
+          out = static_cast<T>(number);
+      } else {
+        out = static_cast<T>(number);
+      }
+      return {p, std::errc{}};
+    } else {
+      return hosq::detail::number_from_chars(first, end, out);
+    }
+  }
+
+  // The adjacent scalar scan + numeric decode can use from_chars' end
+  // pointer as the token boundary. No preliminary scalar-length pass is needed.
+  // Resolved tokens, invalid prefixes and escapes keep the original path so
+  // error details, partial writes and the cache used by Try remain unchanged.
+  template <class T, bool Into>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto read_number_impl(const state_type& st,
+                                                    T& value) const -> bool {
+    const auto& tok = current_token(st);
+    if (tok.type == TokenType::Scalar && tok.length == unresolved_length &&
+        (tok.context == kStrCtx || tok.context == kLitCtx)) {
+      const char* first = st.begin + tok.offset;
+      T parsed{};
+      const auto result = parse_number(first, st.end, parsed);
+      if (result.ec == std::errc{}) {
+        const char* p = result.ptr;
+        const bool string = tok.context == kStrCtx;
+        const bool complete = string ? p < st.end && *p == '"'
+            : p == st.end || static_cast<unsigned char>(*p) <= ' ' ||
+              *p == ',' || *p == '}' || *p == ']' || *p == ':';
+        if (complete) {
+          tok.length = static_cast<std::size_t>(p - first);
+          st.pos = p + (string ? 1 : 0);
+          value = parsed;
+          return true;
+        }
+      }
+    }
+    return read_number_fallback<T, Into>(st, value);
+  }
+
+ private:
+  template <class T, bool Into>
+  HOSQ_READER_NOINLINE auto read_number_fallback(const state_type& st,
+                                                 T& value) const -> bool {
+    auto& reader = const_cast<FastReader&>(*this);
+    auto& state = const_cast<state_type&>(st);
+    const DecodeContext<T, FastReader> ctx{value, reader, state};
+    auto scalar = ext::ScanScalar<FastReader>{}(ctx);
+    if constexpr (Into) {
+      ext::DecodeNumberInto<FastReader>{}.template operator()<T>(scalar, ctx);
+    } else {
+      value = ext::DecodeNumber<FastReader>{}.template operator()<T>(scalar, ctx);
+    }
+    return error(st).is_ok();
+  }
+
+ public:
   // Sets the error flag and records err (first call wins; subsequent calls are
   // no-ops). After this, current_token() always returns a TokenType::Error
   // token.
@@ -159,7 +378,55 @@ class FastReader {
     return BytesView::from_string_view(st.input_view);
   }
 
-  // Advances st.pos past the current scalar token without caching its length.
+  // Scan full bounded blocks; escape handling and the short tail stay scalar.
+  // No padding, prepass, allocation or decoded-string buffer is required.
+  static HOSQ_FUNCTION_ALWAYS_INLINE auto string_end(const char* p,
+                                                      const char* end) noexcept
+      -> const char* {
+    constexpr std::size_t width = 16;
+    while (end - p >= static_cast<std::ptrdiff_t>(width)) {
+      // A local copy makes independence from the input explicit to the
+      // optimizer. The optimized loop keeps these bytes in registers.
+      std::array<unsigned char, width> matches;
+      std::memcpy(matches.data(), p, width);
+#if defined(__clang__)
+      // Early scalar unrolling prevents loop vectorization in Clang.
+#pragma clang loop unroll(disable)
+#endif
+      for (auto& byte : matches) {
+        byte = static_cast<unsigned char>(
+            -int((byte == '"') | (byte == '\\')));
+      }
+      const auto words = std::bit_cast<std::array<uint64_t, 2>>(matches);
+      const uint64_t bits = words[0] ? words[0] : words[1];
+      if (bits == 0) { p += width; continue; }
+      std::size_t offset = words[0] ? 0 : 8;
+      if constexpr (std::endian::native == std::endian::little) {
+        offset += std::countr_zero(bits) / 8;
+      } else if constexpr (std::endian::native == std::endian::big) {
+        offset += std::countl_zero(bits) / 8;
+      } else {
+        offset = 0;
+        while (!matches[offset]) ++offset;
+      }
+      p += offset;
+      if (*p == '"') return p;
+      if (end - p < 2) return end;
+      p += 2;
+    }
+    while (p < end) {
+      if (*p == '"') return p;
+      if (*p == '\\') {
+        if (end - p < 2) return end;
+        p += 2;
+      } else {
+        ++p;
+      }
+    }
+    return end;
+  }
+
+  // Advances st.pos past the current scalar token and caches its length.
   // Called by the state machine when a Scalar was never scanned by an ext::
   // step.
   HOSQ_FUNCTION_ALWAYS_INLINE auto resolve_skip(state_type& st) const noexcept
@@ -167,17 +434,11 @@ class FastReader {
     if (st.current.length != unresolved_length) return true;
     if (st.current.context ==
         static_cast<std::uint8_t>(JsonTokenContext::string)) {
-      const char* p = st.begin + st.current.offset;
-      while (p < st.end) {
-        if (*p == '"') {
-          st.pos = p + 1;
-          return true;
-        }
-        if (*p == '\\') {
-          p += 2;
-          continue;
-        }
-        ++p;
+      const char* p = string_end(st.begin + st.current.offset, st.end);
+      if (p != st.end) {
+        st.current.length = static_cast<std::size_t>(p - (st.begin + st.current.offset));
+        st.pos = p + 1;
+        return true;
       }
       st.last_error = {.code = ErrorCode::unexpected_eof,
                        .offset = static_cast<std::size_t>(st.end - st.begin),
@@ -186,11 +447,12 @@ class FastReader {
     } else {
       // literal
       const char* p = st.begin + st.current.offset;
-      while (p < st.end) {
+      while (Padding != InputPadding::none || p < st.end) {
         const auto c = static_cast<std::uint8_t>(*p);
-        if (c <= ' ' || c == ',' || c == '}' || c == ']' || c == ':') break;
+        if (hosq::json::detail::fast_byte_classes[c] & 2) break;
         ++p;
       }
+      st.current.length = static_cast<std::size_t>(p - (st.begin + st.current.offset));
       st.pos = p;
       return true;
     }
@@ -205,13 +467,17 @@ class FastReader {
       static_cast<std::uint8_t>(JsonTokenContext::none);
 
   static HOSQ_FUNCTION_ALWAYS_INLINE auto is_ws(char c) noexcept -> bool {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+    return (detail::fast_byte_classes[static_cast<unsigned char>(c)] & 1) != 0;
   }
 
   static HOSQ_FUNCTION_ALWAYS_INLINE auto skip_ws(const char*& p,
                                                   const char* end) noexcept
       -> bool {
-    while (p < end && is_ws(*p)) ++p;
+    if constexpr (Padding != InputPadding::none) {
+      while (is_ws(*p)) ++p;
+    } else {
+      while (p < end && is_ws(*p)) ++p;
+    }
     return p < end;
   }
 
@@ -282,7 +548,8 @@ class FastReader {
     return false;
   }
 
-  auto read_value(state_type& st, Token& out) const noexcept -> bool {
+  template <JsonTokenContext Kind = JsonTokenContext::none>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto read_value(state_type& st, Token& out) const noexcept -> bool {
     const char* p = st.pos;
 
     if (!skip_ws(p, st.end)) [[unlikely]] {
@@ -295,7 +562,7 @@ class FastReader {
 
     const char c = *p;
 
-    if (c == '"') {
+    auto string_value = [&]() {
       const auto o = off(st, p);
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p + 1;
@@ -305,9 +572,8 @@ class FastReader {
       out.type = TokenType::Scalar;
       out.context = kStrCtx;
       return true;
-    }
-
-    if (is_num_start(c) || c == 't' || c == 'f' || c == 'n') {
+    };
+    auto literal_value = [&]() {
       const auto o = off(st, p);
       st.expect = JsonFastExpect::comma_delimiter;
       st.pos = p;
@@ -317,6 +583,15 @@ class FastReader {
       out.type = TokenType::Scalar;
       out.context = kLitCtx;
       return true;
+    };
+    if constexpr (Kind == JsonTokenContext::literal) {
+      if (is_num_start(c) || c == 't' || c == 'f' || c == 'n')
+        return literal_value();
+      if (c == '"') return string_value();
+    } else {
+      if (c == '"') return string_value();
+      if (is_num_start(c) || c == 't' || c == 'f' || c == 'n')
+        return literal_value();
     }
 
     if (c == '{') {
@@ -357,7 +632,8 @@ class FastReader {
     return false;
   }
 
-  auto read_value_or_array_end(state_type& st, Token& out) const noexcept
+  template <JsonTokenContext Kind = JsonTokenContext::none>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto read_value_or_array_end(state_type& st, Token& out) const noexcept
       -> bool {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
@@ -375,10 +651,10 @@ class FastReader {
       return true;
     }
     st.pos = p;
-    return read_value(st, out);
+    return read_value<Kind>(st, out);
   }
 
-  auto read_key(state_type& st, bool allow_end, Token& out) const noexcept
+  HOSQ_FUNCTION_ALWAYS_INLINE auto read_key(state_type& st, bool allow_end, Token& out) const noexcept
       -> bool {
     const char* p = st.pos;
     if (!skip_ws(p, st.end)) [[unlikely]] {
@@ -415,7 +691,8 @@ class FastReader {
   }
 
   // After a key string token: skip it if unresolved, find ':', then read value.
-  auto read_colon_then_value(state_type& st, Token& out) const noexcept -> bool {
+  template <JsonTokenContext Kind = JsonTokenContext::none>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto read_colon_then_value(state_type& st, Token& out) const noexcept -> bool {
     if (st.current.length == unresolved_length) {
       if (!resolve_skip(st)) [[unlikely]]
         return false;
@@ -438,11 +715,12 @@ class FastReader {
     ++p;
     st.expect = JsonFastExpect::value;
     st.pos = p;
-    return read_value(st, out);
+    return read_value<Kind>(st, out);
   }
 
   // After a value token: skip it if unresolved, then find ',' or '}' or ']'.
-  auto read_comma_or_close(state_type& st, Token& out) const noexcept -> bool {
+  template <JsonTokenContext Kind = JsonTokenContext::none>
+  HOSQ_FUNCTION_ALWAYS_INLINE auto read_comma_or_close(state_type& st, Token& out) const noexcept -> bool {
     if (st.current.length == unresolved_length) {
       if (!resolve_skip(st)) [[unlikely]]
         return false;
@@ -476,7 +754,7 @@ class FastReader {
       if (in_object(st)) {
         return read_key(st, false, out);
       } else {
-        return read_value(st, out);
+        return read_value<Kind>(st, out);
       }
     }
 
@@ -520,8 +798,8 @@ class FastReader {
 
 }  // namespace json
 
-template <std::size_t MaxDepth>
-struct ReaderTraits<json::FastReader<MaxDepth>> {
+template <std::size_t MaxDepth, json::InputPadding Padding>
+struct ReaderTraits<json::FastReader<MaxDepth, Padding>> {
   static constexpr Format format = Format::json;
   static constexpr bool is_binary_format = false;
 };
@@ -537,9 +815,10 @@ namespace hosq::ext {
 template <ReaderConcept R>
 struct DecodeSkipValue;
 
-template <std::size_t MaxDepth>
-struct ScanScalar<hosq::json::FastReader<MaxDepth>> {
-  using Reader = hosq::json::FastReader<MaxDepth>;
+template <std::size_t MaxDepth, hosq::json::InputPadding Padding>
+struct ScanScalar<hosq::json::FastReader<MaxDepth, Padding>> {
+  using reader_fusion = ScanScalar;
+  using Reader = hosq::json::FastReader<MaxDepth, Padding>;
   using State = typename Reader::state_type;
 
   template <class T, TryPhase Phase>
@@ -581,26 +860,19 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth>> {
       -> void {
     if (tok.context == static_cast<std::uint8_t>(JsonTokenContext::string)) {
       const char* const content = st.begin + tok.offset;
-      const char* p = content;
-      while (p < st.end) {
-        if (*p == '"') {
-          tok.length = static_cast<std::size_t>(p - content);
-          st.pos = p + 1;
-          return;
-        }
-        if (*p == '\\') {
-          p += 2;
-          continue;
-        }
-        ++p;
+      const char* p = Reader::string_end(content, st.end);
+      if (p != st.end) {
+        tok.length = static_cast<std::size_t>(p - content);
+        st.pos = p + 1;
+        return;
       }
     } else if (tok.context ==
                static_cast<std::uint8_t>(JsonTokenContext::literal)) {
       const char* const lit_start = st.begin + tok.offset;
       const char* p = lit_start;
-      while (p < st.end) {
+      while (Padding != hosq::json::InputPadding::none || p < st.end) {
         const auto c = static_cast<std::uint8_t>(*p);
-        if (c <= ' ' || c == ',' || c == '}' || c == ']' || c == ':') break;
+        if (hosq::json::detail::fast_byte_classes[c] & 2) break;
         ++p;
       }
       tok.length = static_cast<std::size_t>(p - lit_start);
@@ -623,9 +895,9 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth>> {
   }
 };
 
-template <std::size_t MaxDepth>
-struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
-  using Reader = hosq::json::FastReader<MaxDepth>;
+template <std::size_t MaxDepth, hosq::json::InputPadding Padding>
+struct DecodeSkipValue<hosq::json::FastReader<MaxDepth, Padding>> {
+  using Reader = hosq::json::FastReader<MaxDepth, Padding>;
   using State = typename Reader::state_type;
 
   template <class T, TryPhase Phase>
@@ -690,6 +962,16 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
     st.pos = st.begin + tok.offset + tok.length;
   }
 
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((cold, noinline))
+#else
+  HOSQ_READER_NOINLINE
+#endif
+  static void skip_error(State& st, ErrorCode code, std::size_t offset,
+                         const char* detail) {
+    st.last_error = {.code = code, .offset = offset, .detail = detail};
+  }
+
   template <class T, TryPhase Phase>
   static HOSQ_FUNCTION_ALWAYS_INLINE auto skip_container(
       DecodeContext<T, Reader, Phase>& ctx, TokenType expected_type,
@@ -709,6 +991,96 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
     close_stack[0] = expected_close;
     std::size_t depth = 1;
     const char* p = st.pos;
+    // The structural fallback below retains the existing permissive skip
+    // contract. Fast transitions only consume bytes known to be non-structural.
+    const auto spaces = [&]() {
+      for (;;) {
+        if (Padding != hosq::json::InputPadding::none || st.end - p >= 4) {
+          while (std::memcmp(p, "    ", 4) == 0) {
+            p += 4;
+            if constexpr (Padding == hosq::json::InputPadding::none) {
+              if (st.end - p < 4) break;
+            }
+          }
+        }
+        if (p == st.end) return;
+        if (!(hosq::json::detail::fast_byte_classes[static_cast<unsigned char>(*p)] & 1)) return;
+        ++p;
+      }
+    };
+    if (expected_close == '}') goto key_begin;
+    goto value_begin;
+
+  key_begin:
+    spaces();
+    if (p >= st.end) [[unlikely]] goto eof;
+    if (*p != '"') goto scan_value;
+    p = Reader::string_end(p + 1, st.end);
+    if (p == st.end) [[unlikely]] goto eof;
+    ++p;
+    // Consume the common key separator before entering generic whitespace
+    // handling. value_begin still accepts any additional whitespace.
+    if (Padding != hosq::json::InputPadding::none || st.end - p >= 2) {
+      if (std::memcmp(p, ": ", 2) == 0) {
+        p += 2;
+        goto value_begin;
+      }
+    }
+    spaces();
+    if (p >= st.end) [[unlikely]] goto eof;
+    if (*p != ':') goto scan_value;
+    ++p;
+
+  value_begin:
+    spaces();
+    if (p >= st.end) [[unlikely]] goto eof;
+    if (*p == '"') {
+      p = Reader::string_end(p + 1, st.end);
+      if (p == st.end) [[unlikely]] goto eof;
+      ++p;
+      goto value_end;
+    }
+    if (*p == '{') { ++p; goto push_object; }
+    if (*p == '[') { ++p; goto push_array; }
+    if (Padding != hosq::json::InputPadding::none || st.end - p >= 4) {
+      if (std::memcmp(p, "true", 4) == 0 || std::memcmp(p, "null", 4) == 0) {
+        p += 4;
+        goto value_end;
+      }
+      if (*p == 'f' && (Padding != hosq::json::InputPadding::none || st.end - p >= 5)
+          && std::memcmp(p + 1, "alse", 4) == 0) {
+        p += 5;
+        goto value_end;
+      }
+    }
+    // A numeric run can contain no nesting delimiters or string escapes.
+    if ((*p >= '0' && *p <= '9') || *p == '-') {
+      do { ++p; } while (p < st.end &&
+          ((*p >= '0' && *p <= '9') || *p == '.' || *p == 'e' ||
+           *p == 'E' || *p == '+' || *p == '-'));
+      goto value_end;
+    }
+    goto scan_value;
+
+  value_end:
+    // A comma followed by a newline already completes the value separator.
+    // The destination still handles indentation and any other whitespace.
+    if (Padding != hosq::json::InputPadding::none || st.end - p >= 2) {
+      if (std::memcmp(p, ",\n", 2) == 0) {
+        p += 2;
+        goto comma_consumed;
+      }
+    }
+    spaces();
+    if (p >= st.end) [[unlikely]] goto eof;
+    if (*p == ',') {
+      ++p;
+    comma_consumed:
+      if (close_stack[depth - 1] == '}') goto key_begin;
+      goto value_begin;
+    }
+    if (*p == '}' || *p == ']') { ++p; goto pop_container; }
+    goto scan_value;
 
   scan_value:
     if (p >= st.end) goto eof;
@@ -728,53 +1100,34 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
     }
 
   scan_string_value:
-    if (*p == '"') {
-      ++p;
-      goto scan_value;
-    }
-    if (*p == '\\') {
-      p += 2;
-      if (p <= st.end) goto scan_string_value;
-      goto eof;
-    }
+    p = Reader::string_end(p, st.end);
+    if (p == st.end) goto eof;
     ++p;
-    goto scan_string_value;
+    goto scan_value;
 
   push_object:
     if (depth >= MaxDepth) [[unlikely]] {
-      st.last_error = {
-          .code = ErrorCode::depth_limit_exceeded,
-          .offset = static_cast<std::size_t>((p - 1) - st.begin),
-          .detail = "fast skip object depth limit",
-      };
+      skip_error(st, ErrorCode::depth_limit_exceeded, static_cast<std::size_t>((p - 1) - st.begin), "fast skip object depth limit");
       return;
     }
     close_stack[depth++] = '}';
-    goto scan_value;
+    goto key_begin;
 
   push_array:
     if (depth >= MaxDepth) [[unlikely]] {
-      st.last_error = {
-          .code = ErrorCode::depth_limit_exceeded,
-          .offset = static_cast<std::size_t>((p - 1) - st.begin),
-          .detail = "fast skip array depth limit",
-      };
+      skip_error(st, ErrorCode::depth_limit_exceeded, static_cast<std::size_t>((p - 1) - st.begin), "fast skip array depth limit");
       return;
     }
     close_stack[depth++] = ']';
-    goto scan_value;
+    goto value_begin;
 
   pop_container:
     if (*(p - 1) != close_stack[depth - 1]) [[unlikely]] {
-      st.last_error = {
-          .code = ErrorCode::unexpected_token,
-          .offset = static_cast<std::size_t>((p - 1) - st.begin),
-          .detail = "fast skip found mismatched container close",
-      };
+      skip_error(st, ErrorCode::unexpected_token, static_cast<std::size_t>((p - 1) - st.begin), "fast skip found mismatched container close");
       return;
     }
     --depth;
-    if (depth != 0) goto scan_value;
+    if (depth != 0) goto value_end;
 
     st.pos = p;
     st.expect = hosq::json::JsonFastExpect::comma_delimiter;
@@ -784,11 +1137,7 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
     return;
 
   eof:
-    st.last_error = {
-        .code = ErrorCode::unexpected_eof,
-        .offset = static_cast<std::size_t>(st.end - st.begin),
-        .detail = "fast skip reached EOF inside container",
-    };
+    skip_error(st, ErrorCode::unexpected_eof, static_cast<std::size_t>(st.end - st.begin), "fast skip reached EOF inside container");
   }
 };
 
@@ -796,3 +1145,5 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth>> {
 
 #undef HOSQ_ALWAYS_INLINE_ATTR
 #undef HOSQ_FUNCTION_ALWAYS_INLINE
+
+#undef HOSQ_READER_NOINLINE

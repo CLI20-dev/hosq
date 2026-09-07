@@ -10,6 +10,8 @@ namespace hosq::ext {
 
 template <ReaderConcept R>
 struct ScanScalar {
+  using reader_fusion = ScanScalar;
+
   template <class T, TryPhase Phase>
   auto operator()(const DecodeContext<T, R, Phase>& ctx) const -> ScalarView {
     const R& reader = ctx.reader();

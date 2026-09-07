@@ -137,9 +137,9 @@ constexpr auto get_next_candidates(std::tuple<Entries&...> a) {
  *
  * Not called directly; use the value-tuple `match()` overload above.
  */
-template <std::size_t N, class... Entries>
-inline __attribute__((always_inline)) auto match(std::string_view c,
-                                                 std::tuple<Entries&...> a)
+template <int Terminator, std::size_t N, class Commit, class... Entries>
+inline __attribute__((always_inline)) auto match_impl(std::string_view c,
+                                                 std::tuple<Entries&...> a, Commit& commit)
     -> bool {
   constexpr auto matched_number_table = []() -> auto {
     std::array<std::size_t, 0x7f + 1> result{};
@@ -150,7 +150,11 @@ inline __attribute__((always_inline)) auto match(std::string_view c,
     return result;
   }();
 
-  if (N == c.size()) {
+  if constexpr (Terminator >= 0) {
+    if (N >= c.size()) return false;
+  }
+  const bool at_end = Terminator < 0 ? N == c.size() : c[N] == Terminator;
+  if (at_end) {
     constexpr auto matched_number =
         ((Entries::view().size() == N ? 1U : 0U) + ... + 0U);
 
@@ -163,7 +167,7 @@ inline __attribute__((always_inline)) auto match(std::string_view c,
 
       [&]<std::size_t... I>(std::index_sequence<I...>) -> auto {
         (((std::tuple_element_t<I, std::tuple<Entries...>>::view().size() == N)
-              ? (std::get<I>(a)(), called = true, void())
+              ? (commit(N), std::get<I>(a)(), called = true, void())
               : void()),
          ...);
       }(std::index_sequence_for<Entries...>{});
@@ -189,16 +193,21 @@ inline __attribute__((always_inline)) auto match(std::string_view c,
       using candidate_type = std::remove_reference_t<                   \
           std::tuple_element_t<candidate_index, decltype(a)>>;          \
       constexpr auto expected = candidate_type::view();                 \
-      if (c != expected) {                                              \
-        return false;                                                   \
+      if constexpr (Terminator < 0) {                                   \
+        if (c != expected) return false;                                \
+      } else {                                                          \
+        if (c.size() <= expected.size() ||                               \
+            c.substr(0, expected.size()) != expected ||                  \
+            c[expected.size()] != Terminator) return false;              \
       }                                                                 \
+      commit(expected.size());                                          \
       std::get<candidate_index>(a)();                                   \
       return true;                                                      \
     } else if constexpr (matched_number > 1) {                          \
-      return match<N + 1>(                                              \
+      return match_impl<Terminator, N + 1>(                                              \
           c, get_next_candidates<matched_number,                        \
                                  get_matched_array<N, C, Entries...>(), \
-                                 Entries...>(a));                       \
+                                 Entries...>(a), commit);                       \
     }                                                                   \
     break;                                                              \
   }
@@ -242,6 +251,23 @@ inline __attribute__((always_inline)) auto match(std::string_view c,
   }
 #undef MM_SWITCH_CHAR
   return false;
+}
+
+
+template <std::size_t N, class... Entries>
+inline __attribute__((always_inline)) bool match(
+    std::string_view key, std::tuple<Entries&...> handlers) {
+  auto commit = [](std::size_t) {};
+  return match_impl<-1, N>(key, handlers, commit);
+}
+
+// Match a delimited prefix without scanning for its length first.
+// Commit receives the key length and runs before the selected handler.
+template <char Terminator, class Commit, class... Entries>
+inline __attribute__((always_inline)) bool match_terminated(
+    std::string_view remaining, std::tuple<Entries...>& handlers, Commit commit) {
+  auto refs = std::apply([](auto&... x) { return std::forward_as_tuple(x...); }, handlers);
+  return match_impl<static_cast<unsigned char>(Terminator), 0>(remaining, refs, commit);
 }
 
 }  // namespace hosq::meta

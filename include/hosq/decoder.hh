@@ -51,7 +51,7 @@ class Decoder<R> {
   [[nodiscard]]
   auto decode(T& t, input_type input) -> Error {
     reader_.reset(reader_state_, input);
-    if (!reader_.next_token(reader_state_)) [[unlikely]] {
+    if (!hosq::next_token<ReadPosition::value>(reader_, reader_state_)) [[unlikely]] {
       return reader_.error(reader_state_);
     }
     return decode_impl(t, reader_, reader_state_);
@@ -97,7 +97,8 @@ class Decoder<R> {
     std::apply(
         [&](auto&... elem) HOSQ_ALWAYS_INLINE_ATTR -> void {
           ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
-            if (!reader.next_token(reader_state)) [[unlikely]] {
+            if (!hosq::next_token<Expect::next_element_or_end>(reader, reader_state))
+                [[unlikely]] {
               return false;
             }
             auto ctx = make_decode_context(elem, reader, reader_state);
@@ -108,7 +109,8 @@ class Decoder<R> {
           }() && ...);
         },
         detail::as_tuple(t));
-    if (!reader.next_token(reader_state)) [[unlikely]] {
+    if (!hosq::next_token<Expect::next_element_or_end>(reader, reader_state))
+        [[unlikely]] {
       return reader.error(reader_state);
     }
     const auto& tok = reader.current_token(reader_state);
@@ -127,12 +129,14 @@ class Decoder<R> {
   static HOSQ_FUNCTION_ALWAYS_INLINE auto decode_entry(T& t, ReaderT& reader,
                                                        StateT& reader_state)
       -> bool {
-    if (!reader.next_token(reader_state)) [[unlikely]] {
+    if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
+        [[unlikely]] {
       return false;
     }
     auto key_ctx = make_decode_context(t.key(), reader, reader_state);
     t.key().decode(key_ctx);
-    if (!reader.next_token(reader_state)) [[unlikely]] {
+    if (!hosq::next_token<Expect::member_value>(reader, reader_state))
+        [[unlikely]] {
       return false;
     }
     auto value_ctx = make_decode_context(t.value(), reader, reader_state);
@@ -164,7 +168,8 @@ class Decoder<R> {
           }() && ...);
         },
         detail::as_tuple(t));
-    if (!reader.next_token(reader_state)) [[unlikely]] {
+    if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
+        [[unlikely]] {
       return reader.error(reader_state);
     }
     if (reader.current_token(reader_state).type != TokenType::ObjectEnd)
@@ -195,7 +200,8 @@ class Decoder<R> {
         std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>;
     bool matched = true;
     while (matched) [[likely]] {
-      if (!reader.next_token(reader_state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_element_or_end>(reader, reader_state))
+          [[unlikely]] {
         return reader.error(reader_state);
       }
       const auto& tok = reader.current_token(reader_state);
@@ -287,15 +293,16 @@ class Decoder<R> {
     return std::pair{const_key_entries, entries};
   }
 
-  template <std::size_t... I>
+  template <bool DeferredKey = false, std::size_t... I>
   static auto match_try_constkey_entry_tuple(auto& tuple, reader_type& reader,
                                              reader_state_type& reader_state,
                                              std::index_sequence<I...>) -> bool {
     const auto key_ctx =
         DecodeContext<void, reader_type, TryPhase::first>{reader, reader_state};
 
-    std::string_view key_view =
-        (::hosq::scan::scalar | ::hosq::decode::string_view).invoke(key_ctx);
+    auto scan_key = [&]() -> std::string_view {
+      return (::hosq::scan::scalar | ::hosq::decode::string_view).invoke(key_ctx);
+    };
 
     bool decoded = false;
     auto handlers = std::tuple{hosq::meta::make_handler<detail::try_base_t<
@@ -320,7 +327,8 @@ class Decoder<R> {
           if constexpr (std::same_as<value_raw_result_type, bool>) {
             auto checkpoint = reader_state.checkpoint();
 
-            if (!reader.next_token(reader_state)) [[unlikely]] {
+            if (!hosq::next_token<ReadPosition::member_value>(reader, reader_state))
+                [[unlikely]] {
               decoded = false;
               return;
             }
@@ -346,7 +354,8 @@ class Decoder<R> {
             decoded = true;
             return;
           } else {
-            if (!reader.next_token(reader_state)) [[unlikely]] {
+            if (!hosq::next_token<ReadPosition::member_value>(reader, reader_state))
+                [[unlikely]] {
               decoded = false;
               return;
             }
@@ -367,9 +376,13 @@ class Decoder<R> {
           }
         })...};
 
-    if (!hosq::meta::match(key_view, handlers)) {
-      return false;
+    bool matched;
+    if constexpr (requires { reader.match_const_key(reader_state, handlers, scan_key, std::bool_constant<DeferredKey>{}); }) {
+      matched = reader.match_const_key(reader_state, handlers, scan_key, std::bool_constant<DeferredKey>{});
+    } else {
+      matched = hosq::meta::match(scan_key(), handlers);
     }
+    if (!matched) return false;
 
     return decoded;
   }
@@ -420,7 +433,8 @@ class Decoder<R> {
 
         if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
           auto checkpoint = reader_state.checkpoint();
-          if (!reader.next_token(reader_state)) [[unlikely]] {
+          if (!hosq::next_token<ReadPosition::member_value>(reader, reader_state))
+              [[unlikely]] {
             return false;
           }
 
@@ -434,7 +448,8 @@ class Decoder<R> {
           }
           return true;
         } else {
-          if (!reader.next_token(reader_state)) [[unlikely]] {
+          if (!hosq::next_token<ReadPosition::member_value>(reader, reader_state))
+              [[unlikely]] {
             return false;
           }
           auto& value_elem = entry.value();
@@ -458,7 +473,8 @@ class Decoder<R> {
           key_elem.decode(key_ctx);
         }
 
-        if (!reader.next_token(reader_state)) [[unlikely]] {
+        if (!hosq::next_token<Expect::member_value>(reader, reader_state))
+            [[unlikely]] {
           return false;
         }
 
@@ -505,10 +521,27 @@ class Decoder<R> {
     constexpr auto entry_tuple_size =
         std::tuple_size_v<std::remove_cvref_t<decltype(entries)>>;
 
+    // Only the standard skip pair has no observable work before resolving
+    // its key. Custom key pipelines keep the original resolved-key contract.
+    constexpr bool deferred_key = [] {
+      if constexpr (entry_tuple_size == 1) {
+        using Entry = std::remove_cvref_t<std::tuple_element_t<0,
+            std::remove_cvref_t<decltype(entries)>>>;
+        if constexpr (requires { typename Entry::key_type::decoder_type;
+                                 typename Entry::value_type::decoder_type; }) {
+          return std::same_as<typename Entry::key_type::decoder_type,
+                     std::remove_cvref_t<decltype(scan::scalar | decode::skip)>> &&
+                 std::same_as<typename Entry::value_type::decoder_type,
+                     std::remove_cvref_t<decltype(decode::skip)>>;
+        }
+      }
+      return false;
+    }();
     bool matched = true;
 
     while (matched) [[likely]] {
-      if (!reader.next_token(reader_state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
+          [[unlikely]] {
         return reader.error(reader_state);
       }
 
@@ -520,7 +553,7 @@ class Decoder<R> {
       matched = false;
 
       if constexpr (const_key_tuple_size > 0) {
-        matched = match_try_constkey_entry_tuple(
+        matched = match_try_constkey_entry_tuple<deferred_key>(
             const_key_entries, reader, reader_state,
             std::make_index_sequence<const_key_tuple_size>{});
       }

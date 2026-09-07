@@ -24,6 +24,22 @@
 
 namespace hosq {
 
+namespace detail {
+// Execution-only fusion for adjacent built-in steps. Analysis still sees the
+// original steps, including their storage and const-callability contracts.
+template <class First, class Second>
+struct PipelineFusion {};
+
+template <class Context, auto... Fns>
+inline constexpr bool pipeline_fusible = false;
+template <class Context, auto First, auto Second, auto... Rest>
+inline constexpr bool pipeline_fusible<Context, First, Second, Rest...> =
+    requires(Context& ctx) {
+      PipelineFusion<std::remove_cvref_t<decltype(First)>,
+                     std::remove_cvref_t<decltype(Second)>>{}(ctx);
+    };
+}  // namespace detail
+
 /**
  * @brief A compile-time pipeline of constexpr action objects applied
  * sequentially.
@@ -103,8 +119,15 @@ struct Pipeline {
   using final_output_type = detail::pipeline_terminal_t<info<Input, Context>>;
 
   /**
-   * @brief Invokes this pipeline from an explicit input value using a mutable
-   * context.
+   * @brief Invokes this pipeline from an explicit input value.
+   *
+   * `Context` is deduced together with its cv-qualification (forwarding
+   * reference), so this single overload serves both mutable and const
+   * contexts: every internal use of `Context&` reference-collapses to
+   * `C&` or `const C&` matching the caller's argument. The const/mutable
+   * dispatch semantics are identical to having two separate overloads —
+   * a step requiring a mutable context is simply not callable when the
+   * caller passes a const context.
    *
    * Steps are matched left-to-right by their call signature. Context-aware
    * forms are tried before no-context forms. The return value of each step
@@ -129,16 +152,16 @@ struct Pipeline {
    * error state after pipeline execution.
    *
    * @tparam Input Input value type for the first step.
-   * @tparam Context Mutable context type used by context-aware steps.
+   * @tparam Context Context type, deduced with cv-qualification.
    * @param input Input value consumed by the first step.
-   * @param ctx Mutable pipeline context.
+   * @param ctx Pipeline context (mutable or const).
    * @return The final pipeline result. Terminal plain values are returned
    *         as-is; a terminal `MatchResult` step yields `bool`.
    */
   template <class Input, class Context>
   [[nodiscard]]
   HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Input input,
-                                                           Context& ctx) {
+                                                           Context&& ctx) {
     return []<auto FnHead, auto... FnTail>(Input input,
                                            Context& ctx) -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
@@ -250,159 +273,15 @@ struct Pipeline {
   };
 
   /**
-   * @brief Invokes this pipeline from an explicit input value using a const
-   * context.
+   * @brief Invokes this pipeline without an explicit input value.
    *
-   * Steps are matched left-to-right by their call signature. Context-aware
-   * forms taking `const Context&` are tried before no-context forms. The
-   * return value of each step flows as the input to the next step.
+   * Used when the first step takes no data input. As with the input-taking
+   * overload, `Context` is deduced together with its cv-qualification, so
+   * this single overload serves both mutable and const contexts.
    *
-   * Supported step signatures, tried in priority order:
-   * - `Fn(input, ctx) -> void`
-   * - `Fn(input, ctx) -> MatchResult`
-   * - `Fn(input, ctx) -> Out`
-   * - `Fn(input) -> void`
-   * - `Fn(input) -> MatchResult`
-   * - `Fn(input) -> Out`
-   *
-   * Plain return values are forwarded directly. If a step returns `void`,
-   * the next step is invoked without an explicit input value. If a step
-   * returns a `MatchResult` that is empty, the pipeline short-circuits and
-   * returns `false`; otherwise the inner value is unwrapped and forwarded.
-   *
-   * Pipeline invocation does not propagate hard errors through return values.
-   * Steps that encounter hard errors should report them through the context
-   * or reader state. The top-level decoder is responsible for checking that
-   * error state after pipeline execution.
-   *
-   * @tparam Input Input value type for the first step.
-   * @tparam Context Const context type used by context-aware steps.
-   * @param input Input value consumed by the first step.
-   * @param ctx Const pipeline context.
-   * @return The final pipeline result. Terminal plain values are returned
-   *         as-is; a terminal `MatchResult` step yields `bool`.
-   */
-  template <class Input, class Context>
-  [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Input input,
-                                                           const Context& ctx) {
-    return []<auto FnHead, auto... FnTail>(
-               Input input, const Context& ctx) -> decltype(auto) {
-      using Head = std::remove_cvref_t<decltype(FnHead)>;
-      constexpr auto Fn = FnHead;
-      constexpr bool last_function = sizeof...(FnTail) == 0;
-
-      // 1. Fn(input, ctx) -> void
-      if constexpr (  //
-          requires(Input i, const Context& c) {
-            { Fn(std::move(i), c) } -> std::same_as<void>;
-          }) {
-        if constexpr (last_function) {
-          return Fn(std::move(input), ctx);
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Fn(std::move(input), ctx), Pipe::invoke(ctx);
-        }
-      }
-      // 2. Fn(input, ctx) -> MatchResult
-      else if constexpr (  //
-          requires(Input i, const Context& c) {
-            { Fn(std::move(i), c) } -> detail::MatchResultT;
-          }) {
-        if constexpr (last_function) {
-          return bool(Fn(std::move(input), ctx));
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          auto ret = Fn(std::move(input), ctx);
-          if (!ret) {
-            return false;
-          }
-          if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
-                           void>) {
-            Pipe::invoke(std::move(ret).value(), ctx);
-            return true;
-          } else {
-            return Pipe::invoke(std::move(ret).value(), ctx);
-          }
-        }
-      }
-      // 3. Fn(input, ctx) -> AfterType
-      else if constexpr (  //
-          requires(Input i, const Context& c) {
-            { Fn(std::move(i), c) };
-          }) {
-        if constexpr (last_function) {
-          return Fn(std::move(input), ctx);
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Pipe::invoke(Fn(std::move(input), ctx), ctx);
-        }
-      }
-      // 4. Fn(input) -> void
-      else if constexpr (  //
-          requires(Input i) {
-            { Fn(std::move(i)) } -> std::same_as<void>;
-          }) {
-        if constexpr (last_function) {
-          return Fn(std::move(input));
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Fn(std::move(input)), Pipe::invoke(ctx);
-        }
-      }
-      // 5. Fn(input) -> MatchResult
-      else if constexpr (  //
-          requires(Input i) {
-            { Fn(std::move(i)) } -> detail::MatchResultT;
-          }) {
-        if constexpr (last_function) {
-          return bool(Fn(std::move(input)));
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          auto ret = Fn(std::move(input));
-          if (!ret) {
-            return false;
-          }
-          if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
-                           void>) {
-            Pipe::invoke(std::move(ret).value(), ctx);
-            return true;
-          } else {
-            return Pipe::invoke(std::move(ret).value(), ctx);
-          }
-        }
-      }
-      // 6. Fn(input) -> AfterType
-      else if constexpr (  //
-          requires(Input i) {
-            { Fn(std::move(i)) };
-          }) {
-        if constexpr (last_function) {
-          return Fn(std::move(input));
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Pipe::invoke(Fn(std::move(input)), ctx);
-        }
-      } else {
-        static_assert(
-            detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<Input> is non-void, "
-            "so the step must be callable as one of: "
-            "Fn(input, ctx) -> after_type<Input>, "
-            "Fn(input) -> after_type<Input>, ");
-      }
-    }.template operator()<Fns...>(std::move(input), ctx);
-  };
-
-  /**
-   * @brief Invokes this pipeline without an explicit input value using a mutable
-   * context.
-   *
-   * Used when the first step takes no data input. Steps are matched by their
-   * call signature; context-aware forms are tried before no-argument forms.
-   * The return value of each step flows as the input to the next step.
+   * Steps are matched by their call signature; context-aware forms are tried
+   * before no-argument forms. The return value of each step flows as the
+   * input to the next step.
    *
    * Supported step signatures, tried in priority order:
    * - `Fn(ctx) -> void`
@@ -422,21 +301,28 @@ struct Pipeline {
    * or reader state. The top-level decoder is responsible for checking that
    * error state after pipeline execution.
    *
-   * @tparam Context Mutable context type used by context-aware steps.
-   * @param ctx Mutable pipeline context.
+   * @tparam Context Context type, deduced with cv-qualification.
+   * @param ctx Pipeline context (mutable or const).
    * @return The final pipeline result. Terminal plain values are returned
    *         as-is; a terminal `MatchResult` step yields `bool`.
    */
   template <class Context>
   [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Context& ctx) {
-    return []<auto FnHead, auto... FnTail>(Context& ctx) -> decltype(auto) {
+  HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Context&& ctx) {
+    return []<auto FnHead, auto... FnTail>(Context& ctx) HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
 
+      if constexpr (detail::pipeline_fusible<Context, FnHead, FnTail...>) {
+        return []<auto Next, auto... Rest>(Context& c) HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+          using Fused = detail::PipelineFusion<
+              Head, std::remove_cvref_t<decltype(Next)>>;
+          return Pipeline<Fused{}, Rest...>::invoke(c);
+        }.template operator()<FnTail...>(ctx);
+      }
       // 1. Fn(ctx) -> void
-      if constexpr (  //
+      else if constexpr (  //
           requires(Context& c) {
             { Fn(c) } -> std::same_as<void>;
           }) {
@@ -539,150 +425,6 @@ struct Pipeline {
     }.template operator()<Fns...>(ctx);
   };
 
-  /**
-   * @brief Invokes this pipeline without an explicit input value using a const
-   * context.
-   *
-   * Used when the pipeline is invoked without an explicit input value.
-   * Steps are matched by their call signature; context-aware forms taking
-   * `const Context&` are tried before no-argument forms. The return value of
-   * each step flows as the input to the next step.
-   *
-   * Supported step signatures, tried in priority order:
-   * - `Fn(ctx) -> void`
-   * - `Fn(ctx) -> MatchResult`
-   * - `Fn(ctx) -> Out`
-   * - `Fn() -> void`
-   * - `Fn() -> MatchResult`
-   * - `Fn() -> Out`
-   *
-   * Plain return values are forwarded directly. If a step returns `void`,
-   * the next step is invoked without an explicit input value. If a step
-   * returns a `MatchResult` that is empty, the pipeline short-circuits and
-   * returns `false`; otherwise the inner value is unwrapped and forwarded.
-   *
-   * Pipeline invocation does not propagate hard errors through return values.
-   * Steps that encounter hard errors should report them through the context
-   * or reader state. The top-level decoder is responsible for checking the
-   * final reader error state after pipeline execution.
-   *
-   * @tparam Context Const context type used by context-aware steps.
-   * @param ctx Const pipeline context.
-   * @return The final pipeline result. Terminal plain values are returned
-   *         as-is; a terminal `MatchResult` step yields `bool`.
-   */
-  template <class Context>
-  [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(const Context& ctx) {
-    return []<auto FnHead, auto... FnTail>(
-               const Context& ctx) -> decltype(auto) {
-      using Head = std::remove_cvref_t<decltype(FnHead)>;
-      constexpr auto Fn = FnHead;
-      constexpr bool last_function = sizeof...(FnTail) == 0;
-
-      // 1. Fn(ctx) -> void
-      if constexpr (  //
-          requires(const Context& c) {
-            { Fn(c) } -> std::same_as<void>;
-          }) {
-        if constexpr (last_function) {
-          return Fn(ctx);
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Fn(ctx), Pipe::invoke(ctx);
-        }
-      }
-      // 2. Fn(ctx) -> MatchResult
-      else if constexpr (  //
-          requires(const Context& c) {
-            { Fn(c) } -> detail::MatchResultT;
-          }) {
-        if constexpr (last_function) {
-          return bool(Fn(ctx));
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          auto ret = Fn(ctx);
-          if (!ret) {
-            return false;
-          }
-          if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
-                           void>) {
-            Pipe::invoke(std::move(ret).value(), ctx);
-            return true;
-          } else {
-            return Pipe::invoke(std::move(ret).value(), ctx);
-          }
-        }
-      }
-      // 3. Fn(ctx) -> AfterType
-      else if constexpr (  //
-          requires(const Context& c) {
-            { Fn(c) };
-          }) {
-        if constexpr (last_function) {
-          return Fn(ctx);
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Pipe::invoke(Fn(ctx), ctx);
-        }
-      }
-      // 4. Fn() -> void
-      else if constexpr (  //
-          requires() {
-            { Fn() } -> std::same_as<void>;
-          }) {
-        if constexpr (last_function) {
-          return Fn();
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Fn(), Pipe::invoke(ctx);
-        }
-      }
-      // 5. Fn() -> MatchResult
-      else if constexpr (  //
-          requires() {
-            { Fn() } -> detail::MatchResultT;
-          }) {
-        if constexpr (last_function) {
-          return bool(Fn());
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          auto ret = Fn();
-          if (!ret) {
-            return false;
-          }
-          if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
-                           void>) {
-            Pipe::invoke(std::move(ret).value(), ctx);
-            return true;
-          } else {
-            return Pipe::invoke(std::move(ret).value(), ctx);
-          }
-        }
-      }
-      // 6. Fn() -> AfterType
-      else if constexpr (  //
-          requires() {
-            { Fn() };
-          }) {
-        if constexpr (last_function) {
-          return Fn();
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Pipe::invoke(Fn(), ctx);
-        }
-      } else {
-        static_assert(
-            detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<Input> is non-void, "
-            "so the step must be callable as one of: "
-            "Fn(input, ctx) -> after_type<Input>, "
-            "Fn(input) -> after_type<Input>, ");
-      }
-    }.template operator()<Fns...>(ctx);
-  };
 };
 
 /// Convenience variable template that wraps a default-constructed `T` as a

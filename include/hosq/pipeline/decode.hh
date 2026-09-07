@@ -11,11 +11,13 @@
 #include <vector>
 
 #include "hosq/context.hh"
+#include "hosq/detail/number_parse.hh"
 #include "hosq/detail/pipeline_analysis.hh"
 #include "hosq/detail/pipeline_analysis_io.hh"
 #include "hosq/detail/type_traits.hh"
 #include "hosq/error.hh"
 #include "hosq/pipeline.hh"
+#include "hosq/pipeline/scan.hh"
 #include "hosq/view.hh"
 
 namespace hosq::ext {
@@ -87,6 +89,8 @@ struct DecodeSkipValue {
 
 template <ReaderConcept R>
 struct DecodeNumber {
+  using reader_fusion = DecodeNumber;
+
   template <class T, class Context>
   auto operator()(const ScalarView&, const Context& ctx) const
       -> std::remove_cvref_t<T> {
@@ -98,7 +102,7 @@ struct DecodeNumber {
     const char* first = bytes.as_string_view().data() + tok.offset;
     const char* last = bytes.as_string_view().data() + tok.offset + tok.length;
 
-    const auto result = std::from_chars(first, last, value);
+    const auto result = hosq::detail::number_from_chars(first, last, value);
 
     if (result.ec == std::errc::result_out_of_range) [[unlikely]] {
       ctx.reader().report_error(
@@ -128,6 +132,8 @@ struct DecodeNumber {
 
 template <ReaderConcept R>
 struct DecodeNumberInto {
+  using reader_fusion = DecodeNumberInto;
+
   template <class T, class Context>
   auto operator()(const ScalarView&, const Context& ctx) const -> void {
     const Token& tok = ctx.reader().current_token(ctx.reader_state());
@@ -135,7 +141,7 @@ struct DecodeNumberInto {
     const char* first = bytes.as_string_view().data() + tok.offset;
     const char* last = bytes.as_string_view().data() + tok.offset + tok.length;
 
-    const auto result = std::from_chars(first, last, ctx.value());
+    const auto result = hosq::detail::number_from_chars(first, last, ctx.value());
 
     if (result.ec == std::errc::result_out_of_range) [[unlikely]] {
       ctx.reader().report_error(
@@ -289,7 +295,8 @@ struct EachImpl<Pipeline> {
         "decode::each<P> context storage must be std::vector<PipelineStorage>");
 
     while (true) {
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
+          [[unlikely]] {
         ctx.value().clear();
         return hosq::detail::terminal_return<terminal_type>(false);
       }
@@ -363,7 +370,8 @@ struct EachImpl<Pipeline, N> {
     auto& state = ctx.reader_state();
     size_t index = 0;
     while (index < N) {
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
+          [[unlikely]] {
         return hosq::detail::terminal_return<terminal_type>(false);
       }
       const auto& tok = reader.current_token(state);
@@ -388,7 +396,8 @@ struct EachImpl<Pipeline, N> {
       }
       index++;
     }
-    if (!reader.next_token(state)) [[unlikely]] {
+    if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
+        [[unlikely]] {
       return hosq::detail::terminal_return<terminal_type>(false);
     }
     const auto& tok = reader.current_token(state);
@@ -489,7 +498,8 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
     auto& state = ctx.reader_state();
 
     while (true) {
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
+          [[unlikely]] {
         ctx.value().clear();
         return hosq::detail::terminal_return<pipeline_output_type>(false);
       }
@@ -509,7 +519,7 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
       } else {
         key_pipeline_type::invoke(key_ctx);
       }
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
         ctx.value().clear();
         return hosq::detail::terminal_return<pipeline_output_type>(false);
       }
@@ -613,7 +623,8 @@ struct EachImpl<KeyPipeline, ValuePipeline, N> {
 
     size_t index = 0;
     while (index < N) {
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
+          [[unlikely]] {
         return hosq::detail::terminal_return<pipeline_output_type>(false);
       }
       const auto& tok = reader.current_token(state);
@@ -636,7 +647,7 @@ struct EachImpl<KeyPipeline, ValuePipeline, N> {
       } else {
         key_pipeline_type::invoke(key_ctx);
       }
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
         return hosq::detail::terminal_return<pipeline_output_type>(false);
       }
       auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
@@ -650,7 +661,8 @@ struct EachImpl<KeyPipeline, ValuePipeline, N> {
       }
       index++;
     }
-    if (!reader.next_token(state)) [[unlikely]] {
+    if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
+        [[unlikely]] {
       return hosq::detail::terminal_return<pipeline_output_type>(false);
     }
     const auto& tok = reader.current_token(state);
@@ -716,7 +728,8 @@ struct CollectImpl<Pipeline> {
     auto ret = std::vector<terminal_type>{};
 
     while (true) {
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
+          [[unlikely]] {
         return ret;
       }
 
@@ -773,7 +786,8 @@ struct CollectImpl<Pipeline, N> {
     std::size_t index = 0;
 
     while (index < N) {
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
+          [[unlikely]] {
         return ret;
       }
 
@@ -793,7 +807,8 @@ struct CollectImpl<Pipeline, N> {
       ++index;
     }
 
-    if (!reader.next_token(state)) [[unlikely]] {
+    if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
+        [[unlikely]] {
       return ret;
     }
 
@@ -885,7 +900,8 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
     auto ret = output_type{};
 
     while (true) {
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
+          [[unlikely]] {
         return ret;
       }
 
@@ -897,7 +913,7 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
       DecodeContext<void, R, TryPhase::first> key_ctx{reader, state};
       ret.keys().push_back(key_pipeline_type::invoke(key_ctx));
 
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
         return ret;
       }
 
@@ -982,7 +998,8 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
     std::size_t index = 0;
 
     while (index < N) {
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
+          [[unlikely]] {
         return ret;
       }
 
@@ -1000,7 +1017,7 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
       DecodeContext<void, R, TryPhase::first> key_ctx{reader, state};
       ret.keys()[index] = key_pipeline_type::invoke(key_ctx);
 
-      if (!reader.next_token(state)) [[unlikely]] {
+      if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
         return ret;
       }
 
@@ -1010,7 +1027,8 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
       ++index;
     }
 
-    if (!reader.next_token(state)) [[unlikely]] {
+    if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
+        [[unlikely]] {
       return ret;
     }
 
@@ -1137,3 +1155,60 @@ template <class T>
 inline constexpr auto to = step<detail::ToImpl<T>>;
 
 }  // namespace hosq::decode
+
+#if defined(__GNUC__) || defined(__clang__)
+#define HOSQ_FUSION_INLINE inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define HOSQ_FUSION_INLINE __forceinline
+#else
+#define HOSQ_FUSION_INLINE inline
+#endif
+
+namespace hosq::detail {
+// A self tag avoids accidentally inheriting fusion when overriding an ext.
+template <class Ext>
+concept ReaderFusion = requires {
+  typename Ext::reader_fusion;
+  requires std::same_as<typename Ext::reader_fusion, Ext>;
+};
+
+template <decode::detail::Number T>
+struct PipelineFusion<scan::detail::ScanScalar, decode::detail::NumberImpl<T>> {
+  template <class Ctx>
+    requires requires(Ctx& ctx, const ScalarView& view,
+                      std::remove_cvref_t<T>& value) {
+      requires ReaderFusion<ext::ScanScalar<
+          typename std::remove_cvref_t<Ctx>::reader_type>>;
+      requires ReaderFusion<ext::DecodeNumber<
+          typename std::remove_cvref_t<Ctx>::reader_type>>;
+      decode::detail::NumberImpl<T>{}(view, ctx);
+      ctx.reader().template read_number<std::remove_cvref_t<T>>(
+          ctx.reader_state(), value);
+    }
+  HOSQ_FUSION_INLINE auto operator()(Ctx& ctx) const -> std::remove_cvref_t<T> {
+    std::remove_cvref_t<T> value{};
+    ctx.reader().template read_number<std::remove_cvref_t<T>>(
+        ctx.reader_state(), value);
+    return value;
+  }
+};
+
+template <decode::detail::Number T>
+struct PipelineFusion<scan::detail::ScanScalar,
+                      decode::detail::NumberIntoImpl<T>> {
+  template <class Ctx>
+    requires requires(Ctx& ctx, const ScalarView& view) {
+      requires ReaderFusion<ext::ScanScalar<
+          typename std::remove_cvref_t<Ctx>::reader_type>>;
+      requires ReaderFusion<ext::DecodeNumberInto<
+          typename std::remove_cvref_t<Ctx>::reader_type>>;
+      decode::detail::NumberIntoImpl<T>{}(view, ctx);
+      ctx.reader().template read_number<T, true>(ctx.reader_state(), ctx.value());
+    }
+  HOSQ_FUSION_INLINE auto operator()(Ctx& ctx) const -> void {
+    ctx.reader().template read_number<T, true>(ctx.reader_state(), ctx.value());
+  }
+};
+}  // namespace hosq::detail
+
+#undef HOSQ_FUSION_INLINE
