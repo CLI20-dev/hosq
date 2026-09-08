@@ -1,19 +1,63 @@
-# Minimal end-to-end JSON comparison
-
-Latest implementation: [matched-member InputView results](../../docs/matched-member-input-study.md).
-The preceding [three-library comparison](../../docs/benchmark-current-threeway.md) covers
-Compact inputs and paired Pretty selections.
-The [processing-flow checkpoint](../../docs/reader-flow-checkpoint.md) records the next investigation.
-
-For the current **typed Glaze + selected-field skip** comparison, use
-`hosq_static_comparison` and see [the static three-library report](../../docs/benchmark-static-threeway.md).
-It includes twelve workloads, paired before controls, and reproducible chart scripts.
-The sections below describe the earlier generic comparison.
+# JSON comparison benchmarks
 
 This suite asks where HOSQ's processing model helps or costs time. It is not a
 parser-only ranking, a conformance suite, or a Cartesian product of every knob.
-See [the three-library results and chart](../../docs/benchmark-glaze.md).
-The [earlier two-library results](../../docs/benchmark-comparison.md) used a different run environment.
+
+## Typed comparison (primary)
+
+Use `hosq_static_comparison` to compare typed HOSQ and Glaze pipelines with yyjson.
+The twelve cases cover small/medium/large input, id-only/five-field/all-field
+selection, wide objects with the selected key first or last, mixed numbers, and
+raw UTF-8 versus escaped strings. Five-field selection reads id and payload's
+name, count, ratio, and ok.
+
+Glaze uses typed metadata for both selected and complete output, with
+`error_on_unknown_keys=false` and `partial_read=false` for selection. HOSQ uses
+unordered constant-key matching plus skip for selection; its all-field Entry
+schemas assume declared key order. Glaze's object reader accepts arbitrary
+order. Do not interpret these all-field cases as equal ordering guarantees.
+
+Each implementation creates a fresh output vector, computes the same digest,
+and destroys the output within timing. yyjson also builds and frees its DOM;
+multiple selected fields use one traversal, not repeated linear lookups. HOSQ
+and Glaze borrow string views and use common unescape/hash processing; yyjson
+provides decoded strings. Input preparation is outside timing, while Glaze's
+read-time padding is inside. HOSQ uses bounded input and bundled fast_float.
+All implementations must match a Python-generated independent digest and consume
+the complete input. These valid-input workloads do not equalize UTF-8 or skipped
+value validation guarantees.
+
+Reproduce with pinned yyjson 0.12.0 and Glaze 8.3.0 sources, Google Benchmark
+(the recorded run used 1.9.5), and a matching C/C++ toolchain:
+
+```sh
+cmake -S bench/comparison -B build/comparison -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DYYJSON_SOURCE=/path/to/yyjson/src/yyjson.c \
+  -DGLAZE_SOURCE_DIR=/path/to/glaze-v8.3.0
+cmake --build build/comparison --target hosq_static_comparison static_comparison_fixtures
+python3 bench/comparison/run_static.py build/comparison/hosq_static_comparison \
+  build/comparison/fixtures-static bench/comparison/results/run1 --seed 2026090801
+python3 bench/comparison/run_static.py build/comparison/hosq_static_comparison \
+  build/comparison/fixtures-static bench/comparison/results/run2 --seed 2026090802
+python3 bench/comparison/summarize_static.py bench/comparison/results/run1 \
+  bench/comparison/results/run2 bench/comparison/results/summary
+python3 bench/comparison/plot_static.py bench/comparison/results/summary/chart-data.json \
+  bench/comparison/results/summary/comparison
+```
+
+Plotting requires Matplotlib. The runner uses separate sequential processes and
+five repetitions of at least 0.1 seconds, shuffling execution order by seed.
+Keep power/load conditions stable and do not compile or profile during timing.
+Chart ranges show variation between runs, not confidence intervals. An optional
+`--before-executable PATH` runs matched controls built from another header snapshot.
+Keep generated results untracked. The [checkpoint](../../docs/reader-flow-checkpoint.md)
+retains the latest focused measurement; superseded experiment reports are omitted.
+
+## Generic comparison (diagnostic)
+
+The remaining sections describe `hosq_comparison`, whose full-value cases use
+generic traversal. They do not establish typed-deserialization performance.
 
 Twelve workloads, three implementations, plus paired static-schema controls give
 38 measurements. Every workload has a distinct diagnostic purpose.
