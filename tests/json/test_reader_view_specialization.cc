@@ -167,8 +167,10 @@ void guarded_members() {
   ASSERT_NE(memory,MAP_FAILED);
   ASSERT_EQ(mprotect(memory+page,page,PROT_NONE),0);
   const std::size_t padding=static_cast<std::size_t>(P);
-  for (std::string text : {R"({"id":true})", R"({"id":false})", R"({"id":"escaped\"text"})", R"({"id":18446744073709551615})"}) {
+  for (std::string text : {R"({"id":true})", R"({"id":false})",
+      R"({"id":trueX})", R"({"id":falseX})", R"({"id":"escaped\"text"})", R"({"id":18446744073709551615})"}) {
     for(std::size_t n=0;n<=text.size();++n) {
+      SCOPED_TRACE(text.substr(0,n));
       auto* begin=memory+page-padding-n;
       std::memcpy(begin,text.data(),n);
       std::memset(begin+n,0,padding);
