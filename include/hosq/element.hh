@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hosq/detail/compiler.hh"
+
 #include <type_traits>
 
 #include "hosq/context.hh"
@@ -8,16 +10,6 @@
 #include "hosq/pipeline.hh"
 
 namespace hosq {
-
-#ifndef HOSQ_ALWAYS_INLINE
-#if defined(__GNUC__) || defined(__clang__)
-#define HOSQ_ALWAYS_INLINE inline __attribute__((always_inline))
-#elif defined(_MSC_VER)
-#define HOSQ_ALWAYS_INLINE __forceinline
-#else
-#define HOSQ_ALWAYS_INLINE inline
-#endif
-#endif
 
 template <auto Decoder, auto Encoder>
 struct Elem {
@@ -173,7 +165,5 @@ template <detail::ElemT T>
 constexpr auto as_tuple(T&) = delete;
 template <detail::ElemT T>
 constexpr auto as_tuple(const T&) = delete;
-
-#undef HOSQ_ALWAYS_INLINE
 
 }  // namespace hosq

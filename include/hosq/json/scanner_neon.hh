@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hosq/detail/compiler.hh"
+
 #include <arm_neon.h>
 
 #include <array>
@@ -10,16 +12,6 @@
 #include <string_view>
 
 namespace hosq {
-
-#ifndef HOSQ_ALWAYS_INLINE
-#if defined(__GNUC__) || defined(__clang__)
-#define HOSQ_ALWAYS_INLINE inline __attribute__((always_inline))
-#elif defined(_MSC_VER)
-#define HOSQ_ALWAYS_INLINE __forceinline
-#else
-#define HOSQ_ALWAYS_INLINE inline
-#endif
-#endif
 
 class ScannerNeon {
  public:
@@ -216,7 +208,5 @@ class ScannerNeon {
     return mask;
   }
 };
-
-#undef HOSQ_ALWAYS_INLINE
 
 }  // namespace hosq

@@ -10,6 +10,7 @@ namespace hosq::ext {
 
 template <ReaderConcept R>
 struct ScanScalar {
+
   template <class T, TryPhase Phase>
   auto operator()(const DecodeContext<T, R, Phase>& ctx) const -> ScalarView {
     const R& reader = ctx.reader();
@@ -69,19 +70,27 @@ namespace hosq::scan::detail {
 
 template <class Ext, class Ctx>
 concept CanScanScalarCtx = requires(const Ext& ext, Ctx&& ctx) {
-  { ext(static_cast<Ctx&&>(ctx)) } -> std::same_as<ScalarView>;
+  { ext(static_cast<Ctx&&>(ctx)) };
 };
 
 struct ScanScalar {
+  template <class Input, class Context>
+    requires requires(const Input& input, Context& ctx) {
+      ext::ScanScalar<typename std::remove_cvref_t<Context>::reader_type>{}(input, ctx);
+    }
+  HOSQ_ALWAYS_INLINE auto operator()(const Input& input, Context& ctx) const {
+    return ext::ScanScalar<typename std::remove_cvref_t<Context>::reader_type>{}(input, ctx);
+  }
+
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> ScalarView
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const
     requires CanScanScalarCtx<ext::ScanScalar<R>, DecodeContext<T, R, Phase>&>
   {
     return ext::ScanScalar<R>{}(ctx);
   }
 
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(const DecodeContext<T, R, Phase>& ctx) const -> ScalarView
+  auto operator()(const DecodeContext<T, R, Phase>& ctx) const
     requires CanScanScalarCtx<ext::ScanScalar<R>,
                               const DecodeContext<T, R, Phase>&>
   {
@@ -98,7 +107,7 @@ struct ScanObject {
 
 struct ScanArray {
   template <class T, ReaderConcept R, TryPhase Phase>
-  auto operator()(DecodeContext<T, R, Phase>& ctx) const -> ArrayView {
+  auto operator()(DecodeContext<T, R, Phase>& ctx) const {
     return ext::ScanArray<R>{}(ctx);
   }
 };

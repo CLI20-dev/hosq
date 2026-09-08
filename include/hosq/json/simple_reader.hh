@@ -13,7 +13,7 @@ namespace hosq {
 
 namespace json {
 
-class SimpleReader {
+class SimpleReader : public ReaderBase<SimpleReader> {
  public:
   using input_type = std::string_view;
 
@@ -74,7 +74,7 @@ class SimpleReader {
   }
 
   [[nodiscard]]
-  auto next_token(state_type& state) -> bool {
+  auto next_token_impl(state_type& state) -> bool {
     if (state.has_error) [[unlikely]] {
       return false;
     }
