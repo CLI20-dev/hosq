@@ -1,5 +1,15 @@
 # Minimal end-to-end JSON comparison
 
+Latest implementation: [matched-member InputView results](../../docs/matched-member-input-study.md).
+The preceding [three-library comparison](../../docs/benchmark-current-threeway.md) covers
+Compact inputs and paired Pretty selections.
+The [processing-flow checkpoint](../../docs/reader-flow-checkpoint.md) records the next investigation.
+
+For the current **typed Glaze + selected-field skip** comparison, use
+`hosq_static_comparison` and see [the static three-library report](../../docs/benchmark-static-threeway.md).
+It includes twelve workloads, paired before controls, and reproducible chart scripts.
+The sections below describe the earlier generic comparison.
+
 This suite asks where HOSQ's processing model helps or costs time. It is not a
 parser-only ranking, a conformance suite, or a Cartesian product of every knob.
 See [the three-library results and chart](../../docs/benchmark-glaze.md).

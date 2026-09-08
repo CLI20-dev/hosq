@@ -40,6 +40,19 @@ struct Token {
   std::uint8_t context;
 };
 
+namespace ext {
+// Execute a decoding scope with a concrete Reader. A specialization may select
+// another Reader sharing the same state; selection happens outside its pipeline.
+template <class R>
+struct ReaderDispatch {
+  template <class State, class Function>
+  HOSQ_ALWAYS_INLINE decltype(auto) operator()(R& reader, State&,
+                                             Function&& function) const {
+    return std::forward<Function>(function)(&reader);
+  }
+};
+}  // namespace ext
+
 template <class T>
 concept ReaderStateConcept = requires(T state) {
   { state.rollback(state.checkpoint()) } -> std::same_as<void>;

@@ -25,8 +25,21 @@ if(CXX_HOSQ_USE_FAST_FLOAT)
 else()
   target_compile_definitions(hosq_comparison PRIVATE HOSQ_USE_FAST_FLOAT=0)
 endif()
+
+add_executable(hosq_static_comparison static_comparison.cc)
+target_include_directories(hosq_static_comparison SYSTEM PRIVATE "${GLAZE_SOURCE_DIR}/include")
+target_include_directories(hosq_static_comparison PRIVATE ../../include)
+target_link_libraries(hosq_static_comparison PRIVATE comparison_yyjson benchmark::benchmark)
+if(CXX_HOSQ_USE_FAST_FLOAT)
+  target_compile_definitions(hosq_static_comparison PRIVATE HOSQ_USE_FAST_FLOAT=1)
+else()
+  target_compile_definitions(hosq_static_comparison PRIVATE HOSQ_USE_FAST_FLOAT=0)
+endif()
 add_custom_target(comparison_fixtures
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/generate.py" "${CMAKE_CURRENT_BINARY_DIR}/fixtures"
+  VERBATIM)
+add_custom_target(static_comparison_fixtures
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/generate_static.py" "${CMAKE_CURRENT_BINARY_DIR}/fixtures-static"
   VERBATIM)
 
 # Explicit diagnostic target; not part of the minimal default workload set.

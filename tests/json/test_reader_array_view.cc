@@ -17,7 +17,7 @@
 #include "hosq/hosq.hh"
 #include "hosq/json/fast_reader.hh"
 
-namespace array_fusion_test {
+namespace array_view_test {
 
 using namespace hosq;
 
@@ -29,6 +29,7 @@ struct CustomDecodeTag;
 template <class Tag, json::InputPadding Padding = json::InputPadding::none>
 struct InstrumentedReader : json::FastReader<128, Padding> {
   using Base = json::FastReader<128, Padding>;
+  static constexpr auto padding = Padding;
   using input_type = typename Base::input_type;
   using state_type = typename Base::state_type;
 
@@ -44,7 +45,7 @@ struct InstrumentedReader : json::FastReader<128, Padding> {
 };
 
 template <json::InputPadding Padding = json::InputPadding::none>
-using FusedReader = InstrumentedReader<FusedTag, Padding>;
+using FusedReader = json::FastReader<128, Padding>;
 
 template <json::InputPadding Padding = json::InputPadding::none>
 using OrdinaryReader = InstrumentedReader<OrdinaryTag, Padding>;
@@ -54,26 +55,11 @@ using CustomDecodeReader = InstrumentedReader<CustomDecodeTag>;
 
 template <class Reader, class Storage, TryPhase Phase>
 void resolve_fast_scalar(const DecodeContext<Storage, Reader, Phase>& ctx) {
-  const auto& reader = ctx.reader();
-  auto& state = const_cast<typename Reader::state_type&>(ctx.reader_state());
-  auto& token = reader.current_token(state);
-  if (token.type != TokenType::Scalar) {
-    reader.report_error(
-        state, Error{.code = ErrorCode::type_mismatch,
-                     .offset = token.offset,
-                     .detail = "instrumented scan expected scalar"});
-    return;
-  }
-  if (token.length == unresolved_length) {
-    if (!reader.resolve_skip(state)) {
-      reader.report_error(state, reader.error(state));
-    }
-  } else if (token.context ==
-             static_cast<std::uint8_t>(JsonTokenContext::string)) {
-    state.pos = state.begin + token.offset + token.length + 1;
-  } else {
-    state.pos = state.begin + token.offset + token.length;
-  }
+  using Base = json::FastReader<128, Reader::padding>;
+  auto& reader = const_cast<Base&>(static_cast<const Base&>(ctx.reader()));
+  auto& state = const_cast<typename Base::state_type&>(ctx.reader_state());
+  const DecodeContext<void, Base> canonical{reader, state};
+  (void)ext::ScanScalar<Base>::resolved(canonical);
 }
 
 template <class Reader>
@@ -99,36 +85,19 @@ auto invoke_fixed(Reader& reader, typename Reader::state_type& state)
   return std::remove_cvref_t<decltype(fixed_numbers<T, N>)>::invoke(ctx);
 }
 
-}  // namespace array_fusion_test
+}  // namespace array_view_test
 
 namespace hosq::ext {
 
 template <json::InputPadding Padding>
-struct ScanScalar<array_fusion_test::InstrumentedReader<
-    array_fusion_test::FusedTag, Padding>>
-    : array_fusion_test::ResolvingScanScalar<
-          array_fusion_test::FusedReader<Padding>> {
-  using reader_fusion = ScanScalar;
-
-  template <class Storage, TryPhase Phase>
-  auto operator()(const DecodeContext<Storage,
-                                      array_fusion_test::FusedReader<Padding>,
-                                      Phase>& ctx) const -> ScalarView {
-    this->resolve(ctx);
-    return {};
-  }
-};
-
-template <json::InputPadding Padding>
-struct ScanScalar<array_fusion_test::InstrumentedReader<
-    array_fusion_test::OrdinaryTag, Padding>>
-    : array_fusion_test::ResolvingScanScalar<
-          array_fusion_test::OrdinaryReader<Padding>> {
-  using reader_fusion = ScanScalar;
+struct ScanScalar<array_view_test::InstrumentedReader<
+    array_view_test::OrdinaryTag, Padding>>
+    : array_view_test::ResolvingScanScalar<
+          array_view_test::OrdinaryReader<Padding>> {
 
   template <class Storage, TryPhase Phase>
   auto operator()(const DecodeContext<
-                  Storage, array_fusion_test::OrdinaryReader<Padding>, Phase>&
+                  Storage, array_view_test::OrdinaryReader<Padding>, Phase>&
                       ctx) const -> ScalarView {
     this->resolve(ctx);
     return {};
@@ -136,12 +105,12 @@ struct ScanScalar<array_fusion_test::InstrumentedReader<
 };
 
 template <>
-struct ScanScalar<array_fusion_test::CustomScanReader>
-    : array_fusion_test::ResolvingScanScalar<
-          array_fusion_test::CustomScanReader> {
+struct ScanScalar<array_view_test::CustomScanReader>
+    : array_view_test::ResolvingScanScalar<
+          array_view_test::CustomScanReader> {
   template <class Storage, TryPhase Phase>
   auto operator()(const DecodeContext<Storage,
-                                      array_fusion_test::CustomScanReader,
+                                      array_view_test::CustomScanReader,
                                       Phase>& ctx) const -> ScalarView {
     this->resolve(ctx);
     return {};
@@ -149,14 +118,13 @@ struct ScanScalar<array_fusion_test::CustomScanReader>
 };
 
 template <>
-struct ScanScalar<array_fusion_test::CustomDecodeReader>
-    : array_fusion_test::ResolvingScanScalar<
-          array_fusion_test::CustomDecodeReader> {
-  using reader_fusion = ScanScalar;
+struct ScanScalar<array_view_test::CustomDecodeReader>
+    : array_view_test::ResolvingScanScalar<
+          array_view_test::CustomDecodeReader> {
 
   template <class Storage, TryPhase Phase>
   auto operator()(const DecodeContext<Storage,
-                                      array_fusion_test::CustomDecodeReader,
+                                      array_view_test::CustomDecodeReader,
                                       Phase>& ctx) const -> ScalarView {
     this->resolve(ctx);
     return {};
@@ -164,7 +132,7 @@ struct ScanScalar<array_fusion_test::CustomDecodeReader>
 };
 
 template <>
-struct DecodeNumber<array_fusion_test::CustomDecodeReader> {
+struct DecodeNumber<array_view_test::CustomDecodeReader> {
   static inline int calls = 0;
 
   template <class T, class Context>
@@ -180,7 +148,7 @@ struct DecodeNumber<array_fusion_test::CustomDecodeReader> {
 namespace {
 
 using namespace hosq;
-using namespace array_fusion_test;
+using namespace array_view_test;
 
 template <class State>
 void expect_same_state(const State& actual, const State& expected) {
@@ -241,7 +209,6 @@ auto compare_fused_with_ordinary(std::string_view input,
   using Fused = FusedReader<Padding>;
   using Ordinary = OrdinaryReader<Padding>;
 
-  Fused::array_probe_calls = 0;
   Ordinary::array_probe_calls = 0;
   Fused fused_reader;
   Ordinary ordinary_reader;
@@ -265,7 +232,6 @@ auto compare_fused_with_ordinary(std::string_view input,
   const auto ordinary =
       invoke_fixed<Ordinary, T, N>(ordinary_reader, ordinary_state);
 
-  EXPECT_EQ(Fused::array_probe_calls, 1);
   EXPECT_EQ(Ordinary::array_probe_calls, 0);
   expect_same_array(fused, ordinary);
   expect_same_state(fused_state, ordinary_state);
@@ -277,7 +243,7 @@ auto compare_fused_with_ordinary(std::string_view input,
   return fused;
 }
 
-TEST(ReaderArrayFusion, FixedSizesQuotedNumbersWhitespaceAndFinalStateMatch) {
+TEST(ReaderArrayView, FixedSizesQuotedNumbersWhitespaceAndFinalStateMatch) {
   EXPECT_EQ((compare_fused_with_ordinary<std::int64_t, 0>(
                 "[ \t\n\r ]", ErrorCode::ok)),
             (std::array<std::int64_t, 0>{}));
@@ -299,7 +265,7 @@ TEST(ReaderArrayFusion, FixedSizesQuotedNumbersWhitespaceAndFinalStateMatch) {
   EXPECT_EQ(negative_zero[3], 1.25);
 }
 
-TEST(ReaderArrayFusion, FailedProbePreservesConcreteStateAndOutput) {
+TEST(ReaderArrayView, FailedProbePreservesConcreteStateAndOutput) {
   using Reader = json::FastReader<>;
   for (std::string_view input : {
            "[1,2]", "[1,2,3,4,5]", "[1,2x,3,4]",
@@ -328,7 +294,7 @@ TEST(ReaderArrayFusion, FailedProbePreservesConcreteStateAndOutput) {
   }
 }
 
-TEST(ReaderArrayFusion, FallbackErrorsAndPartialResultsMatchOrdinaryCollect) {
+TEST(ReaderArrayView, FallbackErrorsAndPartialResultsMatchOrdinaryCollect) {
   EXPECT_EQ((compare_fused_with_ordinary<std::int64_t, 4>(
                 "[1,9223372036854775808,3,4]", ErrorCode::out_of_range)),
             (std::array<std::int64_t, 4>{1, 0, 0, 0}));
@@ -346,7 +312,7 @@ TEST(ReaderArrayFusion, FallbackErrorsAndPartialResultsMatchOrdinaryCollect) {
             (std::array<std::int64_t, 4>{1, 2, 3, 4}));
 }
 
-TEST(ReaderArrayFusion, CustomScalarAndNumberExtensionsOptOut) {
+TEST(ReaderArrayView, CustomScalarAndNumberExtensionsOptOut) {
   CustomScanReader::array_probe_calls = 0;
   ext::ScanScalar<CustomScanReader>::calls = 0;
   CustomScanReader custom_scan;
@@ -400,7 +366,7 @@ void compare_guarded_prefixes() {
   EXPECT_EQ(munmap(memory, 2 * page), 0);
 }
 
-TEST(ReaderArrayFusion, GuardPageBoundsCoverAllPaddingContracts) {
+TEST(ReaderArrayView, GuardPageBoundsCoverAllPaddingContracts) {
   compare_guarded_prefixes<json::InputPadding::none>();
   compare_guarded_prefixes<json::InputPadding::zero_padded_4>();
   compare_guarded_prefixes<json::InputPadding::zero_padded_8>();

@@ -18,7 +18,7 @@ namespace {
 using R = hosq::json::FastReader<>;
 using namespace hosq;
 
-// A custom extension must disable implicit fusion unless it opts in.
+// A custom reader keeps its own extension despite exposing a number operation.
 struct CustomReader : json::SimpleReader {
   template <class T, bool Into = false>
   bool read_number(state_type&, T& value) const { value = 999; return true; }
@@ -52,16 +52,16 @@ void compare_number(std::string_view input, bool resolve_first) {
   T x = 77, y = 77;
   DecodeContext<T, R> cx{x, reader, a}, cy{y, reader, b};
   if (resolve_first) {
-    (void)scan::detail::ScanScalar{}(cx);
-    (void)scan::detail::ScanScalar{}(cy);
+    (void)ext::ScanScalar<R>::resolved(cx);
+    (void)ext::ScanScalar<R>::resolved(cy);
   }
   if constexpr (Into) {
     (scan::scalar | decode::number_into<T>).invoke(cx);
-    auto view = scan::detail::ScanScalar{}(cy);
+    ScalarView view = ext::ScanScalar<R>::resolved(cy);
     decode::detail::NumberIntoImpl<T>{}(view, cy);
   } else {
     x = (scan::scalar | decode::number<T>).invoke(cx);
-    auto view = scan::detail::ScanScalar{}(cy);
+    ScalarView view = ext::ScanScalar<R>::resolved(cy);
     y = decode::detail::NumberImpl<T>{}(view, cy);
   }
   same_number(x, y);
@@ -75,7 +75,7 @@ void compare_number(std::string_view input, bool resolve_first) {
   EXPECT_EQ(reader.error(a).code, reader.error(b).code);
 }
 
-TEST(ReaderFusion, PreservesValuesErrorsCacheAndPartialWrites) {
+TEST(ReaderNumberView, PreservesValuesErrorsCacheAndPartialWrites) {
   for (std::string_view input : {
            "0", "-0", "42", "-42", "01", "1.25", "-1.25e-3", "1e309",
            "1e-999", "18446744073709551615", "18446744073709551616",
@@ -94,15 +94,8 @@ TEST(ReaderFusion, PreservesValuesErrorsCacheAndPartialWrites) {
   }
 }
 
-TEST(ReaderFusion, SelectsOnlySupportedAdjacentOperations) {
-  using Ctx = DecodeContext<int, R>;
-  static_assert(detail::pipeline_fusible<Ctx, scan::detail::ScanScalar{},
-                                        decode::detail::NumberImpl<int>{}>);
-  static_assert(!detail::pipeline_fusible<const Ctx, scan::detail::ScanScalar{},
-                                         decode::detail::NumberIntoImpl<int>{}>);
+TEST(ReaderNumberView, KeepsCustomNumberExtension) {
   using CustomCtx = DecodeContext<int, CustomReader>;
-  static_assert(!detail::pipeline_fusible<CustomCtx, scan::detail::ScanScalar{},
-                                         decode::detail::NumberImpl<int>{}>);
   CustomReader reader;
   CustomReader::state_type state;
   reader.reset(state, "123"); ASSERT_TRUE(reader.next_token(state));
@@ -111,7 +104,7 @@ TEST(ReaderFusion, SelectsOnlySupportedAdjacentOperations) {
   EXPECT_EQ((scan::scalar | decode::number<int>).invoke(ctx), 77);
 }
 
-TEST(ReaderFusion, FusedExecutionRetainsFollowingMismatchAndStorageSteps) {
+TEST(ReaderNumberView, SpecializedExecutionRetainsFollowingMismatchAndStorageSteps) {
   using Value = Elem<scan::scalar | decode::number<int> |
       step<decltype([](int x) { return MatchResult<int>{true, x}; })> | store::assign,
       noop_encoder>;
@@ -131,7 +124,7 @@ const char* scalar_string_end(const char* p, const char* end) {
   return end;
 }
 
-TEST(ReaderFusion, BlockStringScanMatchesScalarAtEveryBoundary) {
+TEST(ReaderNumberView, BlockStringScanMatchesScalarAtEveryBoundary) {
   std::mt19937 random(20260907);
   for (int offset = 0; offset < 32; ++offset) {
     for (int length = 0; length < 129; ++length) {
@@ -162,7 +155,7 @@ void compare_integer_parser(std::string_view input) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(ReaderFusion, GroupedIntegerParserMatchesFromChars) {
+TEST(ReaderNumberView, GroupedIntegerParserMatchesFromChars) {
   std::mt19937_64 random(20260908);
   for (int i = 0; i < 10000; ++i) {
     std::string number = std::to_string(random());
@@ -187,7 +180,7 @@ TEST(ReaderFusion, GroupedIntegerParserMatchesFromChars) {
 }
 
 #if defined(__unix__) || defined(__APPLE__)
-TEST(ReaderFusion, ScannersDoNotReadIntoGuardPage) {
+TEST(ReaderNumberView, ScannersDoNotReadIntoGuardPage) {
   const auto page = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
   void* memory = mmap(nullptr, page * 2, PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANON, -1, 0);
@@ -211,14 +204,14 @@ TEST(ReaderFusion, ScannersDoNotReadIntoGuardPage) {
 }
 #endif
 
-TEST(ReaderFusion, SkippingTruncatedStringsIsBounded) {
+TEST(ReaderNumberView, SkippingTruncatedStringsIsBounded) {
   using Value = Elem<scan::object | decode::skip, noop_encoder>;
   for (std::string_view input : {"{\"a\":\"", "{\"a\":\"abc", "{\"a\":\"abc\\"}) {
     Value value;
     EXPECT_EQ(decode_into<R>(value, input).code, ErrorCode::unexpected_eof);
   }
 }
-TEST(ReaderFusion, ProvenPositionsRetainSyntaxErrors) {
+TEST(ReaderNumberView, ProvenPositionsRetainSyntaxErrors) {
   R reader;
   for (std::string_view input : {"", "1", "[]", "{}", "{\"a\":1}",
        "{\"a\":[]}", "{\"a\":\"text\"}", "{\"a\" 1}", "{\"a\":", "{\"a\""}) {
@@ -242,7 +235,7 @@ TEST(ReaderFusion, ProvenPositionsRetainSyntaxErrors) {
   }
 }
 
-TEST(ReaderFusion, FollowingMismatchLeavesStorageUntouched) {
+TEST(ReaderNumberView, FollowingMismatchLeavesStorageUntouched) {
   constexpr auto pipeline = scan::scalar | decode::number<int> |
       step<decltype([](int x) { return MatchResult<int>{x == 123, x}; })> |
       store::assign;
@@ -257,7 +250,7 @@ TEST(ReaderFusion, FollowingMismatchLeavesStorageUntouched) {
   EXPECT_TRUE(pipeline.invoke(ctx));
   EXPECT_EQ(value, 123);
 }
-TEST(ReaderFusion, SkippedScalarCachesLengthForNextToken) {
+TEST(ReaderNumberView, SkippedScalarCachesLengthForNextToken) {
   for (std::string_view input : {"[12345,7]", "[\"abc\\\"def\",7]", "[\"\",7]"}) {
     R reader;
     R::state_type state;

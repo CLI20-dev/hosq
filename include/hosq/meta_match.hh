@@ -40,7 +40,7 @@ struct Handler {
   [[nodiscard]] static constexpr auto view() noexcept { return Key.view(); }
 
   /** Invokes the stored callable. */
-  auto operator()() noexcept(noexcept(fn())) -> void { fn(); }
+  HOSQ_ALWAYS_INLINE auto operator()() noexcept(noexcept(fn())) -> void { fn(); }
 };
 
 /**

@@ -45,7 +45,7 @@ class Decoder<R> {
     if (!hosq::next_token<ReadPosition::value>(reader_, reader_state_)) [[unlikely]] {
       return reader_.error(reader_state_);
     }
-    return decode_impl(t, reader_, reader_state_);
+    return decode_nested(t, reader_, reader_state_);
   }
 
   template <detail::ElemT T, TryPhase Phase = TryPhase::normal>
@@ -58,15 +58,22 @@ class Decoder<R> {
   template <class T>
     requires detail::DecoderAcceptableT<T>
   [[nodiscard]]
-  static auto decode_nested(T& t, reader_type& reader,
+  static HOSQ_ALWAYS_INLINE auto decode_nested(T& t, reader_type& reader,
                             reader_state_type& reader_state) -> Error {
-    return decode_impl(t, reader, reader_state);
+    return ext::ReaderDispatch<R>{}(reader, reader_state, [&](auto* active) {
+      using Active = std::remove_pointer_t<decltype(active)>;
+      if constexpr (std::same_as<Active, R>) {
+        return decode_impl(t, *active, reader_state);
+      } else {
+        return Decoder<Active>::decode_nested(t, *active, reader_state);
+      }
+    });
   }
 
  private:
   template <detail::ElemT T>
   [[nodiscard]]
-  static auto decode_impl(T& t, reader_type& reader,
+  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                           reader_state_type& reader_state) -> Error {
     auto ctx = make_decode_context(t, reader, reader_state);
     t.decode(ctx);
@@ -75,7 +82,7 @@ class Decoder<R> {
 
   template <detail::AsElemTupleT T>
   [[nodiscard]]
-  static auto decode_impl(T& t, reader_type& reader,
+  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                           reader_state_type& reader_state) -> Error {
     if (reader.current_token(reader_state).type != TokenType::ArrayBegin)
         [[unlikely]] {
@@ -164,40 +171,13 @@ class Decoder<R> {
   [[nodiscard]]
   static HOSQ_ALWAYS_INLINE auto decode_entry(T& t, ReaderT& reader,
                                              StateT& reader_state) -> bool {
-    if constexpr (detail::ConstKeyEntryT<T>) {
-      using value_type = typename T::value_type;
-      using decoder_type = typename value_type::decoder_type;
-      using value_context_type =
-          DecodeContext<typename value_type::storage_type, ReaderT>;
-      if constexpr (value_type::template decoder_const_invokable<
-                        value_context_type>) {
-        // Form this expression only after analysis has proved the complete
-        // value decoder callable with a const context. That keeps an optional
-        // const hook from instantiating an unsupported const tail.
-        if constexpr (requires(value_context_type& ctx) {
-                        {
-                          detail::ConstMemberFusion<decoder_type>{}
-                              .template try_invoke_const<T::key()>(ctx)
-                        } -> std::same_as<bool>;
-                      }) {
-          auto value_ctx = make_decode_context(t.value(), reader, reader_state);
-          if (detail::ConstMemberFusion<decoder_type>{}
-                  .template try_invoke_const<T::key()>(value_ctx))
-            return true;
-        }
-      } else if constexpr (requires(value_context_type& ctx) {
-                      {
-                        detail::ConstMemberFusion<decoder_type>{}
-                            .template try_invoke<T::key()>(ctx)
-                      } -> std::same_as<bool>;
-                    }) {
-        auto value_ctx = make_decode_context(t.value(), reader, reader_state);
-        if (detail::ConstMemberFusion<decoder_type>{}
-                .template try_invoke<T::key()>(value_ctx))
-          return true;
-      }
+    if constexpr (detail::ConstKeyEntryT<T> && requires {
+                    ext::EntryInput<ReaderT>{}.template decode<T::key()>(
+                        t.value(), reader, reader_state);
+                  }) {
+      if (ext::EntryInput<ReaderT>{}.template decode<T::key()>(
+              t.value(), reader, reader_state)) return true;
     }
-
     bool ready = false;
     if constexpr (detail::ConstKeyEntryT<T>) {
       if constexpr (requires {
@@ -214,7 +194,7 @@ class Decoder<R> {
 
   template <detail::AsEntryTupleT T>
   [[nodiscard]]
-  static auto decode_impl(T& t, reader_type& reader,
+  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                           reader_state_type& reader_state) -> Error {
     if (reader.current_token(reader_state).type != TokenType::ObjectBegin)
         [[unlikely]] {
@@ -250,7 +230,7 @@ class Decoder<R> {
 
   template <detail::AsTryElemTupleT T>
   [[nodiscard]]
-  static auto decode_impl(T& t, reader_type& reader,
+  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                           reader_state_type& reader_state) -> Error {
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
@@ -419,6 +399,16 @@ class Decoder<R> {
             decoded = true;
             return;
           } else {
+            if constexpr (requires {
+              ext::EntryInput<R>{}.template decode_matched<entry_type::key()>(
+                  entry.value(), reader, reader_state);
+            }) {
+              if (ext::EntryInput<R>{}.template decode_matched<entry_type::key()>(
+                      entry.value(), reader, reader_state)) {
+                decoded = true;
+                return;
+              }
+            }
             if (!hosq::next_token<ReadPosition::member_value>(reader, reader_state))
                 [[unlikely]] {
               decoded = false;
@@ -564,7 +554,7 @@ class Decoder<R> {
 
   template <detail::AsTryEntryTupleT T>
   [[nodiscard]]
-  static auto decode_impl(T& t, reader_type& reader,
+  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                           reader_state_type& reader_state) -> Error {
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ObjectBegin) [[unlikely]] {

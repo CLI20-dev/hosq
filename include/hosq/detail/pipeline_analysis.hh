@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "hosq/detail/type_traits.hh"
+#include "hosq/detail/input_view.hh"
 
 namespace hosq::detail {
 
@@ -62,7 +63,7 @@ template <PipelineVerificationMode Mode, class ProbeContext, class Input,
 constexpr auto analyze_pipeline_impl() {
   using Head = std::remove_cvref_t<decltype(FnHead)>;
   using Context = ProbeContext;
-  using In = std::remove_cvref_t<Input>;
+  using In = detail::step_input_t<Input, Head, Context>;
 
   constexpr bool has_storage =
       requires { typename Head::template storage_type<In>; };
@@ -111,7 +112,8 @@ constexpr auto analyze_pipeline_impl() {
   using after_type = detail::pipeline_after_t<raw_after_type>;
 
   if constexpr (sizeof...(FnTail) == 0) {
-    using terminal_type = std::conditional_t<uses_match, bool, after_type>;
+    using terminal_type = std::conditional_t<uses_match, bool,
+        detail::step_input_t<after_type, void, Context>>;
     if constexpr (uses_match) {
       static_assert(
           std::same_as<terminal_type, void> || std::same_as<terminal_type, bool>,
@@ -151,7 +153,8 @@ struct PipelineCallableWithConstContext {
 
 template <class Context, class Input, auto FnHead, auto... FnTail>
 consteval auto callable_with_const_context_impl() -> bool {
-  using In = std::remove_cvref_t<Input>;
+  using Head = std::remove_cvref_t<decltype(FnHead)>;
+  using In = detail::step_input_t<Input, Head, const Context>;
 
   using probe = decltype([]() consteval -> auto {
     if constexpr (std::same_as<In, void>) {
@@ -207,7 +210,8 @@ struct PipelineCallableWithMutableContext {
 
 template <class Context, class Input, auto FnHead, auto... FnTail>
 consteval auto callable_with_mutable_context_impl() -> bool {
-  using In = std::remove_cvref_t<Input>;
+  using Head = std::remove_cvref_t<decltype(FnHead)>;
+  using In = detail::step_input_t<Input, Head, Context>;
 
   using probe = decltype([]() consteval -> auto {
     if constexpr (std::same_as<In, void>) {
