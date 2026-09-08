@@ -20,9 +20,10 @@ inline auto number_from_chars(const char* first, const char* last, T& value)
 #if HOSQ_USE_FAST_FLOAT
   if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
     T parsed{};
-    const auto result = fast_float::from_chars(
-        first, last, parsed, Json ? fast_float::chars_format::json
-                                 : fast_float::chars_format::general);
+    const auto result =
+        fast_float::from_chars(first, last, parsed,
+                               Json ? fast_float::chars_format::json
+                                    : fast_float::chars_format::general);
     if (result.ec != std::errc{}) [[unlikely]]
       return std::from_chars(first, last, value);
     value = parsed;

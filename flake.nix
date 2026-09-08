@@ -62,10 +62,25 @@
         rec {
           treefmt = {
             projectRootFile = "flake.nix";
+            programs.nixfmt.enable = true;
+            settings.global.excludes = [
+              "include/hosq/third_party/**"
+              "bench/comparison/results/**"
+            ];
             programs.clang-format = {
               enable = true;
               package = pkgs.clang-tools;
             };
+          };
+
+          devShells.ci = pkgs.mkShellNoCC {
+            packages = [
+              pkgs.llvmPackages.libcxxClang
+              (pkgs.clang-tools.override { enableLibcxx = true; })
+              pkgs.cmake
+              pkgs.ninja
+              (pkgs.gtest.override { stdenv = pkgs.libcxxStdenv; })
+            ];
           };
 
           devShells.default = pkgs.mkShellNoCC {

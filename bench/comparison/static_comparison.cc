@@ -1,7 +1,4 @@
 #include <benchmark/benchmark.h>
-#include <glaze/glaze.hpp>
-#include <hosq/hosq.hh>
-#include <hosq/json/fast_reader.hh>
 #include <yyjson.h>
 
 #include <array>
@@ -9,6 +6,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <glaze/glaze.hpp>
+#include <hosq/hosq.hh>
+#include <hosq/json/fast_reader.hh>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -70,12 +70,26 @@ void string_stats(std::string_view s, bool escaped, Stats& out) {
     if (++i == s.size()) fatal("truncated JSON escape");
     c = s[i];
     switch (c) {
-      case '"': case '\\': case '/': byte(c); break;
-      case 'b': byte(8); break;
-      case 'f': byte(12); break;
-      case 'n': byte(10); break;
-      case 'r': byte(13); break;
-      case 't': byte(9); break;
+      case '"':
+      case '\\':
+      case '/':
+        byte(c);
+        break;
+      case 'b':
+        byte(8);
+        break;
+      case 'f':
+        byte(12);
+        break;
+      case 'n':
+        byte(10);
+        break;
+      case 'r':
+        byte(13);
+        break;
+      case 't':
+        byte(9);
+        break;
       case 'u': {
         if (i + 4 >= s.size()) fatal("truncated JSON Unicode escape");
         unsigned u = 0;
@@ -91,7 +105,8 @@ void string_stats(std::string_view s, bool escaped, Stats& out) {
         utf8(u);
         break;
       }
-      default: fatal("invalid JSON escape");
+      default:
+        fatal("invalid JSON escape");
     }
   }
   out.v[5] += hash;
@@ -106,14 +121,19 @@ struct Fixture {
   Stats expected;
 };
 
-struct IdRecord { uint64_t id{}; };
+struct IdRecord {
+  uint64_t id{};
+};
 struct ManyPayload {
   std::string_view name;
   uint64_t count{};
   double ratio{};
   bool ok{};
 };
-struct ManyRecord { uint64_t id{}; ManyPayload payload; };
+struct ManyRecord {
+  uint64_t id{};
+  ManyPayload payload;
+};
 struct AllPayload {
   std::string_view name;
   uint64_t count{};
@@ -122,15 +142,24 @@ struct AllPayload {
   std::nullptr_t none{};
   std::array<uint64_t, 4> values{};
 };
-struct AllRecord { uint64_t id{}; AllPayload payload; };
+struct AllRecord {
+  uint64_t id{};
+  AllPayload payload;
+};
 struct NumberPayload {
   uint64_t u{};
   int64_t i{};
   double a{}, b{}, c{};
   uint64_t maximum{};
 };
-struct NumberRecord { uint64_t id{}; NumberPayload payload; };
-struct StringRecord { uint64_t id{}; std::string_view payload; };
+struct NumberRecord {
+  uint64_t id{};
+  NumberPayload payload;
+};
+struct StringRecord {
+  uint64_t id{};
+  std::string_view payload;
+};
 
 const IdRecord& project(const IdRecord& row) { return row; }
 const ManyRecord& project(const ManyRecord& row) { return row; }
@@ -190,8 +219,8 @@ Stats consume_numbers(const Rows& rows) {
   out.v[0] = 7 * rows.size();
   for (const auto& native : rows) {
     const auto row = project(native);
-    out.v[1] += row.id + row.payload.u + uint64_t(row.payload.i) +
-                row.payload.maximum;
+    out.v[1] +=
+        row.id + row.payload.u + uint64_t(row.payload.i) + row.payload.maximum;
     out.v[2] += std::bit_cast<uint64_t>(row.payload.a) +
                 std::bit_cast<uint64_t>(row.payload.b) +
                 std::bit_cast<uint64_t>(row.payload.c);
@@ -214,18 +243,19 @@ Stats consume_strings(const Rows& rows, bool escaped) {
 }
 
 template <class T>
-using HNumber = Elem<scan::scalar | decode::number<T> | store::assign,
-                     noop_encoder>;
-using HString = Elem<scan::scalar | decode::string_view | store::assign,
-                     noop_encoder>;
+using HNumber =
+    Elem<scan::scalar | decode::number<T> | store::assign, noop_encoder>;
+using HString =
+    Elem<scan::scalar | decode::string_view | store::assign, noop_encoder>;
 using HBool = Elem<scan::scalar | decode::boolean | store::assign, noop_encoder>;
-using HNull = Elem<scan::scalar | decode::string_view |
-                       decode::custom<[](std::string_view value) -> std::nullptr_t {
-                         if (value != "null") fatal("HOSQ expected null");
-                         return nullptr;
-                       }> |
-                       store::assign,
-                   noop_encoder>;
+using HNull =
+    Elem<scan::scalar | decode::string_view |
+             decode::custom<[](std::string_view value) -> std::nullptr_t {
+               if (value != "null") fatal("HOSQ expected null");
+               return nullptr;
+             }> |
+             store::assign,
+         noop_encoder>;
 using HSkipKey = Elem<scan::scalar | decode::skip, noop_encoder>;
 using HSkipValue = Elem<decode::skip, noop_encoder>;
 
@@ -254,8 +284,8 @@ struct HAllPayload {
   Entry<Key<"ok">, HBool> ok;
   Entry<Key<"none">, HNull> none;
   Entry<Key<"values">,
-        Elem<scan::array | decode::collect<scan::scalar |
-                                                decode::number<uint64_t>, 4> |
+        Elem<scan::array |
+                 decode::collect<scan::scalar | decode::number<uint64_t>, 4> |
                  store::assign,
              noop_encoder>>
       values;
@@ -283,9 +313,7 @@ struct HStrings {
   Entry<Key<"payload">, HString> payload;
 };
 
-IdRecord project(const HId& row) {
-  return {row.id.value().value()};
-}
+IdRecord project(const HId& row) { return {row.id.value().value()}; }
 ManyRecord project(const HMany& row) {
   const auto& p = row.payload.value().value();
   return {row.id.value().value(),
@@ -294,10 +322,10 @@ ManyRecord project(const HMany& row) {
 }
 AllRecord project(const HAll& row) {
   const auto& p = row.payload.value().value();
-  return {row.id.value().value(),
-          {p.name.value().value(), p.count.value().value(),
-           p.ratio.value().value(), p.ok.value().value(), nullptr,
-           p.values.value().value()}};
+  return {
+      row.id.value().value(),
+      {p.name.value().value(), p.count.value().value(), p.ratio.value().value(),
+       p.ok.value().value(), nullptr, p.values.value().value()}};
 }
 NumberRecord project(const HNumbers& row) {
   const auto& p = row.payload.value().value();
@@ -310,10 +338,10 @@ StringRecord project(const HStrings& row) {
 }
 
 template <class Schema>
-using HRoot = Elem<scan::array |
-                       decode::collect<scan::object | decode::to<Schema>> |
-                       store::assign,
-                   noop_encoder>;
+using HRoot =
+    Elem<scan::array | decode::collect<scan::object | decode::to<Schema>> |
+             store::assign,
+         noop_encoder>;
 
 template <class Schema>
 HRoot<Schema> hosq_decode(const Fixture& f) {
@@ -357,39 +385,47 @@ Stats hosq_run(const Fixture& f) {
 
 }  // namespace
 
-template <> struct glz::meta<IdRecord> {
+template <>
+struct glz::meta<IdRecord> {
   using T = IdRecord;
   static constexpr auto value = object("id", &T::id);
 };
-template <> struct glz::meta<ManyPayload> {
+template <>
+struct glz::meta<ManyPayload> {
   using T = ManyPayload;
   static constexpr auto value = object("name", &T::name, "count", &T::count,
                                        "ratio", &T::ratio, "ok", &T::ok);
 };
-template <> struct glz::meta<ManyRecord> {
+template <>
+struct glz::meta<ManyRecord> {
   using T = ManyRecord;
   static constexpr auto value = object("id", &T::id, "payload", &T::payload);
 };
-template <> struct glz::meta<AllPayload> {
+template <>
+struct glz::meta<AllPayload> {
   using T = AllPayload;
-  static constexpr auto value = object(
-      "name", &T::name, "count", &T::count, "ratio", &T::ratio, "ok", &T::ok,
-      "none", &T::none, "values", &T::values);
+  static constexpr auto value =
+      object("name", &T::name, "count", &T::count, "ratio", &T::ratio, "ok",
+             &T::ok, "none", &T::none, "values", &T::values);
 };
-template <> struct glz::meta<AllRecord> {
+template <>
+struct glz::meta<AllRecord> {
   using T = AllRecord;
   static constexpr auto value = object("id", &T::id, "payload", &T::payload);
 };
-template <> struct glz::meta<NumberPayload> {
+template <>
+struct glz::meta<NumberPayload> {
   using T = NumberPayload;
-  static constexpr auto value = array(&T::u, &T::i, &T::a, &T::b, &T::c,
-                                      &T::maximum);
+  static constexpr auto value =
+      array(&T::u, &T::i, &T::a, &T::b, &T::c, &T::maximum);
 };
-template <> struct glz::meta<NumberRecord> {
+template <>
+struct glz::meta<NumberRecord> {
   using T = NumberRecord;
   static constexpr auto value = object("id", &T::id, "payload", &T::payload);
 };
-template <> struct glz::meta<StringRecord> {
+template <>
+struct glz::meta<StringRecord> {
   using T = StringRecord;
   static constexpr auto value = object("id", &T::id, "payload", &T::payload);
 };
@@ -485,7 +521,8 @@ Stats yyjson_run(const Fixture& f) {
   if (f.mode == Mode::id) {
     std::vector<IdRecord> rows;
     rows.reserve(yyjson_arr_size(root));
-    size_t i, n; yyjson_val* row;
+    size_t i, n;
+    yyjson_val* row;
     yyjson_arr_foreach(root, i, n, row) {
       rows.push_back({yuint(yyjson_obj_get(row, "id"))});
     }
@@ -494,36 +531,52 @@ Stats yyjson_run(const Fixture& f) {
     std::vector<ManyRecord> many;
     std::vector<AllRecord> all;
     const auto count = yyjson_arr_size(root);
-    if (f.mode == Mode::many) many.reserve(count); else all.reserve(count);
-    size_t i, n; yyjson_val* row;
+    if (f.mode == Mode::many)
+      many.reserve(count);
+    else
+      all.reserve(count);
+    size_t i, n;
+    yyjson_val* row;
     yyjson_arr_foreach(root, i, n, row) {
       yyjson_val *id = nullptr, *payload = nullptr;
       each_member(row, [&](std::string_view k, yyjson_val* v) {
-        if (k == "id") id = v; else if (k == "payload") payload = v;
+        if (k == "id")
+          id = v;
+        else if (k == "payload")
+          payload = v;
       });
       yyjson_val *name = nullptr, *number = nullptr, *ratio = nullptr,
                  *ok = nullptr, *none = nullptr, *values = nullptr;
       each_member(payload, [&](std::string_view k, yyjson_val* v) {
-        if (k == "name") name = v;
-        else if (k == "count") number = v;
-        else if (k == "ratio") ratio = v;
-        else if (k == "ok") ok = v;
-        else if (k == "none") none = v;
-        else if (k == "values") values = v;
+        if (k == "name")
+          name = v;
+        else if (k == "count")
+          number = v;
+        else if (k == "ratio")
+          ratio = v;
+        else if (k == "ok")
+          ok = v;
+        else if (k == "none")
+          none = v;
+        else if (k == "values")
+          values = v;
       });
       if (!ok || !yyjson_is_bool(ok)) fatal("yyjson expected boolean");
       if (f.mode == Mode::many) {
-        many.push_back({yuint(id), {ystring(name), yuint(number), yreal(ratio),
-                                    yyjson_get_bool(ok)}});
+        many.push_back(
+            {yuint(id),
+             {ystring(name), yuint(number), yreal(ratio), yyjson_get_bool(ok)}});
       } else {
         if (!none || !yyjson_is_null(none) || !values ||
             yyjson_arr_size(values) != 4)
           fatal("yyjson invalid full payload");
         std::array<uint64_t, 4> a{};
-        size_t j, m; yyjson_val* v;
+        size_t j, m;
+        yyjson_val* v;
         yyjson_arr_foreach(values, j, m, v) a[j] = yuint(v);
-        all.push_back({yuint(id), {ystring(name), yuint(number), yreal(ratio),
-                                  yyjson_get_bool(ok), nullptr, a}});
+        all.push_back({yuint(id),
+                       {ystring(name), yuint(number), yreal(ratio),
+                        yyjson_get_bool(ok), nullptr, a}});
       }
     }
     out = f.mode == Mode::many ? consume_many(many, false)
@@ -531,31 +584,38 @@ Stats yyjson_run(const Fixture& f) {
   } else if (f.mode == Mode::numbers) {
     std::vector<NumberRecord> rows;
     rows.reserve(yyjson_arr_size(root));
-    size_t i, n; yyjson_val* row;
+    size_t i, n;
+    yyjson_val* row;
     yyjson_arr_foreach(root, i, n, row) {
       yyjson_val *id = nullptr, *payload = nullptr;
       each_member(row, [&](std::string_view k, yyjson_val* v) {
-        if (k == "id") id = v; else if (k == "payload") payload = v;
+        if (k == "id")
+          id = v;
+        else if (k == "payload")
+          payload = v;
       });
       if (!payload || yyjson_arr_size(payload) != 6)
         fatal("yyjson invalid number tuple");
-      rows.push_back({yuint(id),
-                      {yuint(yyjson_arr_get(payload, 0)),
-                       ysint(yyjson_arr_get(payload, 1)),
-                       yreal(yyjson_arr_get(payload, 2)),
-                       yreal(yyjson_arr_get(payload, 3)),
-                       yreal(yyjson_arr_get(payload, 4)),
-                       yuint(yyjson_arr_get(payload, 5))}});
+      rows.push_back(
+          {yuint(id),
+           {yuint(yyjson_arr_get(payload, 0)), ysint(yyjson_arr_get(payload, 1)),
+            yreal(yyjson_arr_get(payload, 2)), yreal(yyjson_arr_get(payload, 3)),
+            yreal(yyjson_arr_get(payload, 4)),
+            yuint(yyjson_arr_get(payload, 5))}});
     }
     out = consume_numbers(rows);
   } else {
     std::vector<StringRecord> rows;
     rows.reserve(yyjson_arr_size(root));
-    size_t i, n; yyjson_val* row;
+    size_t i, n;
+    yyjson_val* row;
     yyjson_arr_foreach(root, i, n, row) {
       yyjson_val *id = nullptr, *payload = nullptr;
       each_member(row, [&](std::string_view k, yyjson_val* v) {
-        if (k == "id") id = v; else if (k == "payload") payload = v;
+        if (k == "id")
+          id = v;
+        else if (k == "payload")
+          payload = v;
       });
       rows.push_back({yuint(id), ystring(payload)});
     }
@@ -572,15 +632,18 @@ Stats run_yyjson(Fixture& fixture) { return yyjson_run(fixture); }
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc < 4) fatal("usage: hosq_static_comparison FIXTURE_DIRECTORY CASE ENGINE [benchmark options]");
+  if (argc < 4)
+    fatal(
+        "usage: hosq_static_comparison FIXTURE_DIRECTORY CASE ENGINE [benchmark "
+        "options]");
   const std::string directory = argv[1];
   const std::string selected_case = argv[2];
   const std::string engine = argv[3];
   if (engine != "Glaze" && engine != "HOSQ" && engine != "yyjson")
     fatal("ENGINE must be Glaze, HOSQ, or yyjson");
   using EngineRun = Stats (*)(Fixture&);
-  const EngineRun run = engine == "Glaze" ? run_glaze
-                      : engine == "HOSQ"  ? run_hosq
+  const EngineRun run = engine == "Glaze"  ? run_glaze
+                        : engine == "HOSQ" ? run_hosq
                                            : run_yyjson;
 
   std::ifstream manifest(directory + "/manifest_static.txt");

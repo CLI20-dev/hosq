@@ -1,7 +1,5 @@
 #pragma once
 
-#include "hosq/detail/compiler.hh"
-
 #include <charconv>
 #include <concepts>
 #include <cstddef>
@@ -13,6 +11,7 @@
 #include <vector>
 
 #include "hosq/context.hh"
+#include "hosq/detail/compiler.hh"
 #include "hosq/detail/number_parse.hh"
 #include "hosq/detail/pipeline_analysis.hh"
 #include "hosq/detail/pipeline_analysis_io.hh"
@@ -91,7 +90,6 @@ struct DecodeSkipValue {
 
 template <ReaderConcept R>
 struct DecodeNumberDefault {
-
   template <class T, class Context>
   auto operator()(const ScalarView&, const Context& ctx) const
       -> std::remove_cvref_t<T> {
@@ -133,7 +131,6 @@ struct DecodeNumberDefault {
 
 template <ReaderConcept R>
 struct DecodeNumberIntoDefault {
-
   template <class T, class Context>
   auto operator()(const ScalarView&, const Context& ctx) const -> void {
     const Token& tok = ctx.reader().current_token(ctx.reader_state());
@@ -141,7 +138,8 @@ struct DecodeNumberIntoDefault {
     const char* first = bytes.as_string_view().data() + tok.offset;
     const char* last = bytes.as_string_view().data() + tok.offset + tok.length;
 
-    const auto result = hosq::detail::number_from_chars(first, last, ctx.value());
+    const auto result =
+        hosq::detail::number_from_chars(first, last, ctx.value());
 
     if (result.ec == std::errc::result_out_of_range) [[unlikely]] {
       ctx.reader().report_error(
@@ -170,9 +168,12 @@ template <ReaderConcept R>
 struct DecodeNumber : DecodeNumberDefault<R> {};
 template <ReaderConcept R>
 struct DecodeNumberInto : DecodeNumberIntoDefault<R> {};
-template <ReaderConcept R> struct DecodeBoolean;
-template <ReaderConcept R> struct DecodeStringView;
-template <ReaderConcept R, class Pipeline, std::size_t N> struct DecodeCollect;
+template <ReaderConcept R>
+struct DecodeBoolean;
+template <ReaderConcept R>
+struct DecodeStringView;
+template <ReaderConcept R, class Pipeline, std::size_t N>
+struct DecodeCollect;
 
 }  // namespace hosq::ext
 
@@ -217,15 +218,16 @@ template <Number T>
 struct NumberImpl {
   using view_step = NumberImpl;
   template <class Context>
-  using input_type = hosq::detail::extension_input_t<ext::DecodeNumber<
-      typename std::remove_cvref_t<Context>::reader_type>, ScalarView>;
+  using input_type = hosq::detail::extension_input_t<
+      ext::DecodeNumber<typename std::remove_cvref_t<Context>::reader_type>,
+      ScalarView>;
 
   template <class Storage, ReaderConcept R, TryPhase Phase, class View>
     requires requires(const View& input, DecodeContext<Storage, R, Phase>& ctx) {
       ext::DecodeNumber<R>{}.template operator()<T>(input, ctx);
     }
   HOSQ_ALWAYS_INLINE auto operator()(const View& input,
-                  DecodeContext<Storage, R, Phase>& ctx) const
+                                     DecodeContext<Storage, R, Phase>& ctx) const
       -> std::remove_cvref_t<T> {
     return ext::DecodeNumber<R>{}.template operator()<T>(input, ctx);
   }
@@ -235,8 +237,9 @@ template <Number T>
 struct NumberIntoImpl {
   using view_step = NumberIntoImpl;
   template <class Context>
-  using input_type = hosq::detail::extension_input_t<ext::DecodeNumberInto<
-      typename std::remove_cvref_t<Context>::reader_type>, ScalarView>;
+  using input_type = hosq::detail::extension_input_t<
+      ext::DecodeNumberInto<typename std::remove_cvref_t<Context>::reader_type>,
+      ScalarView>;
 
   template <class Input>
   using storage_type = T;
@@ -245,7 +248,8 @@ struct NumberIntoImpl {
       ext::DecodeNumberInto<R>{}.template operator()<T>(input, ctx);
     }
   HOSQ_ALWAYS_INLINE auto operator()(const View& input,
-                  DecodeContext<Storage, R, Phase>& ctx) const -> void {
+                                     DecodeContext<Storage, R, Phase>& ctx) const
+      -> void {
     ext::DecodeNumberInto<R>{}.template operator()<T>(input, ctx);
   }
 };
@@ -787,19 +791,19 @@ struct CollectImpl<Pipeline, N> {
                 "decode::collect<P, N> requires P to return a value");
 
   template <class Context>
-  using input_type = hosq::detail::extension_input_t<ext::DecodeCollect<
-      typename std::remove_cvref_t<Context>::reader_type, pipeline_type, N>, ArrayView>;
+  using input_type = hosq::detail::extension_input_t<
+      ext::DecodeCollect<typename std::remove_cvref_t<Context>::reader_type,
+                         pipeline_type, N>,
+      ArrayView>;
 
   template <ReaderConcept R, TryPhase Phase, class Storage, class View>
     requires requires(const View& input, DecodeContext<Storage, R, Phase>& ctx) {
       ext::DecodeCollect<R, pipeline_type, N>{}(input, ctx);
     }
-  auto operator()(const View& input,
-                  DecodeContext<Storage, R, Phase>& ctx) const
+  auto operator()(const View& input, DecodeContext<Storage, R, Phase>& ctx) const
       -> std::array<terminal_type, N> {
     return ext::DecodeCollect<R, pipeline_type, N>{}(input, ctx);
   }
-
 };
 
 template <auto KeyPipeline, auto ValuePipeline>
@@ -1025,14 +1029,16 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
 struct BooleanImpl {
   using view_step = BooleanImpl;
   template <class Context>
-  using input_type = hosq::detail::extension_input_t<ext::DecodeBoolean<
-      typename std::remove_cvref_t<Context>::reader_type>, ScalarView>;
+  using input_type = hosq::detail::extension_input_t<
+      ext::DecodeBoolean<typename std::remove_cvref_t<Context>::reader_type>,
+      ScalarView>;
   template <class Storage, ReaderConcept R, TryPhase Phase, class View>
     requires requires(const View& input, DecodeContext<Storage, R, Phase>& ctx) {
       ext::DecodeBoolean<R>{}(input, ctx);
     }
   HOSQ_ALWAYS_INLINE auto operator()(const View& input,
-                  DecodeContext<Storage, R, Phase>& ctx) const -> bool {
+                                     DecodeContext<Storage, R, Phase>& ctx) const
+      -> bool {
     return ext::DecodeBoolean<R>{}(input, ctx);
   }
 };
@@ -1040,14 +1046,17 @@ struct BooleanImpl {
 struct StringViewImpl {
   using view_step = StringViewImpl;
   template <class Context>
-  using input_type = hosq::detail::extension_input_t<ext::DecodeStringView<
-      typename std::remove_cvref_t<Context>::reader_type>, ScalarView>;
+  using input_type = hosq::detail::extension_input_t<
+      ext::DecodeStringView<typename std::remove_cvref_t<Context>::reader_type>,
+      ScalarView>;
   template <class Storage, ReaderConcept R, TryPhase Phase, class View>
-    requires requires(const View& input, const DecodeContext<Storage, R, Phase>& ctx) {
+    requires requires(const View& input,
+                      const DecodeContext<Storage, R, Phase>& ctx) {
       ext::DecodeStringView<R>{}(input, ctx);
     }
-  HOSQ_ALWAYS_INLINE auto operator()(const View& input,
-                  const DecodeContext<Storage, R, Phase>& ctx) const -> std::string_view {
+  HOSQ_ALWAYS_INLINE auto operator()(
+      const View& input, const DecodeContext<Storage, R, Phase>& ctx) const
+      -> std::string_view {
     return ext::DecodeStringView<R>{}(input, ctx);
   }
 };
@@ -1056,7 +1065,8 @@ template <class T>
   requires ::hosq::detail::DecoderAcceptableT<T>
 struct ToImpl {
   template <class Context>
-  HOSQ_ALWAYS_INLINE auto operator()(const ObjectView&, Context& ctx) const -> T {
+  HOSQ_ALWAYS_INLINE auto operator()(const ObjectView&, Context& ctx) const
+      -> T {
     using context_type = std::remove_cvref_t<Context>;
     using reader_type = typename context_type::reader_type;
 
@@ -1165,13 +1175,15 @@ struct DecodeStringViewDefault {
 };
 template <ReaderConcept R>
 struct DecodeStringView : DecodeStringViewDefault<R> {};
-}
+}  // namespace hosq::ext
 namespace hosq::ext {
 template <ReaderConcept R, class Pipeline, std::size_t N>
 struct DecodeCollectDefault {
   using pipeline_type = Pipeline;
-  using info = detail::pipeline_analysis_t<detail::PipelineVerificationMode::no_storage,
-      detail::PipelineDecodeAnalysisContext, void, pipeline_type>;
+  using info =
+      detail::pipeline_analysis_t<detail::PipelineVerificationMode::no_storage,
+                                  detail::PipelineDecodeAnalysisContext, void,
+                                  pipeline_type>;
   using terminal_type = detail::pipeline_terminal_t<info>;
   template <TryPhase Phase, class Storage>
   auto operator()(const ArrayView&, DecodeContext<Storage, R, Phase>& ctx) const
@@ -1242,4 +1254,4 @@ struct DecodeCollectDefault {
 };
 template <ReaderConcept R, class Pipeline, std::size_t N>
 struct DecodeCollect : DecodeCollectDefault<R, Pipeline, N> {};
-} // namespace hosq::ext
+}  // namespace hosq::ext

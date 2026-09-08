@@ -1,7 +1,5 @@
 #pragma once
 
-#include "hosq/detail/compiler.hh"
-
 #include <arm_neon.h>
 
 #include <array>
@@ -10,6 +8,8 @@
 #include <cstring>
 #include <span>
 #include <string_view>
+
+#include "hosq/detail/compiler.hh"
 
 namespace hosq {
 

@@ -1,12 +1,11 @@
 #pragma once
 
-#include "hosq/detail/compiler.hh"
-
 #include <functional>
 #include <tuple>
 #include <type_traits>
 
 #include "hosq/detail/as_tuple.hh"
+#include "hosq/detail/compiler.hh"
 #include "hosq/detail/type_traits.hh"
 #include "hosq/writer_base.hh"
 
@@ -79,8 +78,7 @@ class Encoder<W> {
 
   template <detail::AsEntryTupleT T>
   [[nodiscard]]
-  HOSQ_ALWAYS_INLINE auto encode_as_entry_tuple(const T& t)
-      -> bool {
+  HOSQ_ALWAYS_INLINE auto encode_as_entry_tuple(const T& t) -> bool {
     (void)writer().write(WriteRequest{
         .length = 0,
         .type = TokenType::ObjectBegin,
@@ -114,8 +112,7 @@ class Encoder<W> {
   template <class Entry>
     requires(detail::EntryT<std::remove_cvref_t<Entry>>)
   [[nodiscard]]
-  HOSQ_ALWAYS_INLINE auto encode_one_member(const Entry& entry)
-      -> bool {
+  HOSQ_ALWAYS_INLINE auto encode_one_member(const Entry& entry) -> bool {
     if (!encode_entry_key(entry)) {
       return false;
     }
@@ -125,16 +122,14 @@ class Encoder<W> {
   template <class Entry>
     requires(detail::EntryT<std::remove_cvref_t<Entry>>)
   [[nodiscard]]
-  HOSQ_ALWAYS_INLINE auto encode_entry_key(const Entry& entry)
-      -> bool {
+  HOSQ_ALWAYS_INLINE auto encode_entry_key(const Entry& entry) -> bool {
     return encode_element(entry.key());
   }
 
   template <class Entry>
     requires(detail::EntryT<std::remove_cvref_t<Entry>>)
   [[nodiscard]]
-  HOSQ_ALWAYS_INLINE auto encode_entry_value(const Entry& entry)
-      -> bool {
+  HOSQ_ALWAYS_INLINE auto encode_entry_value(const Entry& entry) -> bool {
     return encode_element(entry.value());
   }
 

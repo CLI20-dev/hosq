@@ -4,8 +4,8 @@
 #include <type_traits>
 #include <utility>
 
-#include "hosq/detail/type_traits.hh"
 #include "hosq/detail/input_view.hh"
+#include "hosq/detail/type_traits.hh"
 
 namespace hosq::detail {
 
@@ -112,8 +112,9 @@ constexpr auto analyze_pipeline_impl() {
   using after_type = detail::pipeline_after_t<raw_after_type>;
 
   if constexpr (sizeof...(FnTail) == 0) {
-    using terminal_type = std::conditional_t<uses_match, bool,
-        detail::step_input_t<after_type, void, Context>>;
+    using terminal_type =
+        std::conditional_t<uses_match, bool,
+                           detail::step_input_t<after_type, void, Context>>;
     if constexpr (uses_match) {
       static_assert(
           std::same_as<terminal_type, void> || std::same_as<terminal_type, bool>,

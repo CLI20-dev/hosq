@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "hosq/detail/compiler.hh"
-
 #include <array>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+#include "hosq/detail/compiler.hh"
 #include "hosq/string_literal.hh"
 
 namespace hosq::meta {
@@ -70,8 +69,7 @@ template <StringLiteral Key, class Fn>
 
 // Forward declaration of the ref-tuple overload (used recursively).
 template <std::size_t N, class... Entries>
-HOSQ_ALWAYS_INLINE auto match(std::string_view c,
-                                                 std::tuple<Entries&...> a)
+HOSQ_ALWAYS_INLINE auto match(std::string_view c, std::tuple<Entries&...> a)
     -> bool;
 
 /**
@@ -94,8 +92,7 @@ HOSQ_ALWAYS_INLINE auto match(std::string_view c,
  * @endcode
  */
 template <class... Entries>
-HOSQ_ALWAYS_INLINE auto match(std::string_view c,
-                                                 std::tuple<Entries...>& a)
+HOSQ_ALWAYS_INLINE auto match(std::string_view c, std::tuple<Entries...>& a)
     -> bool {
   auto refs = std::apply(
       [](auto&... xs) -> auto { return std::forward_as_tuple(xs...); }, a);
@@ -140,9 +137,8 @@ constexpr auto get_next_candidates(std::tuple<Entries&...> a) {
  * Not called directly; use the value-tuple `match()` overload above.
  */
 template <int Terminator, std::size_t N, class Commit, class... Entries>
-HOSQ_ALWAYS_INLINE auto match_impl(std::string_view c,
-                                                 std::tuple<Entries&...> a, Commit& commit)
-    -> bool {
+HOSQ_ALWAYS_INLINE auto match_impl(std::string_view c, std::tuple<Entries&...> a,
+                                   Commit& commit) -> bool {
   constexpr auto matched_number_table = []() -> auto {
     std::array<std::size_t, 0x7f + 1> result{};
     for (unsigned char c = 0x00; c <= 0x7f; ++c) {
@@ -181,37 +177,40 @@ HOSQ_ALWAYS_INLINE auto match_impl(std::string_view c,
 // One switch-case per printable ASCII byte.
 // At compile time the surviving handlers are narrowed; then either
 // the unique match is verified+dispatched, or we recurse.
-#define MM_SWITCH_CHAR(C)                                               \
-  case C: {                                                             \
-    constexpr auto matched_number =                                     \
-        matched_number_table[static_cast<unsigned char>(C)];            \
-    if constexpr (matched_number == 1) {                                \
-      constexpr auto candidate_index =                                  \
-          [&]<std::size_t... I>(std::index_sequence<I...>) -> auto {    \
-        int i = 0;                                                      \
-        ((Entries::literal()[N] == (C) && (i = I, true)) || ...);       \
-        return i;                                                       \
-      }(std::index_sequence_for<Entries...>{});                         \
-      using candidate_type = std::remove_reference_t<                   \
-          std::tuple_element_t<candidate_index, decltype(a)>>;          \
-      constexpr auto expected = candidate_type::view();                 \
-      if constexpr (Terminator < 0) {                                   \
-        if (c != expected) return false;                                \
-      } else {                                                          \
-        if (c.size() <= expected.size() ||                               \
-            c.substr(0, expected.size()) != expected ||                  \
-            c[expected.size()] != Terminator) return false;              \
-      }                                                                 \
-      commit(expected.size());                                          \
-      std::get<candidate_index>(a)();                                   \
-      return true;                                                      \
-    } else if constexpr (matched_number > 1) {                          \
-      return match_impl<Terminator, N + 1>(                                              \
-          c, get_next_candidates<matched_number,                        \
-                                 get_matched_array<N, C, Entries...>(), \
-                                 Entries...>(a), commit);                       \
-    }                                                                   \
-    break;                                                              \
+#define MM_SWITCH_CHAR(C)                                            \
+  case C: {                                                          \
+    constexpr auto matched_number =                                  \
+        matched_number_table[static_cast<unsigned char>(C)];         \
+    if constexpr (matched_number == 1) {                             \
+      constexpr auto candidate_index =                               \
+          [&]<std::size_t... I>(std::index_sequence<I...>) -> auto { \
+        int i = 0;                                                   \
+        ((Entries::literal()[N] == (C) && (i = I, true)) || ...);    \
+        return i;                                                    \
+      }(std::index_sequence_for<Entries...>{});                      \
+      using candidate_type = std::remove_reference_t<                \
+          std::tuple_element_t<candidate_index, decltype(a)>>;       \
+      constexpr auto expected = candidate_type::view();              \
+      if constexpr (Terminator < 0) {                                \
+        if (c != expected) return false;                             \
+      } else {                                                       \
+        if (c.size() <= expected.size() ||                           \
+            c.substr(0, expected.size()) != expected ||              \
+            c[expected.size()] != Terminator)                        \
+          return false;                                              \
+      }                                                              \
+      commit(expected.size());                                       \
+      std::get<candidate_index>(a)();                                \
+      return true;                                                   \
+    } else if constexpr (matched_number > 1) {                       \
+      return match_impl<Terminator, N + 1>(                          \
+          c,                                                         \
+          get_next_candidates<matched_number,                        \
+                              get_matched_array<N, C, Entries...>(), \
+                              Entries...>(a),                        \
+          commit);                                                   \
+    }                                                                \
+    break;                                                           \
   }
 
   switch (static_cast<unsigned char>(c.data()[N])) {
@@ -256,8 +255,8 @@ HOSQ_ALWAYS_INLINE auto match_impl(std::string_view c,
 }
 
 template <std::size_t N, class... Entries>
-HOSQ_ALWAYS_INLINE bool match(
-    std::string_view key, std::tuple<Entries&...> handlers) {
+HOSQ_ALWAYS_INLINE bool match(std::string_view key,
+                              std::tuple<Entries&...> handlers) {
   auto commit = [](std::size_t) {};
   return match_impl<-1, N>(key, handlers, commit);
 }
@@ -265,10 +264,13 @@ HOSQ_ALWAYS_INLINE bool match(
 // Match a delimited prefix without scanning for its length first.
 // Commit receives the key length and runs before the selected handler.
 template <char Terminator, class Commit, class... Entries>
-HOSQ_ALWAYS_INLINE bool match_terminated(
-    std::string_view remaining, std::tuple<Entries...>& handlers, Commit commit) {
-  auto refs = std::apply([](auto&... x) { return std::forward_as_tuple(x...); }, handlers);
-  return match_impl<static_cast<unsigned char>(Terminator), 0>(remaining, refs, commit);
+HOSQ_ALWAYS_INLINE bool match_terminated(std::string_view remaining,
+                                         std::tuple<Entries...>& handlers,
+                                         Commit commit) {
+  auto refs = std::apply([](auto&... x) { return std::forward_as_tuple(x...); },
+                         handlers);
+  return match_impl<static_cast<unsigned char>(Terminator), 0>(remaining, refs,
+                                                               commit);
 }
 
 }  // namespace hosq::meta

@@ -10,7 +10,6 @@ namespace hosq::ext {
 
 template <ReaderConcept R>
 struct ScanScalar {
-
   template <class T, TryPhase Phase>
   auto operator()(const DecodeContext<T, R, Phase>& ctx) const -> ScalarView {
     const R& reader = ctx.reader();
@@ -76,10 +75,12 @@ concept CanScanScalarCtx = requires(const Ext& ext, Ctx&& ctx) {
 struct ScanScalar {
   template <class Input, class Context>
     requires requires(const Input& input, Context& ctx) {
-      ext::ScanScalar<typename std::remove_cvref_t<Context>::reader_type>{}(input, ctx);
+      ext::ScanScalar<typename std::remove_cvref_t<Context>::reader_type>{}(
+          input, ctx);
     }
   HOSQ_ALWAYS_INLINE auto operator()(const Input& input, Context& ctx) const {
-    return ext::ScanScalar<typename std::remove_cvref_t<Context>::reader_type>{}(input, ctx);
+    return ext::ScanScalar<typename std::remove_cvref_t<Context>::reader_type>{}(
+        input, ctx);
   }
 
   template <class T, ReaderConcept R, TryPhase Phase>

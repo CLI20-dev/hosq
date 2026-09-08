@@ -1,10 +1,9 @@
 #pragma once
 
-#include "hosq/detail/compiler.hh"
-
 #include <type_traits>
 
 #include "hosq/context.hh"
+#include "hosq/detail/compiler.hh"
 #include "hosq/detail/pipeline_analysis.hh"
 #include "hosq/detail/pipeline_analysis_io.hh"
 #include "hosq/pipeline.hh"

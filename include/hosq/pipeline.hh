@@ -1,7 +1,5 @@
 #pragma once
 
-#include "hosq/detail/compiler.hh"
-
 #include <algorithm>
 #include <cctype>
 #include <concepts>
@@ -10,6 +8,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "hosq/detail/compiler.hh"
 #include "hosq/detail/pipeline_analysis.hh"
 #include "hosq/detail/type_traits.hh"
 
@@ -135,13 +134,13 @@ struct Pipeline {
    */
   template <class Arg, class Context>
   [[nodiscard]]
-  HOSQ_ALWAYS_INLINE static constexpr auto invoke(Arg input,
-                                                           Context&& ctx) {
+  HOSQ_ALWAYS_INLINE static constexpr auto invoke(Arg input, Context&& ctx) {
     constexpr auto first = std::get<0>(std::tuple{Fns...});
     using First = std::remove_cvref_t<decltype(first)>;
     using Input = detail::step_input_t<Arg, First, Context>;
     return []<auto FnHead, auto... FnTail>(Input input,
-                                           Context& ctx) HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+                                           Context& ctx) HOSQ_ALWAYS_INLINE_ATTR
+           -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
@@ -152,7 +151,10 @@ struct Pipeline {
             { Fn(std::move(i), c) } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return detail::invoke_terminal(ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(std::move(input), ctx); });
+          return detail::invoke_terminal(
+              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+                return Fn(std::move(input), ctx);
+              });
         } else {
           using Pipe = Pipeline<FnTail...>;
           return Fn(std::move(input), ctx), Pipe::invoke(ctx);
@@ -187,7 +189,10 @@ struct Pipeline {
             { Fn(std::move(i), c) };
           }) {
         if constexpr (last_function) {
-          return detail::invoke_terminal(ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(std::move(input), ctx); });
+          return detail::invoke_terminal(
+              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+                return Fn(std::move(input), ctx);
+              });
         } else {
           using Pipe = Pipeline<FnTail...>;
           return Pipe::invoke(Fn(std::move(input), ctx), ctx);
@@ -199,7 +204,10 @@ struct Pipeline {
             { Fn(std::move(i)) } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return detail::invoke_terminal(ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(std::move(input)); });
+          return detail::invoke_terminal(
+              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+                return Fn(std::move(input));
+              });
         } else {
           using Pipe = Pipeline<FnTail...>;
           return Fn(std::move(input)), Pipe::invoke(ctx);
@@ -234,7 +242,10 @@ struct Pipeline {
             { Fn(std::move(i)) };
           }) {
         if constexpr (last_function) {
-          return detail::invoke_terminal(ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(std::move(input)); });
+          return detail::invoke_terminal(
+              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+                return Fn(std::move(input));
+              });
         } else {
           using Pipe = Pipeline<FnTail...>;
           return Pipe::invoke(Fn(std::move(input)), ctx);
@@ -247,8 +258,11 @@ struct Pipeline {
             "Fn(input, ctx) -> after_type<Input>, "
             "Fn(input) -> after_type<Input>, ");
       }
-    }.template operator()<Fns...>(
-        std::move(ext::InputView<Arg>::template get<First>(input, ctx)), ctx);
+    }
+                  .template operator()<Fns...>(
+                      std::move(
+                          ext::InputView<Arg>::template get<First>(input, ctx)),
+                      ctx);
   };
 
   /**
@@ -288,7 +302,8 @@ struct Pipeline {
   template <class Context>
   [[nodiscard]]
   HOSQ_ALWAYS_INLINE static constexpr auto invoke(Context&& ctx) {
-    return []<auto FnHead, auto... FnTail>(Context& ctx) HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+    return []<auto FnHead, auto... FnTail>(
+               Context& ctx) HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
       constexpr auto Fn = FnHead;
       constexpr bool last_function = sizeof...(FnTail) == 0;
@@ -299,7 +314,10 @@ struct Pipeline {
             { Fn(c) } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return detail::invoke_terminal(ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(ctx); });
+          return detail::invoke_terminal(
+              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+                return Fn(ctx);
+              });
         } else {
           using Pipe = Pipeline<FnTail...>;
           return Fn(ctx), Pipe::invoke(ctx);
@@ -334,7 +352,10 @@ struct Pipeline {
             { Fn(c) };
           }) {
         if constexpr (last_function) {
-          return detail::invoke_terminal(ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(ctx); });
+          return detail::invoke_terminal(
+              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+                return Fn(ctx);
+              });
         } else {
           using Pipe = Pipeline<FnTail...>;
           return Pipe::invoke(Fn(ctx), ctx);
@@ -346,7 +367,9 @@ struct Pipeline {
             { Fn() } -> std::same_as<void>;
           }) {
         if constexpr (last_function) {
-          return detail::invoke_terminal(ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(); });
+          return detail::invoke_terminal(
+              ctx,
+              [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(); });
         } else {
           using Pipe = Pipeline<FnTail...>;
           return Fn(), Pipe::invoke(ctx);
@@ -381,7 +404,9 @@ struct Pipeline {
             { Fn() };
           }) {
         if constexpr (last_function) {
-          return detail::invoke_terminal(ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(); });
+          return detail::invoke_terminal(
+              ctx,
+              [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(); });
         } else {
           using Pipe = Pipeline<FnTail...>;
           return Pipe::invoke(Fn(), ctx);
@@ -396,7 +421,6 @@ struct Pipeline {
       }
     }.template operator()<Fns...>(ctx);
   };
-
 };
 
 /// Convenience variable template that wraps a default-constructed `T` as a
