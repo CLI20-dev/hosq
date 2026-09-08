@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "hosq/detail/compiler.hh"
+
 #include <array>
 #include <string_view>
 #include <tuple>
@@ -68,7 +70,7 @@ template <StringLiteral Key, class Fn>
 
 // Forward declaration of the ref-tuple overload (used recursively).
 template <std::size_t N, class... Entries>
-inline __attribute__((always_inline)) auto match(std::string_view c,
+HOSQ_ALWAYS_INLINE auto match(std::string_view c,
                                                  std::tuple<Entries&...> a)
     -> bool;
 
@@ -92,7 +94,7 @@ inline __attribute__((always_inline)) auto match(std::string_view c,
  * @endcode
  */
 template <class... Entries>
-inline __attribute__((always_inline)) auto match(std::string_view c,
+HOSQ_ALWAYS_INLINE auto match(std::string_view c,
                                                  std::tuple<Entries...>& a)
     -> bool {
   auto refs = std::apply(
@@ -138,7 +140,7 @@ constexpr auto get_next_candidates(std::tuple<Entries&...> a) {
  * Not called directly; use the value-tuple `match()` overload above.
  */
 template <int Terminator, std::size_t N, class Commit, class... Entries>
-inline __attribute__((always_inline)) auto match_impl(std::string_view c,
+HOSQ_ALWAYS_INLINE auto match_impl(std::string_view c,
                                                  std::tuple<Entries&...> a, Commit& commit)
     -> bool {
   constexpr auto matched_number_table = []() -> auto {
@@ -253,9 +255,8 @@ inline __attribute__((always_inline)) auto match_impl(std::string_view c,
   return false;
 }
 
-
 template <std::size_t N, class... Entries>
-inline __attribute__((always_inline)) bool match(
+HOSQ_ALWAYS_INLINE bool match(
     std::string_view key, std::tuple<Entries&...> handlers) {
   auto commit = [](std::size_t) {};
   return match_impl<-1, N>(key, handlers, commit);
@@ -264,7 +265,7 @@ inline __attribute__((always_inline)) bool match(
 // Match a delimited prefix without scanning for its length first.
 // Commit receives the key length and runs before the selected handler.
 template <char Terminator, class Commit, class... Entries>
-inline __attribute__((always_inline)) bool match_terminated(
+HOSQ_ALWAYS_INLINE bool match_terminated(
     std::string_view remaining, std::tuple<Entries...>& handlers, Commit commit) {
   auto refs = std::apply([](auto&... x) { return std::forward_as_tuple(x...); }, handlers);
   return match_impl<static_cast<unsigned char>(Terminator), 0>(remaining, refs, commit);

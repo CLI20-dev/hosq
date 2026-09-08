@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hosq/detail/compiler.hh"
+
 #include <concepts>
 #include <cstddef>
 #include <tuple>
@@ -15,17 +17,6 @@
 #include "hosq/reader_base.hh"
 
 namespace hosq {
-
-#if defined(__GNUC__) || defined(__clang__)
-#define HOSQ_ALWAYS_INLINE_ATTR __attribute__((always_inline))
-#define HOSQ_FUNCTION_ALWAYS_INLINE inline __attribute__((always_inline))
-#elif defined(_MSC_VER)
-#define HOSQ_ALWAYS_INLINE_ATTR
-#define HOSQ_FUNCTION_ALWAYS_INLINE __forceinline
-#else
-#define HOSQ_ALWAYS_INLINE_ATTR
-#define HOSQ_FUNCTION_ALWAYS_INLINE inline
-#endif
 
 template <class R>
 class Decoder {
@@ -126,19 +117,96 @@ class Decoder<R> {
 
   template <detail::EntryT T, class ReaderT, class StateT>
   [[nodiscard]]
-  static HOSQ_FUNCTION_ALWAYS_INLINE auto decode_entry(T& t, ReaderT& reader,
-                                                       StateT& reader_state)
+  static HOSQ_ALWAYS_INLINE auto read_entry_key(T& t, ReaderT& reader,
+                                               StateT& reader_state)
       -> bool {
     if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
         [[unlikely]] {
       return false;
     }
-    auto key_ctx = make_decode_context(t.key(), reader, reader_state);
-    t.key().decode(key_ctx);
-    if (!hosq::next_token<Expect::member_value>(reader, reader_state))
-        [[unlikely]] {
-      return false;
+    if constexpr (detail::ConstKeyEntryT<T>) {
+      const DecodeContext<void, ReaderT> key_ctx{reader, reader_state};
+      auto scan_key = [&]() -> std::string_view {
+        return (scan::scalar | decode::string_view).invoke(key_ctx);
+      };
+      auto handlers = std::tuple{meta::make_handler<T::key()>([] {})};
+      bool matched;
+      if constexpr (requires {
+                      reader.match_const_key(reader_state, handlers, scan_key,
+                                             std::false_type{});
+                    }) {
+        matched = reader.match_const_key(reader_state, handlers, scan_key,
+                                         std::false_type{});
+      } else {
+        matched = meta::match(scan_key(), handlers);
+      }
+      if (!matched) {
+        if (reader.error(reader_state).is_ok()) {
+          reader.report_error(reader_state,
+              Error{.code = ErrorCode::unknown_member,
+                    .offset = reader.current_token(reader_state).offset,
+                    .detail = "expected declared constant key"});
+        }
+        return false;
+      }
+      if (!hosq::next_token<ReadPosition::member_value>(reader, reader_state))
+          [[unlikely]] return false;
+    } else {
+      auto key_ctx = make_decode_context(t.key(), reader, reader_state);
+      t.key().decode(key_ctx);
+      if (!hosq::next_token<Expect::member_value>(reader, reader_state))
+          [[unlikely]] return false;
     }
+    return true;
+  }
+
+  template <detail::EntryT T, class ReaderT, class StateT>
+  [[nodiscard]]
+  static HOSQ_ALWAYS_INLINE auto decode_entry(T& t, ReaderT& reader,
+                                             StateT& reader_state) -> bool {
+    if constexpr (detail::ConstKeyEntryT<T>) {
+      using value_type = typename T::value_type;
+      using decoder_type = typename value_type::decoder_type;
+      using value_context_type =
+          DecodeContext<typename value_type::storage_type, ReaderT>;
+      if constexpr (value_type::template decoder_const_invokable<
+                        value_context_type>) {
+        // Form this expression only after analysis has proved the complete
+        // value decoder callable with a const context. That keeps an optional
+        // const hook from instantiating an unsupported const tail.
+        if constexpr (requires(value_context_type& ctx) {
+                        {
+                          detail::ConstMemberFusion<decoder_type>{}
+                              .template try_invoke_const<T::key()>(ctx)
+                        } -> std::same_as<bool>;
+                      }) {
+          auto value_ctx = make_decode_context(t.value(), reader, reader_state);
+          if (detail::ConstMemberFusion<decoder_type>{}
+                  .template try_invoke_const<T::key()>(value_ctx))
+            return true;
+        }
+      } else if constexpr (requires(value_context_type& ctx) {
+                      {
+                        detail::ConstMemberFusion<decoder_type>{}
+                            .template try_invoke<T::key()>(ctx)
+                      } -> std::same_as<bool>;
+                    }) {
+        auto value_ctx = make_decode_context(t.value(), reader, reader_state);
+        if (detail::ConstMemberFusion<decoder_type>{}
+                .template try_invoke<T::key()>(value_ctx))
+          return true;
+      }
+    }
+
+    bool ready = false;
+    if constexpr (detail::ConstKeyEntryT<T>) {
+      if constexpr (requires {
+                      reader.template try_read_const_member<T::key()>(reader_state);
+                    }) {
+        ready = reader.template try_read_const_member<T::key()>(reader_state);
+      }
+    }
+    if (!ready && !read_entry_key(t, reader, reader_state)) return false;
     auto value_ctx = make_decode_context(t.value(), reader, reader_state);
     t.value().decode(value_ctx);
     return true;
@@ -156,18 +224,15 @@ class Decoder<R> {
           .detail = "expected object while decoding entry tuple",
       };
     }
-    std::apply(
-        [&](auto&... entry) HOSQ_ALWAYS_INLINE_ATTR -> void {
-          ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
-            if (!decode_entry(entry, reader, reader_state)) [[unlikely]] {
-              return false;
-            }
-            // If decode puts the reader into an error state, subsequent
-            // next_token() is a noop and the error is reported below.
-            return true;
-          }() && ...);
-        },
-        detail::as_tuple(t));
+    auto tuple = detail::as_tuple(t);
+    [&]<std::size_t... I>(std::index_sequence<I...>)
+        HOSQ_ALWAYS_INLINE_ATTR -> void {
+      // The && fold evaluates entries left-to-right and stops at the first
+      // failed decode. If decode puts the reader into an error state,
+      // subsequent next_token() is a noop and the error is reported below.
+      (void)(decode_entry(std::get<I>(tuple), reader, reader_state) && ...);
+    }(std::make_index_sequence<
+        std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>>{});
     if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
         [[unlikely]] {
       return reader.error(reader_state);
@@ -589,6 +654,3 @@ auto decode_into(T& t, typename R::input_type input) -> Error {
 }
 
 }  // namespace hosq
-
-#undef HOSQ_ALWAYS_INLINE_ATTR
-#undef HOSQ_FUNCTION_ALWAYS_INLINE

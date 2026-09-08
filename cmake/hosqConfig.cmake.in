@@ -1,8 +1,4 @@
 @PACKAGE_INIT@
-if(@CXX_HOSQ_USE_FAST_FLOAT@)
-  include(CMakeFindDependencyMacro)
-  find_dependency(FastFloat CONFIG)
-endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/hosqTargets.cmake")
 

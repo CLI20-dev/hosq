@@ -28,6 +28,7 @@ include(CMakePackageConfigHelpers)
 
 file(GLOB_RECURSE HOSQ_PUBLIC_HEADERS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hh"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
 )
 
 add_library(hosq INTERFACE)
@@ -48,11 +49,11 @@ target_include_directories(hosq
 
 target_compile_features(hosq INTERFACE cxx_std_20)
 
-option(CXX_HOSQ_USE_FAST_FLOAT "Use fast_float for float/double decoding" OFF)
+option(CXX_HOSQ_USE_FAST_FLOAT "Use bundled fast_float for number decoding" ON)
 if(CXX_HOSQ_USE_FAST_FLOAT)
-  find_package(FastFloat CONFIG REQUIRED)
-  target_link_libraries(hosq INTERFACE FastFloat::fast_float)
   target_compile_definitions(hosq INTERFACE HOSQ_USE_FAST_FLOAT=1)
+else()
+  target_compile_definitions(hosq INTERFACE HOSQ_USE_FAST_FLOAT=0)
 endif()
 
 set(HOSQ_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/hosq")
@@ -63,6 +64,15 @@ install(
   EXPORT ${HOSQ_TARGETS_EXPORT_NAME}
   FILE_SET HEADERS DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(
+  FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hosq/third_party/fast_float/LICENSE-APACHE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hosq/third_party/fast_float/LICENSE-BOOST
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hosq/third_party/fast_float/LICENSE-MIT
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hosq/third_party/fast_float/README.md
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hosq/third_party/fast_float
 )
 
 install(

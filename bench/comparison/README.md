@@ -66,24 +66,28 @@ they do not establish the speed ceiling of a specialized HOSQ pipeline.
   not evidence of equal validation work. Invalid-input/error performance is
   deliberately outside this suite.
 - Both C and C++ use the same selected compiler and Release optimization.
-  yyjson is built from source, not an opaque prebuilt library. fast_float is
-  optional and must be reported. No allocation-counter overrides are linked.
+  yyjson is built from source, not an opaque prebuilt library. The bundled
+  fast_float is enabled by default; an explicit opt-out must be reported. No
+  allocation-counter overrides are linked.
 
 ## Build and run
 
 Use matching yyjson.c and yyjson.h from a pinned release in one directory.
-Google Benchmark and optionally FastFloat must provide CMake package configs.
+Google Benchmark must provide a CMake package config. HOSQ includes its pinned
+fast_float headers, so no separate FastFloat package is required.
 
 ```sh
 cmake -S bench/comparison -B build/comparison -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DYYJSON_SOURCE=/path/to/yyjson/src/yyjson.c \
-  -DGLAZE_SOURCE_DIR=/path/to/glaze-v8.3.0 \
-  -DCXX_HOSQ_USE_FAST_FLOAT=ON
+  -DGLAZE_SOURCE_DIR=/path/to/glaze-v8.3.0
 cmake --build build/comparison --target hosq_comparison comparison_fixtures -j2
 python3 bench/comparison/run.py build/comparison/hosq_comparison \
   build/comparison/fixtures build/comparison/results
 ```
+
+Pass `-DCXX_HOSQ_USE_FAST_FLOAT=OFF` only when measuring the standard-library
+floating-point fallback, and report that choice with the results.
 
 The runner starts a fresh process for each case/implementation pair, shuffling
 case order and implementation order within each case (`--seed`). Each child

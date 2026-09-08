@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hosq/detail/compiler.hh"
+
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -9,14 +11,6 @@
 
 #include "hosq/bytes_view.hh"
 #include "hosq/error.hh"
-
-#if defined(__GNUC__) || defined(__clang__)
-#define HOSQ_READER_INLINE inline __attribute__((always_inline))
-#elif defined(_MSC_VER)
-#define HOSQ_READER_INLINE __forceinline
-#else
-#define HOSQ_READER_INLINE inline
-#endif
 
 namespace hosq {
 
@@ -94,7 +88,7 @@ template <auto... Hints, class R, class State>
            }) || requires(R& r, State& s) {
              { r.next_token_impl(s) } -> std::same_as<bool>;
            })
-HOSQ_READER_INLINE constexpr auto reader_next_impl(R& reader, State& state)
+HOSQ_ALWAYS_INLINE constexpr auto reader_next_impl(R& reader, State& state)
     noexcept([] {
       if constexpr (sizeof...(Hints) != 0 && requires(R& r, State& s) {
                       { r.template next_token_impl<Hints...>(s) }
@@ -128,7 +122,7 @@ struct ReaderBase {
     requires requires(const Derived& r, State& s, T& value) {
       { r.template read_number_impl<T, Into>(s, value) } -> std::same_as<bool>;
     }
-  HOSQ_READER_INLINE constexpr auto read_number(State& state, T& value) const
+  HOSQ_ALWAYS_INLINE constexpr auto read_number(State& state, T& value) const
       noexcept(noexcept(std::declval<const Derived&>()
                             .template read_number_impl<T, Into>(state, value)))
       -> bool {
@@ -140,7 +134,7 @@ struct ReaderBase {
     requires requires(Derived& r, State& s) {
       detail::reader_next_impl<Hints...>(r, s);
     }
-  HOSQ_READER_INLINE constexpr auto next_token(State& state)
+  HOSQ_ALWAYS_INLINE constexpr auto next_token(State& state)
       noexcept(noexcept(detail::reader_next_impl<Hints...>(
           std::declval<Derived&>(), state))) -> bool {
     return detail::reader_next_impl<Hints...>(static_cast<Derived&>(*this), state);
@@ -150,7 +144,7 @@ struct ReaderBase {
     requires requires(const Derived& r, State& s) {
       detail::reader_next_impl<Hints...>(r, s);
     }
-  HOSQ_READER_INLINE constexpr auto next_token(State& state) const
+  HOSQ_ALWAYS_INLINE constexpr auto next_token(State& state) const
       noexcept(noexcept(detail::reader_next_impl<Hints...>(
           std::declval<const Derived&>(), state))) -> bool {
     return detail::reader_next_impl<Hints...>(static_cast<const Derived&>(*this),
@@ -160,7 +154,7 @@ struct ReaderBase {
 
 // Keep readers implementing the original protocol usable without inheritance.
 template <auto... Hints, class R, class State>
-HOSQ_READER_INLINE constexpr auto next_token(R& reader, State& state)
+HOSQ_ALWAYS_INLINE constexpr auto next_token(R& reader, State& state)
     noexcept([] {
       if constexpr (requires(R& r, State& s) {
                       { r.template next_token<Hints...>(s) } -> std::same_as<bool>;
@@ -199,5 +193,3 @@ template <class R>
 using reader_traits_t = ReaderTraits<std::remove_cvref_t<R>>;
 
 }  // namespace hosq
-
-#undef HOSQ_READER_INLINE

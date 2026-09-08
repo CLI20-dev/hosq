@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hosq/detail/compiler.hh"
+
 #include <algorithm>
 #include <cctype>
 #include <concepts>
@@ -11,20 +13,16 @@
 #include "hosq/detail/pipeline_analysis.hh"
 #include "hosq/detail/type_traits.hh"
 
-#if defined(__GNUC__) || defined(__clang__)
-#define HOSQ_ALWAYS_INLINE_ATTR __attribute__((always_inline))
-#define HOSQ_FUNCTION_ALWAYS_INLINE inline __attribute__((always_inline))
-#elif defined(_MSC_VER)
-#define HOSQ_ALWAYS_INLINE_ATTR
-#define HOSQ_FUNCTION_ALWAYS_INLINE __forceinline
-#else
-#define HOSQ_ALWAYS_INLINE_ATTR
-#define HOSQ_FUNCTION_ALWAYS_INLINE inline
-#endif
-
 namespace hosq {
 
 namespace detail {
+// A self tag avoids accidentally inheriting fusion when overriding an ext.
+template <class Ext>
+concept ReaderFusion = requires {
+  typename Ext::reader_fusion;
+  requires std::same_as<typename Ext::reader_fusion, Ext>;
+};
+
 // Execution-only fusion for adjacent built-in steps. Analysis still sees the
 // original steps, including their storage and const-callability contracts.
 template <class First, class Second>
@@ -160,7 +158,7 @@ struct Pipeline {
    */
   template <class Input, class Context>
   [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Input input,
+  HOSQ_ALWAYS_INLINE static constexpr auto invoke(Input input,
                                                            Context&& ctx) {
     return []<auto FnHead, auto... FnTail>(Input input,
                                            Context& ctx) -> decltype(auto) {
@@ -308,7 +306,7 @@ struct Pipeline {
    */
   template <class Context>
   [[nodiscard]]
-  HOSQ_FUNCTION_ALWAYS_INLINE static constexpr auto invoke(Context&& ctx) {
+  HOSQ_ALWAYS_INLINE static constexpr auto invoke(Context&& ctx) {
     return []<auto FnHead, auto... FnTail>(Context& ctx) HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
       using Head = std::remove_cvref_t<decltype(FnHead)>;
       constexpr auto Fn = FnHead;
@@ -454,6 +452,3 @@ concept PipelineObject = IsPipeline<std::remove_cvref_t<T>>::value;
 }  // namespace detail
 
 }  // namespace hosq
-
-#undef HOSQ_ALWAYS_INLINE_ATTR
-#undef HOSQ_FUNCTION_ALWAYS_INLINE

@@ -86,7 +86,10 @@ can skip unused content. Equal outputs on valid inputs do not imply identical
 validation contracts. The speedup comes from the specialized work enabled by
 static dispatch, fusion and block scanning, not from CRTP syntax alone.
 
-## Optional fast_float backend
+## Historical optional fast_float backend
+
+The measurements below describe the earlier opt-in configuration. The current
+backend is bundled and defaults on; see [JSON prefix conversion](fast-float-json.md).
 
 fast_float v8.2.10 (official tagged source), Clang 21.1.8, C++20, -O3 -DNDEBUG,
 Apple ARM64. Identical current HOSQ headers compiled with backend off/on in
@@ -114,10 +117,12 @@ error behavior, including this platform's writes on range errors. No runtime
 backend switch or extra allocation is introduced. All translation units in an
 application should use the same macro configuration.
 
-CMake: CXX_HOSQ_USE_FAST_FLOAT=ON finds FastFloat::fast_float; default is OFF.
-Supply an installed FastFloat package using CMAKE_PREFIX_PATH. The installed
-hosq package propagates the dependency. Direct header use needs the macro and
-fast_float include directory. Tested dependency: https://github.com/fastfloat/fast_float/tree/v8.2.10
+Current setup: CXX_HOSQ_USE_FAST_FLOAT defaults to ON and uses the bundled
+headers; no external FastFloat package or include directory is needed. Set it
+to OFF to opt out. Direct header use defaults on as well and accepts
+HOSQ_USE_FAST_FLOAT=0. See [the bundled backend](fast-float-json.md) for current
+conversion semantics and verification. The measurements above predate this
+packaging change.
 
 Validation: 249 tests pass for C++20 and C++26 with fast_float, including float
 and double differential checks against std::from_chars on edge cases and 10,000

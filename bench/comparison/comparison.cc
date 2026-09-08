@@ -151,7 +151,7 @@ void hvisit(R& r, R::state_type& s, Stats& out) {
   }
   if (last < end && (*last == '.' || *last == 'e' || *last == 'E')) {
     double n{};
-    auto z = hosq::detail::number_from_chars(first, end, n);
+    auto z = R::parse_number(first, end, n);
     if (z.ec != std::errc{}) std::abort();
     out.v[2] += std::bit_cast<uint64_t>(n);
     last = z.ptr;

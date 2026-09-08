@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hosq/detail/compiler.hh"
+
 #include <charconv>
 #include <concepts>
 #include <cstddef>
@@ -223,6 +225,44 @@ struct NumberIntoImpl {
   auto operator()(const ScalarView& input,
                   DecodeContext<Storage, R, Phase>& ctx) const -> void {
     ext::DecodeNumberInto<R>{}.template operator()<T>(input, ctx);
+  }
+};
+
+template <class Step>
+struct CollectNumberStep {};
+
+template <Number T>
+struct CollectNumberStep<NumberImpl<T>> {
+  using value_type = std::remove_cvref_t<T>;
+};
+
+// Execution-only recognition for an exact scan::scalar | decode::number<T>
+// collect element pipeline. The original pipeline remains authoritative for
+// type and storage analysis. A false Reader probe must leave state and output
+// unchanged so CollectImpl can execute its ordinary path.
+template <class Pipeline>
+struct CollectNumberFusion {};
+
+template <auto Scan, auto Number>
+  requires(std::same_as<std::remove_cvref_t<decltype(Scan)>,
+                        scan::detail::ScanScalar> &&
+           requires {
+             typename CollectNumberStep<
+                 std::remove_cvref_t<decltype(Number)>>::value_type;
+           })
+struct CollectNumberFusion<::hosq::Pipeline<Scan, Number>> {
+  template <ReaderConcept R, class Container>
+    requires ::hosq::detail::ReaderFusion<ext::ScanScalar<R>> &&
+             ::hosq::detail::ReaderFusion<ext::DecodeNumber<R>> &&
+             requires(R& reader, typename R::state_type& state,
+                      Container& output) {
+               {
+                 reader.try_read_number_array(state, output)
+               } -> std::same_as<bool>;
+             }
+  HOSQ_ALWAYS_INLINE static auto try_invoke(
+      R& reader, typename R::state_type& state, Container& output) -> bool {
+    return reader.try_read_number_array(state, output);
   }
 };
 
@@ -783,6 +823,18 @@ struct CollectImpl<Pipeline, N> {
     auto& state = ctx.reader_state();
 
     std::array<terminal_type, N> ret{};
+
+    if constexpr (requires {
+                    {
+                      CollectNumberFusion<pipeline_type>::try_invoke(
+                          reader, state, ret)
+                    } -> std::same_as<bool>;
+                  }) {
+      if (CollectNumberFusion<pipeline_type>::try_invoke(reader, state, ret)) {
+        return ret;
+      }
+    }
+
     std::size_t index = 0;
 
     while (index < N) {
@@ -1156,20 +1208,135 @@ inline constexpr auto to = step<detail::ToImpl<T>>;
 
 }  // namespace hosq::decode
 
-#if defined(__GNUC__) || defined(__clang__)
-#define HOSQ_FUSION_INLINE inline __attribute__((always_inline))
-#elif defined(_MSC_VER)
-#define HOSQ_FUSION_INLINE __forceinline
-#else
-#define HOSQ_FUSION_INLINE inline
-#endif
-
 namespace hosq::detail {
-// A self tag avoids accidentally inheriting fusion when overriding an ext.
-template <class Ext>
-concept ReaderFusion = requires {
-  typename Ext::reader_fusion;
-  requires std::same_as<typename Ext::reader_fusion, Ext>;
+
+// Optional execution-only fusion for an ordered constant member whose value
+// pipeline starts with a recognized exact built-in scalar scan/decode pair.
+// The original pipeline remains authoritative for analysis. A failed Reader
+// probe must leave its state and output untouched so Decoder can use the
+// ordinary member path without changing diagnostics or extension behavior.
+template <class Pipeline>
+struct ConstMemberFusion {};
+
+template <class Step>
+struct ConstMemberNumberStep {};
+
+template <decode::detail::Number T>
+struct ConstMemberNumberStep<decode::detail::NumberImpl<T>> {
+  using value_type = std::remove_cvref_t<T>;
+};
+
+template <auto Scan, auto Number, auto... Rest>
+  requires(sizeof...(Rest) > 0 &&
+           std::same_as<std::remove_cvref_t<decltype(Scan)>,
+                        scan::detail::ScanScalar> &&
+           requires {
+             typename ConstMemberNumberStep<
+                 std::remove_cvref_t<decltype(Number)>>::value_type;
+           })
+struct ConstMemberFusion<Pipeline<Scan, Number, Rest...>> {
+  using number_step =
+      ConstMemberNumberStep<std::remove_cvref_t<decltype(Number)>>;
+  using value_type = typename number_step::value_type;
+
+  template <auto Key, class Ctx>
+    requires requires(Ctx& ctx, value_type& value) {
+      requires ReaderFusion<ext::ScanScalar<
+          typename std::remove_cvref_t<Ctx>::reader_type>>;
+      requires ReaderFusion<ext::DecodeNumber<
+          typename std::remove_cvref_t<Ctx>::reader_type>>;
+      {
+        ctx.reader().template try_read_const_number<Key>(ctx.reader_state(),
+                                                          value)
+      } -> std::same_as<bool>;
+      Pipeline<Rest...>::invoke(std::move(value), ctx);
+    }
+  HOSQ_ALWAYS_INLINE auto try_invoke(Ctx& ctx) const -> bool {
+    value_type value{};
+    if (!ctx.reader().template try_read_const_number<Key>(ctx.reader_state(),
+                                                           value))
+      return false;
+    (void)Pipeline<Rest...>::invoke(std::move(value), ctx);
+    return true;
+  }
+};
+
+template <auto Scan, auto StringView, auto... Rest>
+  requires(
+      sizeof...(Rest) > 0 &&
+      std::same_as<std::remove_cvref_t<decltype(Scan)>,
+                   scan::detail::ScanScalar> &&
+      std::same_as<std::remove_cvref_t<decltype(StringView)>,
+                   decode::detail::StringViewImpl>)
+struct ConstMemberFusion<Pipeline<Scan, StringView, Rest...>> {
+  template <auto Key, class Ctx>
+    requires requires(Ctx& ctx, std::string_view& value) {
+      requires ReaderFusion<ext::ScanScalar<
+          typename std::remove_cvref_t<Ctx>::reader_type>>;
+      {
+        ctx.reader().template try_read_const_string_view<Key>(
+            ctx.reader_state(), value)
+      } -> std::same_as<bool>;
+      Pipeline<Rest...>::invoke(std::move(value), ctx);
+    }
+  HOSQ_ALWAYS_INLINE auto try_invoke(Ctx& ctx) const -> bool {
+    std::string_view value;
+    if (!ctx.reader().template try_read_const_string_view<Key>(
+            ctx.reader_state(), value))
+      return false;
+    (void)Pipeline<Rest...>::invoke(std::move(value), ctx);
+    return true;
+  }
+
+  template <auto Key, class Ctx>
+    requires(
+        Pipeline<Rest...>::template callable_with_const_context<
+            Ctx, std::string_view>() &&
+        ReaderFusion<ext::ScanScalar<
+            typename std::remove_cvref_t<Ctx>::reader_type>> &&
+        requires(Ctx& ctx, std::string_view& value) {
+          {
+            ctx.reader().template try_read_const_string_view<Key>(
+                ctx.reader_state(), value)
+          } -> std::same_as<bool>;
+        })
+  HOSQ_ALWAYS_INLINE auto try_invoke_const(Ctx& ctx) const -> bool {
+    std::string_view value;
+    if (!ctx.reader().template try_read_const_string_view<Key>(
+            ctx.reader_state(), value))
+      return false;
+    (void)Pipeline<Rest...>::invoke(std::move(value),
+                                    static_cast<const Ctx&>(ctx));
+    return true;
+  }
+};
+
+template <auto Scan, auto Boolean, auto... Rest>
+  requires(
+      sizeof...(Rest) > 0 &&
+      std::same_as<std::remove_cvref_t<decltype(Scan)>,
+                   scan::detail::ScanScalar> &&
+      std::same_as<std::remove_cvref_t<decltype(Boolean)>,
+                   decode::detail::BooleanImpl>)
+struct ConstMemberFusion<Pipeline<Scan, Boolean, Rest...>> {
+  template <auto Key, class Ctx>
+    requires requires(Ctx& ctx, bool& value) {
+      requires ReaderFusion<ext::ScanScalar<
+          typename std::remove_cvref_t<Ctx>::reader_type>>;
+      {
+        ctx.reader().template try_read_const_boolean<Key>(ctx.reader_state(),
+                                                           value)
+      } -> std::same_as<bool>;
+      Pipeline<Rest...>::invoke(std::move(value), ctx);
+    }
+  HOSQ_ALWAYS_INLINE auto try_invoke(Ctx& ctx) const -> bool {
+    bool value = false;
+    if (!ctx.reader().template try_read_const_boolean<Key>(ctx.reader_state(),
+                                                            value))
+      return false;
+    (void)Pipeline<Rest...>::invoke(std::move(value), ctx);
+    return true;
+  }
 };
 
 template <decode::detail::Number T>
@@ -1185,7 +1352,7 @@ struct PipelineFusion<scan::detail::ScanScalar, decode::detail::NumberImpl<T>> {
       ctx.reader().template read_number<std::remove_cvref_t<T>>(
           ctx.reader_state(), value);
     }
-  HOSQ_FUSION_INLINE auto operator()(Ctx& ctx) const -> std::remove_cvref_t<T> {
+  HOSQ_ALWAYS_INLINE auto operator()(Ctx& ctx) const -> std::remove_cvref_t<T> {
     std::remove_cvref_t<T> value{};
     ctx.reader().template read_number<std::remove_cvref_t<T>>(
         ctx.reader_state(), value);
@@ -1205,10 +1372,8 @@ struct PipelineFusion<scan::detail::ScanScalar,
       decode::detail::NumberIntoImpl<T>{}(view, ctx);
       ctx.reader().template read_number<T, true>(ctx.reader_state(), ctx.value());
     }
-  HOSQ_FUSION_INLINE auto operator()(Ctx& ctx) const -> void {
+  HOSQ_ALWAYS_INLINE auto operator()(Ctx& ctx) const -> void {
     ctx.reader().template read_number<T, true>(ctx.reader_state(), ctx.value());
   }
 };
 }  // namespace hosq::detail
-
-#undef HOSQ_FUSION_INLINE
