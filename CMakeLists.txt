@@ -8,8 +8,6 @@ project(hosq VERSION ${HOSQ_VERSION} LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(CXX_HOSQ_ENABLE_TEST "Enable building tests" OFF)
-option(CXX_HOSQ_ENABLE_MODULE "Enable the HOSQ module" OFF)
-option(CXX_HOSQ_ENABLE_ASSEMBLY "Enable assembly output targets" ON)
 
 option(CXX_HOSQ_ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
 if(CXX_HOSQ_ENABLE_CLANG_TIDY)
@@ -99,41 +97,10 @@ install(
   FILES
     ${CMAKE_CURRENT_BINARY_DIR}/hosqConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/hosqConfigVersion.cmake
-    DESTINATION ${HOSQ_INSTALL_CMAKEDIR}
+  DESTINATION ${HOSQ_INSTALL_CMAKEDIR}
 )
-
-
-if(MSVC)
-  message(STATUS "single_header target is not supported with MSVC – skipping")
-else()
-  file(GLOB HOSQ_HEADERS CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/cli/*.hh"
-  )
-  set(HOSQ_SINGLE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/single_header/hosq.hh")
-  add_custom_command(
-    OUTPUT "${HOSQ_SINGLE_HEADER}"
-    COMMAND sh
-      "${CMAKE_CURRENT_SOURCE_DIR}/script/make_single_header.sh"
-      "${CMAKE_CURRENT_SOURCE_DIR}/include"
-      "${HOSQ_SINGLE_HEADER}"
-      "${CMAKE_CXX_COMPILER}"
-      DEPENDS ${HOSQ_HEADERS}
-    COMMENT "Generating single_header/hosq.hh"
-  )
-  add_custom_target(hosq_single_header DEPENDS "${HOSQ_SINGLE_HEADER}")
-endif()
-
-add_subdirectory(examples)
-
-if(CXX_HOSQ_ENABLE_ASSEMBLY AND TARGET twitter_asm)
-  add_custom_target(hosq_asm DEPENDS twitter_asm)
-endif()
 
 if(CXX_HOSQ_ENABLE_TEST)
   enable_testing()
   add_subdirectory(tests)
-endif()
-
-if(CXX_HOSQ_ENABLE_MODULE)
-  add_subdirectory(modules)
 endif()

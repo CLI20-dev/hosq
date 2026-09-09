@@ -20,17 +20,6 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
       - name: Check formatting
         run: nix fmt -- --ci
-      # Gate correctness diagnostics; keep the broader local style policy separate.
-      - name: Run clang-tidy
-        run: |
-          nix develop .#ci --command bash -euo pipefail -c '
-            cmake -S . -B build/check -G Ninja \
-              -DCXX_HOSQ_ENABLE_ASSEMBLY=OFF
-            for source in examples/*.cc; do
-              [ "$source" = examples/module.cc ] && continue
-              clang-tidy -p build/check --checks="-*,clang-analyzer-*" "$source"
-            done
-          '
 
   test:
     runs-on: ubuntu-24.04
@@ -48,7 +37,6 @@ jobs:
               -DCMAKE_BUILD_TYPE=Debug \
               -DCMAKE_CXX_FLAGS_DEBUG="-O1 -g1" \
               -DCXX_HOSQ_ENABLE_TEST=ON \
-              -DCXX_HOSQ_ENABLE_ASSEMBLY=OFF \
               -DCXX_HOSQ_ENABLE_SANITIZERS=ON
             cmake --build build/test --target hosq_tests_cxx20 --parallel 2
             ./build/test/tests/hosq_tests_cxx20
