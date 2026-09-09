@@ -37,8 +37,7 @@ struct InstrumentedReader : json::FastReader<128, Padding> {
 
   template <class T, std::size_t N>
     requires(!std::is_same_v<Tag, OrdinaryTag>)
-  bool try_read_number_array(state_type& state,
-                             std::array<T, N>& output) const {
+  bool try_read_number_array(state_type& state, std::array<T, N>& output) const {
     ++array_probe_calls;
     return Base::try_read_number_array(state, output);
   }
@@ -75,8 +74,7 @@ struct ResolvingScanScalar {
 
 template <class T, std::size_t N>
 inline constexpr auto fixed_numbers =
-    scan::array |
-    decode::collect<scan::scalar | decode::number<T>, N>;
+    scan::array | decode::collect<scan::scalar | decode::number<T>, N>;
 
 template <class Reader, class T, std::size_t N>
 auto invoke_fixed(Reader& reader, typename Reader::state_type& state)
@@ -90,15 +88,14 @@ auto invoke_fixed(Reader& reader, typename Reader::state_type& state)
 namespace hosq::ext {
 
 template <json::InputPadding Padding>
-struct ScanScalar<array_view_test::InstrumentedReader<
-    array_view_test::OrdinaryTag, Padding>>
+struct ScanScalar<
+    array_view_test::InstrumentedReader<array_view_test::OrdinaryTag, Padding>>
     : array_view_test::ResolvingScanScalar<
           array_view_test::OrdinaryReader<Padding>> {
-
   template <class Storage, TryPhase Phase>
-  auto operator()(const DecodeContext<
-                  Storage, array_view_test::OrdinaryReader<Padding>, Phase>&
-                      ctx) const -> ScalarView {
+  auto operator()(
+      const DecodeContext<Storage, array_view_test::OrdinaryReader<Padding>,
+                          Phase>& ctx) const -> ScalarView {
     this->resolve(ctx);
     return {};
   }
@@ -106,11 +103,9 @@ struct ScanScalar<array_view_test::InstrumentedReader<
 
 template <>
 struct ScanScalar<array_view_test::CustomScanReader>
-    : array_view_test::ResolvingScanScalar<
-          array_view_test::CustomScanReader> {
+    : array_view_test::ResolvingScanScalar<array_view_test::CustomScanReader> {
   template <class Storage, TryPhase Phase>
-  auto operator()(const DecodeContext<Storage,
-                                      array_view_test::CustomScanReader,
+  auto operator()(const DecodeContext<Storage, array_view_test::CustomScanReader,
                                       Phase>& ctx) const -> ScalarView {
     this->resolve(ctx);
     return {};
@@ -119,13 +114,11 @@ struct ScanScalar<array_view_test::CustomScanReader>
 
 template <>
 struct ScanScalar<array_view_test::CustomDecodeReader>
-    : array_view_test::ResolvingScanScalar<
-          array_view_test::CustomDecodeReader> {
-
+    : array_view_test::ResolvingScanScalar<array_view_test::CustomDecodeReader> {
   template <class Storage, TryPhase Phase>
-  auto operator()(const DecodeContext<Storage,
-                                      array_view_test::CustomDecodeReader,
-                                      Phase>& ctx) const -> ScalarView {
+  auto operator()(
+      const DecodeContext<Storage, array_view_test::CustomDecodeReader, Phase>&
+          ctx) const -> ScalarView {
     this->resolve(ctx);
     return {};
   }
@@ -204,8 +197,8 @@ auto compare_fused_with_ordinary(std::string_view input,
                                  bool check_expected_error = true)
     -> std::array<std::remove_cvref_t<T>, N> {
   SCOPED_TRACE(::testing::Message()
-               << "padding=" << static_cast<unsigned>(Padding)
-               << " input='" << input << "'");
+               << "padding=" << static_cast<unsigned>(Padding) << " input='"
+               << input << "'");
   using Fused = FusedReader<Padding>;
   using Ordinary = OrdinaryReader<Padding>;
 
@@ -244,17 +237,17 @@ auto compare_fused_with_ordinary(std::string_view input,
 }
 
 TEST(ReaderArrayView, FixedSizesQuotedNumbersWhitespaceAndFinalStateMatch) {
-  EXPECT_EQ((compare_fused_with_ordinary<std::int64_t, 0>(
-                "[ \t\n\r ]", ErrorCode::ok)),
+  EXPECT_EQ((compare_fused_with_ordinary<std::int64_t, 0>("[ \t\n\r ]",
+                                                          ErrorCode::ok)),
             (std::array<std::int64_t, 0>{}));
-  EXPECT_EQ((compare_fused_with_ordinary<std::int64_t, 1>(
-                R"(["42"])", ErrorCode::ok)),
-            (std::array<std::int64_t, 1>{42}));
+  EXPECT_EQ(
+      (compare_fused_with_ordinary<std::int64_t, 1>(R"(["42"])", ErrorCode::ok)),
+      (std::array<std::int64_t, 1>{42}));
   EXPECT_EQ((compare_fused_with_ordinary<std::int64_t, 4>(
                 "[ 1,\n\"2\", -0,\t4 ]", ErrorCode::ok)),
             (std::array<std::int64_t, 4>{1, 2, 0, 4}));
-  EXPECT_EQ((compare_fused_with_ordinary<std::int64_t, 6>(
-                "[-1,2,3,4,5,6]", ErrorCode::ok)),
+  EXPECT_EQ((compare_fused_with_ordinary<std::int64_t, 6>("[-1,2,3,4,5,6]",
+                                                          ErrorCode::ok)),
             (std::array<std::int64_t, 6>{-1, 2, 3, 4, 5, 6}));
 
   const auto negative_zero = compare_fused_with_ordinary<double, 4>(
@@ -267,10 +260,9 @@ TEST(ReaderArrayView, FixedSizesQuotedNumbersWhitespaceAndFinalStateMatch) {
 
 TEST(ReaderArrayView, FailedProbePreservesConcreteStateAndOutput) {
   using Reader = json::FastReader<>;
-  for (std::string_view input : {
-           "[1,2]", "[1,2,3,4,5]", "[1,2x,3,4]",
-           "[1,9223372036854775808,3,4]", "[1,2,3,]",
-           "[1,2,3,4", "[1,2,3,4}", R"([1,"2x",3,4])"}) {
+  for (std::string_view input :
+       {"[1,2]", "[1,2,3,4,5]", "[1,2x,3,4]", "[1,9223372036854775808,3,4]",
+        "[1,2,3,]", "[1,2,3,4", "[1,2,3,4}", R"([1,"2x",3,4])"}) {
     SCOPED_TRACE(std::string(input));
     Reader reader;
     Reader::state_type state;
@@ -280,10 +272,8 @@ TEST(ReaderArrayView, FailedProbePreservesConcreteStateAndOutput) {
     state.last_error = {.code = ErrorCode::candidate_rejected,
                         .offset = 91,
                         .detail = "probe sentinel"};
-    state.error_token = {.offset = 17,
-                         .length = 23,
-                         .type = TokenType::Error,
-                         .context = 29};
+    state.error_token = {
+        .offset = 17, .length = 23, .type = TokenType::Error, .context = 29};
     const auto saved = state;
     std::array<std::int64_t, 4> output{71, 72, 73, 74};
     const auto saved_output = output;
@@ -343,8 +333,7 @@ TEST(ReaderArrayView, CustomScalarAndNumberExtensionsOptOut) {
 #if defined(__unix__) || defined(__APPLE__)
 template <json::InputPadding Padding>
 void compare_guarded_prefixes() {
-  constexpr std::string_view input =
-      R"([0,"1",-0,9223372036854775807,4,5])";
+  constexpr std::string_view input = R"([0,"1",-0,9223372036854775807,4,5])";
   const auto page = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
   auto* memory = static_cast<char*>(mmap(
       nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0));

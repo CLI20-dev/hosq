@@ -310,7 +310,8 @@ struct TypedPlainFixedPayload {
 };
 struct PlainFixedRecord {
   Entry<Key<"id">, TypedField<ScalarKind::uint>> id;
-  Entry<Key<"payload">, Elem<step<TypedPlainFixedPayload>, noop_encoder>> payload;
+  Entry<Key<"payload">, Elem<step<TypedPlainFixedPayload>, noop_encoder>>
+      payload;
   void bind(Stats& out) {
     id.value().value().out = &out;
     payload.value().value().out = &out;
@@ -440,7 +441,8 @@ struct CanonicalPayload {
   Entry<Key<"ratio">, CanonicalTypedField<ScalarKind::real>> ratio;
   Entry<Key<"ok">, CanonicalTypedField<ScalarKind::boolean>> ok;
   Entry<Key<"none">, CanonicalTypedField<ScalarKind::null>> none;
-  Entry<Key<"values">, Elem<canonical_array<Fixed4, Native>, noop_encoder>> values;
+  Entry<Key<"values">, Elem<canonical_array<Fixed4, Native>, noop_encoder>>
+      values;
   void bind(Stats& out) {
     name.value().value().out = &out;
     count.value().value().out = &out;
@@ -472,7 +474,8 @@ template <bool Fixed4, bool Native = false>
 struct CanonicalRecord {
   Entry<Key<"id">, CanonicalTypedField<ScalarKind::uint>> id;
   Entry<Key<"payload">,
-        Elem<step<CanonicalPayloadStep<Fixed4, Native>>, noop_encoder>> payload;
+        Elem<step<CanonicalPayloadStep<Fixed4, Native>>, noop_encoder>>
+      payload;
   void bind(Stats& out) {
     id.value().value().out = &out;
     payload.value().value().out = &out;

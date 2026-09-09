@@ -22,16 +22,18 @@ using hosq::json::InputPadding;
 using hosq::json::WhitespaceMode;
 
 using DefaultReader = hosq::json::FastReader<>;
-using CompactReader = hosq::json::FastReader<128, InputPadding::none,
-                                             WhitespaceMode::Compact>;
-using PrettyReader = hosq::json::FastReader<128, InputPadding::none,
-                                            WhitespaceMode::Pretty>;
+using CompactReader =
+    hosq::json::FastReader<128, InputPadding::none, WhitespaceMode::Compact>;
+using PrettyReader =
+    hosq::json::FastReader<128, InputPadding::none, WhitespaceMode::Pretty>;
 static_assert(DefaultReader::whitespace_mode == WhitespaceMode::Auto);
 static_assert(std::is_empty_v<DefaultReader>);
 static_assert(std::is_empty_v<CompactReader>);
 static_assert(std::is_empty_v<PrettyReader>);
-static_assert(std::is_same_v<DefaultReader::state_type, CompactReader::state_type>);
-static_assert(std::is_same_v<DefaultReader::state_type, PrettyReader::state_type>);
+static_assert(
+    std::is_same_v<DefaultReader::state_type, CompactReader::state_type>);
+static_assert(
+    std::is_same_v<DefaultReader::state_type, PrettyReader::state_type>);
 
 struct Trace {
   std::vector<Token> tokens;
@@ -122,14 +124,15 @@ using Number = hosq::Elem<hosq::scan::scalar | hosq::decode::number<int> |
 using Text = hosq::Elem<hosq::scan::scalar | hosq::decode::string_view |
                             hosq::store::assign,
                         hosq::noop_encoder>;
-using Boolean = hosq::Elem<hosq::scan::scalar | hosq::decode::boolean |
-                               hosq::store::assign,
-                           hosq::noop_encoder>;
-using Numbers = hosq::Elem<
-    hosq::scan::array |
-        hosq::decode::collect<hosq::scan::scalar | hosq::decode::number<int>, 3> |
-        hosq::store::assign,
-    hosq::noop_encoder>;
+using Boolean =
+    hosq::Elem<hosq::scan::scalar | hosq::decode::boolean | hosq::store::assign,
+               hosq::noop_encoder>;
+using Numbers =
+    hosq::Elem<hosq::scan::array |
+                   hosq::decode::collect<
+                       hosq::scan::scalar | hosq::decode::number<int>, 3> |
+                   hosq::store::assign,
+               hosq::noop_encoder>;
 struct Fields {
   hosq::Entry<hosq::Key<"number">, Number> number;
   hosq::Entry<hosq::Key<"text">, Text> text;
@@ -142,8 +145,9 @@ void check_typed_pipeline(std::string input) {
   const auto length = input.size();
   input.append(8, '\0');
   Fields fields;
-  const auto result = hosq::decode_into<hosq::json::FastReader<128, Padding, Mode>>(
-      fields, std::string_view{input.data(), length});
+  const auto result =
+      hosq::decode_into<hosq::json::FastReader<128, Padding, Mode>>(
+          fields, std::string_view{input.data(), length});
   ASSERT_TRUE(result.is_ok());
   EXPECT_EQ(fields.number.value().value(), 7);
   EXPECT_EQ(fields.text.value().value(), "mode");
@@ -169,8 +173,14 @@ TEST(ReaderWhitespaceMode, AllModesAcceptCompactPrettyAndMixedWhitespace) {
 
 TEST(ReaderWhitespaceMode, AllModesPreserveEofAndErrorBoundaries) {
   for (std::string_view input : {
-           "", " ", "\n    ", "[\n    ", "{\n  \"a\"\t:",
-           "[1,\n    ", "{\"a\"\t 1}", "[1 \t 2]",
+           "",
+           " ",
+           "\n    ",
+           "[\n    ",
+           "{\n  \"a\"\t:",
+           "[1,\n    ",
+           "{\"a\"\t 1}",
+           "[1 \t 2]",
        }) {
     expect_all_modes_match<InputPadding::none>(input);
     std::string padded{input};
@@ -189,7 +199,8 @@ TEST(ReaderWhitespaceMode, RollbackDoesNotDependOnWhitespaceHint) {
 }
 
 TEST(ReaderWhitespaceMode, SkipUsesTheSameWhitespaceModes) {
-  std::string input = "{\n    \"a\": [1,\t{\"b\": null}],\r\n    \"c\": false\n}";
+  std::string input =
+      "{\n    \"a\": [1,\t{\"b\": null}],\r\n    \"c\": false\n}";
   check_skip<InputPadding::none, WhitespaceMode::Compact>(input);
   check_skip<InputPadding::none, WhitespaceMode::Pretty>(input);
   check_skip<InputPadding::none, WhitespaceMode::Auto>(input);
@@ -203,18 +214,23 @@ TEST(ReaderWhitespaceMode, SkipUsesTheSameWhitespaceModes) {
   check_skip<InputPadding::zero_padded_8, WhitespaceMode::Auto>(padded);
 }
 
-TEST(ReaderWhitespaceMode, EntryAndFixedArrayPipelinesWorkForEveryModeAndPadding) {
+TEST(ReaderWhitespaceMode,
+     EntryAndFixedArrayPipelinesWorkForEveryModeAndPadding) {
   const std::string input =
       "{\n    \"number\" : 7,\n    \"text\" : \"mode\",\n"
       "\t\"flag\" : true,\n    \"values\" : [1,\n        2, 3]\n}";
   check_typed_pipeline<InputPadding::none, WhitespaceMode::Compact>(input);
   check_typed_pipeline<InputPadding::none, WhitespaceMode::Pretty>(input);
   check_typed_pipeline<InputPadding::none, WhitespaceMode::Auto>(input);
-  check_typed_pipeline<InputPadding::zero_padded_4, WhitespaceMode::Compact>(input);
-  check_typed_pipeline<InputPadding::zero_padded_4, WhitespaceMode::Pretty>(input);
+  check_typed_pipeline<InputPadding::zero_padded_4, WhitespaceMode::Compact>(
+      input);
+  check_typed_pipeline<InputPadding::zero_padded_4, WhitespaceMode::Pretty>(
+      input);
   check_typed_pipeline<InputPadding::zero_padded_4, WhitespaceMode::Auto>(input);
-  check_typed_pipeline<InputPadding::zero_padded_8, WhitespaceMode::Compact>(input);
-  check_typed_pipeline<InputPadding::zero_padded_8, WhitespaceMode::Pretty>(input);
+  check_typed_pipeline<InputPadding::zero_padded_8, WhitespaceMode::Compact>(
+      input);
+  check_typed_pipeline<InputPadding::zero_padded_8, WhitespaceMode::Pretty>(
+      input);
   check_typed_pipeline<InputPadding::zero_padded_8, WhitespaceMode::Auto>(input);
 }
 
@@ -223,8 +239,8 @@ template <InputPadding Padding, WhitespaceMode Mode>
 void check_guard_page_whitespace() {
   using Reader = hosq::json::FastReader<128, Padding, Mode>;
   const auto page = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
-  auto* memory = static_cast<char*>(mmap(nullptr, page * 2, PROT_READ | PROT_WRITE,
-      MAP_PRIVATE | MAP_ANON, -1, 0));
+  auto* memory = static_cast<char*>(mmap(
+      nullptr, page * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0));
   ASSERT_NE(memory, MAP_FAILED);
   char* const end = memory + page - static_cast<std::size_t>(Padding);
   ASSERT_EQ(mprotect(memory + page, page, PROT_NONE), 0);
@@ -243,12 +259,18 @@ TEST(ReaderWhitespaceMode, WhitespaceHelperStaysWithinBoundedAndPaddedInput) {
   check_guard_page_whitespace<InputPadding::none, WhitespaceMode::Compact>();
   check_guard_page_whitespace<InputPadding::none, WhitespaceMode::Pretty>();
   check_guard_page_whitespace<InputPadding::none, WhitespaceMode::Auto>();
-  check_guard_page_whitespace<InputPadding::zero_padded_4, WhitespaceMode::Compact>();
-  check_guard_page_whitespace<InputPadding::zero_padded_4, WhitespaceMode::Pretty>();
-  check_guard_page_whitespace<InputPadding::zero_padded_4, WhitespaceMode::Auto>();
-  check_guard_page_whitespace<InputPadding::zero_padded_8, WhitespaceMode::Compact>();
-  check_guard_page_whitespace<InputPadding::zero_padded_8, WhitespaceMode::Pretty>();
-  check_guard_page_whitespace<InputPadding::zero_padded_8, WhitespaceMode::Auto>();
+  check_guard_page_whitespace<InputPadding::zero_padded_4,
+                              WhitespaceMode::Compact>();
+  check_guard_page_whitespace<InputPadding::zero_padded_4,
+                              WhitespaceMode::Pretty>();
+  check_guard_page_whitespace<InputPadding::zero_padded_4,
+                              WhitespaceMode::Auto>();
+  check_guard_page_whitespace<InputPadding::zero_padded_8,
+                              WhitespaceMode::Compact>();
+  check_guard_page_whitespace<InputPadding::zero_padded_8,
+                              WhitespaceMode::Pretty>();
+  check_guard_page_whitespace<InputPadding::zero_padded_8,
+                              WhitespaceMode::Auto>();
 }
 #endif
 
@@ -263,11 +285,13 @@ struct ObserveConcreteReader {
     return Reader::whitespace_mode;
   }
 };
-}
+}  // namespace
 
-TEST(ReaderWhitespaceMode, AutoDispatchesDecoderToConcreteReaderAtDocumentStart) {
-  using Probe = hosq::Elem<hosq::step<ObserveConcreteReader> | hosq::store::assign,
-                           hosq::noop_encoder>;
+TEST(ReaderWhitespaceMode,
+     AutoDispatchesDecoderToConcreteReaderAtDocumentStart) {
+  using Probe =
+      hosq::Elem<hosq::step<ObserveConcreteReader> | hosq::store::assign,
+                 hosq::noop_encoder>;
   hosq::Decoder<hosq::json::FastReader<>> decoder;
   for (const auto& [input, expected] : {
            std::pair{"{}", WhitespaceMode::Compact},
@@ -285,7 +309,8 @@ TEST(ReaderWhitespaceMode, AutoDispatchesDecoderToConcreteReaderAtDocumentStart)
   }
 }
 
-TEST(ReaderWhitespaceMode, ExplicitPointerScopeRetainsConcreteTypeAndSharedState) {
+TEST(ReaderWhitespaceMode,
+     ExplicitPointerScopeRetainsConcreteTypeAndSharedState) {
   using Auto = hosq::json::FastReader<>;
   Auto reader;
   Auto::state_type state;
@@ -309,8 +334,8 @@ TEST(ReaderWhitespaceMode, ExplicitPointerScopeRetainsConcreteTypeAndSharedState
 TEST(ReaderWhitespaceMode, AutoSelectorDoesNotReadPastShortInput) {
   using Reader = hosq::json::FastReader<>;
   const auto page = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
-  auto* memory = static_cast<char*>(mmap(nullptr, page * 2, PROT_READ | PROT_WRITE,
-      MAP_PRIVATE | MAP_ANON, -1, 0));
+  auto* memory = static_cast<char*>(mmap(
+      nullptr, page * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0));
   ASSERT_NE(memory, MAP_FAILED);
   ASSERT_EQ(mprotect(memory + page, page, PROT_NONE), 0);
   char* const end = memory + page;

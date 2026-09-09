@@ -21,20 +21,30 @@ using namespace hosq;
 // A custom reader keeps its own extension despite exposing a number operation.
 struct CustomReader : json::SimpleReader {
   template <class T, bool Into = false>
-  bool read_number(state_type&, T& value) const { value = 999; return true; }
+  bool read_number(state_type&, T& value) const {
+    value = 999;
+    return true;
+  }
 };
 }  // namespace
 namespace hosq::ext {
-template <> struct DecodeNumber<CustomReader> {
+template <>
+struct DecodeNumber<CustomReader> {
   template <class T, class Ctx>
-  T operator()(const ScalarView&, const Ctx&) const { return 77; }
+  T operator()(const ScalarView&, const Ctx&) const {
+    return 77;
+  }
 };
 }  // namespace hosq::ext
 namespace {
 
-template <class T> void same_number(T a, T b) {
+template <class T>
+void same_number(T a, T b) {
   if constexpr (std::is_floating_point_v<T>) {
-    if (std::isnan(a)) { EXPECT_TRUE(std::isnan(b)); return; }
+    if (std::isnan(a)) {
+      EXPECT_TRUE(std::isnan(b));
+      return;
+    }
     if (a == 0 && b == 0) EXPECT_EQ(std::signbit(a), std::signbit(b));
   }
   EXPECT_EQ(a, b);
@@ -45,7 +55,8 @@ void compare_number(std::string_view input, bool resolve_first) {
   SCOPED_TRACE(std::string(input));
   R reader;
   R::state_type a, b;
-  reader.reset(a, input); reader.reset(b, input);
+  reader.reset(a, input);
+  reader.reset(b, input);
   const bool start = reader.next_token(a);
   ASSERT_EQ(start, reader.next_token(b));
   if (!start) return;
@@ -76,13 +87,38 @@ void compare_number(std::string_view input, bool resolve_first) {
 }
 
 TEST(ReaderNumberView, PreservesValuesErrorsCacheAndPartialWrites) {
-  for (std::string_view input : {
-           "0", "-0", "42", "-42", "01", "1.25", "-1.25e-3", "1e309",
-           "1e-999", "18446744073709551615", "18446744073709551616",
-           "-9223372036854775808", "-9223372036854775809", "1e+", "1xyz",
-           "-", "null", "true", "nan", "-inf", "{}", "[]",
-           "\"123\"", "\"-0\"", "\"1.25\"", "\"\"", "\"123",
-           "\"123\\\"\"", "\"1\\u0032\"", "123,", "123:", "123 "}) {
+  for (std::string_view input : {"0",
+                                 "-0",
+                                 "42",
+                                 "-42",
+                                 "01",
+                                 "1.25",
+                                 "-1.25e-3",
+                                 "1e309",
+                                 "1e-999",
+                                 "18446744073709551615",
+                                 "18446744073709551616",
+                                 "-9223372036854775808",
+                                 "-9223372036854775809",
+                                 "1e+",
+                                 "1xyz",
+                                 "-",
+                                 "null",
+                                 "true",
+                                 "nan",
+                                 "-inf",
+                                 "{}",
+                                 "[]",
+                                 "\"123\"",
+                                 "\"-0\"",
+                                 "\"1.25\"",
+                                 "\"\"",
+                                 "\"123",
+                                 "\"123\\\"\"",
+                                 "\"1\\u0032\"",
+                                 "123,",
+                                 "123:",
+                                 "123 "}) {
     for (bool resolved : {false, true}) {
       compare_number<int64_t, false>(input, resolved);
       compare_number<uint64_t, false>(input, resolved);
@@ -98,16 +134,20 @@ TEST(ReaderNumberView, KeepsCustomNumberExtension) {
   using CustomCtx = DecodeContext<int, CustomReader>;
   CustomReader reader;
   CustomReader::state_type state;
-  reader.reset(state, "123"); ASSERT_TRUE(reader.next_token(state));
+  reader.reset(state, "123");
+  ASSERT_TRUE(reader.next_token(state));
   int value = 0;
   CustomCtx ctx{value, reader, state};
   EXPECT_EQ((scan::scalar | decode::number<int>).invoke(ctx), 77);
 }
 
-TEST(ReaderNumberView, SpecializedExecutionRetainsFollowingMismatchAndStorageSteps) {
-  using Value = Elem<scan::scalar | decode::number<int> |
-      step<decltype([](int x) { return MatchResult<int>{true, x}; })> | store::assign,
-      noop_encoder>;
+TEST(ReaderNumberView,
+     SpecializedExecutionRetainsFollowingMismatchAndStorageSteps) {
+  using Value =
+      Elem<scan::scalar | decode::number<int> |
+               step<decltype([](int x) { return MatchResult<int>{true, x}; })> |
+               store::assign,
+           noop_encoder>;
   Value value;
   EXPECT_TRUE(decode_into<R>(value, "123").is_ok());
   EXPECT_EQ(value.value(), 123);
@@ -119,7 +159,8 @@ const char* scalar_string_end(const char* p, const char* end) {
     if (*p == '\\') {
       if (end - p < 2) return end;
       p += 2;
-    } else ++p;
+    } else
+      ++p;
   }
   return end;
 }
@@ -206,18 +247,21 @@ TEST(ReaderNumberView, ScannersDoNotReadIntoGuardPage) {
 
 TEST(ReaderNumberView, SkippingTruncatedStringsIsBounded) {
   using Value = Elem<scan::object | decode::skip, noop_encoder>;
-  for (std::string_view input : {"{\"a\":\"", "{\"a\":\"abc", "{\"a\":\"abc\\"}) {
+  for (std::string_view input :
+       {"{\"a\":\"", "{\"a\":\"abc", "{\"a\":\"abc\\"}) {
     Value value;
     EXPECT_EQ(decode_into<R>(value, input).code, ErrorCode::unexpected_eof);
   }
 }
 TEST(ReaderNumberView, ProvenPositionsRetainSyntaxErrors) {
   R reader;
-  for (std::string_view input : {"", "1", "[]", "{}", "{\"a\":1}",
-       "{\"a\":[]}", "{\"a\":\"text\"}", "{\"a\" 1}", "{\"a\":", "{\"a\""}) {
+  for (std::string_view input :
+       {"", "1", "[]", "{}", "{\"a\":1}", "{\"a\":[]}", "{\"a\":\"text\"}",
+        "{\"a\" 1}", "{\"a\":", "{\"a\""}) {
     SCOPED_TRACE(std::string(input));
     R::state_type a, b;
-    reader.reset(a, input); reader.reset(b, input);
+    reader.reset(a, input);
+    reader.reset(b, input);
     bool ok = reader.next_token<ReadPosition::value>(a);
     EXPECT_EQ(ok, reader.next_token(b));
     EXPECT_EQ(reader.error(a).code, reader.error(b).code);
@@ -226,7 +270,8 @@ TEST(ReaderNumberView, ProvenPositionsRetainSyntaxErrors) {
     ok = reader.next_token(a);
     EXPECT_EQ(ok, reader.next_token(b));
     if (!ok || a.current.type != TokenType::Scalar) continue;
-    EXPECT_EQ(reader.next_token<ReadPosition::member_value>(a), reader.next_token(b));
+    EXPECT_EQ(reader.next_token<ReadPosition::member_value>(a),
+              reader.next_token(b));
     EXPECT_EQ(reader.error(a).code, reader.error(b).code);
     EXPECT_EQ(reader.error(a).offset, reader.error(b).offset);
     EXPECT_EQ(reader.error(a).detail, reader.error(b).detail);
@@ -236,22 +281,26 @@ TEST(ReaderNumberView, ProvenPositionsRetainSyntaxErrors) {
 }
 
 TEST(ReaderNumberView, FollowingMismatchLeavesStorageUntouched) {
-  constexpr auto pipeline = scan::scalar | decode::number<int> |
+  constexpr auto pipeline =
+      scan::scalar | decode::number<int> |
       step<decltype([](int x) { return MatchResult<int>{x == 123, x}; })> |
       store::assign;
   R reader;
   R::state_type state;
   int value = 77;
   DecodeContext<int, R> ctx{value, reader, state};
-  reader.reset(state, "124"); ASSERT_TRUE(reader.next_token(state));
+  reader.reset(state, "124");
+  ASSERT_TRUE(reader.next_token(state));
   EXPECT_FALSE(pipeline.invoke(ctx));
   EXPECT_EQ(value, 77);
-  reader.reset(state, "123"); ASSERT_TRUE(reader.next_token(state));
+  reader.reset(state, "123");
+  ASSERT_TRUE(reader.next_token(state));
   EXPECT_TRUE(pipeline.invoke(ctx));
   EXPECT_EQ(value, 123);
 }
 TEST(ReaderNumberView, SkippedScalarCachesLengthForNextToken) {
-  for (std::string_view input : {"[12345,7]", "[\"abc\\\"def\",7]", "[\"\",7]"}) {
+  for (std::string_view input :
+       {"[12345,7]", "[\"abc\\\"def\",7]", "[\"\",7]"}) {
     R reader;
     R::state_type state;
     reader.reset(state, input);

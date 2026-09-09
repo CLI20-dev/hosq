@@ -14,8 +14,8 @@ namespace input_view_test {
 struct BinaryWord {};
 using Bytes = std::span<const std::byte, 4>;
 struct Context {
-  std::array<std::byte, 4> bytes{
-      std::byte{0x12}, std::byte{0x34}, std::byte{0x56}, std::byte{0x78}};
+  std::array<std::byte, 4> bytes{std::byte{0x12}, std::byte{0x34},
+                                 std::byte{0x56}, std::byte{0x78}};
   unsigned materializations = 0;
   std::uint32_t output = 0;
   auto value() -> std::uint32_t& { return output; }
@@ -44,9 +44,9 @@ namespace hosq::ext {
 template <>
 struct InputView<input_view_test::BinaryWord> {
   template <class Step, class Context>
-  using type = std::conditional_t<
-      std::is_same_v<Step, input_view_test::ReadBigEndian>,
-      input_view_test::BinaryWord, input_view_test::Bytes>;
+  using type =
+      std::conditional_t<std::is_same_v<Step, input_view_test::ReadBigEndian>,
+                         input_view_test::BinaryWord, input_view_test::Bytes>;
 
   template <class Step, class Context>
   static auto get(input_view_test::BinaryWord&, Context& ctx)
@@ -66,11 +66,11 @@ using namespace input_view_test;
 
 TEST(InputView, BinaryConsumerUsesTagAndAgreesWithStorageAnalysis) {
   static_assert(std::is_empty_v<BinaryWord>);
-  constexpr auto pipeline = hosq::step<ScanWord> |
-                            hosq::step<ReadBigEndian> | hosq::store::assign;
+  constexpr auto pipeline =
+      hosq::step<ScanWord> | hosq::step<ReadBigEndian> | hosq::store::assign;
   using Info = decltype(pipeline)::info<void, Context>;
-  static_assert(std::is_same_v<hosq::detail::pipeline_storage_t<Info>,
-                               std::uint32_t>);
+  static_assert(
+      std::is_same_v<hosq::detail::pipeline_storage_t<Info>, std::uint32_t>);
   Context ctx;
   pipeline.invoke(ctx);
   EXPECT_EQ(ctx.output, 0x12345678u);
@@ -79,16 +79,17 @@ TEST(InputView, BinaryConsumerUsesTagAndAgreesWithStorageAnalysis) {
 
 TEST(InputView, OpaqueConsumerReceivesOrdinaryViewExactlyOnce) {
   Context ctx;
-  (hosq::step<ScanWord> | hosq::step<OrdinaryConsumer> |
-   hosq::store::assign).invoke(ctx);
+  (hosq::step<ScanWord> | hosq::step<OrdinaryConsumer> | hosq::store::assign)
+      .invoke(ctx);
   EXPECT_EQ(ctx.output, 0x12u);
   EXPECT_EQ(ctx.materializations, 1u);
 }
 
 TEST(InputView, TerminalScanReturnsOrdinaryViewWithMatchingAnalysis) {
   constexpr auto pipeline = hosq::step<ScanWord>;
-  static_assert(std::is_same_v<
-      decltype(pipeline)::final_output_type<void, Context>, Bytes>);
+  static_assert(
+      std::is_same_v<decltype(pipeline)::final_output_type<void, Context>,
+                     Bytes>);
   Context ctx;
   auto bytes = pipeline.invoke(ctx);
   static_assert(std::is_same_v<decltype(bytes), Bytes>);

@@ -67,8 +67,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
     state.token = Token{.offset = 0,
                         .length = 0,
                         .type = TokenType::End,
-                        .context = static_cast<uint8_t>(
-                            JsonTokenContext::none)};
+                        .context = static_cast<uint8_t>(JsonTokenContext::none)};
     state.has_error = false;
     state.error = Error::ok();
   }
@@ -447,8 +446,8 @@ class SimpleReader : public ReaderBase<SimpleReader> {
           return false;
         }
         state.pos++;
-        state.context.back() = static_cast<Context>(
-            static_cast<uint8_t>(state.context.back()) ^ 1);
+        state.context.back() =
+            static_cast<Context>(static_cast<uint8_t>(state.context.back()) ^ 1);
         return true;
       case ']':
         if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) == 0)

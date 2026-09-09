@@ -16,16 +16,28 @@ using hosq::TokenType;
 enum class CustomHint { string, number };
 
 struct FallbackReader : hosq::ReaderBase<FallbackReader> {
-  bool next_token_impl(int& state) noexcept { ++state; return true; }
+  bool next_token_impl(int& state) noexcept {
+    ++state;
+    return true;
+  }
 };
 struct SpecializedReader : hosq::ReaderBase<SpecializedReader> {
-  bool next_token_impl(int& state) const noexcept { state = 1; return true; }
+  bool next_token_impl(int& state) const noexcept {
+    state = 1;
+    return true;
+  }
   template <auto... Hints>
     requires(sizeof...(Hints) == 2)
-  bool next_token_impl(int& state) const noexcept { state = 2; return true; }
+  bool next_token_impl(int& state) const noexcept {
+    state = 2;
+    return true;
+  }
 };
 struct LegacyReader {
-  bool next_token(int& state) { ++state; return true; }
+  bool next_token(int& state) {
+    ++state;
+    return true;
+  }
 };
 template <class R>
 concept ConstNext = requires(const R& r, int& state) { r.next_token(state); };
@@ -42,8 +54,9 @@ static_assert(std::is_empty_v<FallbackReader>);
 static_assert(std::is_empty_v<SpecializedReader>);
 static_assert(noexcept(std::declval<FallbackReader&>().next_token<Expect::value>(
     std::declval<int&>())));
-static_assert(noexcept(std::declval<const SpecializedReader&>().next_token<
-    CustomHint::string, CustomHint::number>(std::declval<int&>())));
+static_assert(noexcept(std::declval<const SpecializedReader&>()
+                           .next_token<CustomHint::string, CustomHint::number>(
+                               std::declval<int&>())));
 static_assert(hosq::ReaderConcept<hosq::json::SimpleReader>);
 static_assert(hosq::ReaderConcept<hosq::json::FastReader<>>);
 
@@ -55,7 +68,8 @@ TEST(ReaderDispatch, OptionalSpecializationAndCustomVocabulary) {
   EXPECT_TRUE(fallback.next_token(state));
   EXPECT_EQ(state, 2);
   const SpecializedReader specialized;
-  EXPECT_TRUE((specialized.next_token<CustomHint::string, CustomHint::number>(state)));
+  EXPECT_TRUE(
+      (specialized.next_token<CustomHint::string, CustomHint::number>(state)));
   EXPECT_EQ(state, 2);
   EXPECT_TRUE(specialized.next_token<Expect::value>(state));
   EXPECT_EQ(state, 1);
@@ -69,8 +83,9 @@ struct LegacySimpleReader : hosq::json::SimpleReader {
 };
 TEST(ReaderDispatch, DecoderAcceptsLegacyReaderWithoutTemplateAPI) {
   using namespace hosq;
-  using Values = Elem<scan::array | decode::each<scan::scalar |
-                         decode::number_into<int>>, noop_encoder>;
+  using Values =
+      Elem<scan::array | decode::each<scan::scalar | decode::number_into<int>>,
+           noop_encoder>;
   Values values;
   auto error = decode_into<LegacySimpleReader>(values, "[1,2,3]");
   ASSERT_TRUE(error.is_ok());
@@ -123,13 +138,12 @@ void compare_hints(std::string_view input) {
 }
 
 TEST(ReaderDispatch, ValidMalformedAndTruncatedStreamsPreserveBehavior) {
-  for (std::string_view input : {
-           "", "1", "true", "null", "\"text\"", "[]", "{}",
-           "[1,\"two\",true,null,{},[3]]",
-           "{\"a\":[1,2],\"b\":{\"c\":\"d\"}}",
-           " { \"escaped\\\"key\" : \"a\\nb\", \"x\": 1.2e-3 } ",
-           "[1,]", "{\"a\":1,}", "{\"a\" 1}", "[1}", "{]",
-           "[1 2]", "1 2", "\"\\uZZZZ\"", "[[[[[[[[[0]]]]]]]]]"}) {
+  for (std::string_view input :
+       {"", "1", "true", "null", "\"text\"", "[]", "{}",
+        "[1,\"two\",true,null,{},[3]]", "{\"a\":[1,2],\"b\":{\"c\":\"d\"}}",
+        " { \"escaped\\\"key\" : \"a\\nb\", \"x\": 1.2e-3 } ", "[1,]",
+        "{\"a\":1,}", "{\"a\" 1}", "[1}", "{]", "[1 2]", "1 2", "\"\\uZZZZ\"",
+        "[[[[[[[[[0]]]]]]]]]"}) {
     compare_hints(input);
     for (std::size_t n = 0; n < input.size(); ++n)
       compare_hints(input.substr(0, n));
@@ -152,7 +166,8 @@ TEST(ReaderDispatch, LatchedErrorsAndUnsupportedPacksUseSameProtocol) {
   hosq::json::FastReader<> reader;
   hosq::json::FastReader<>::state_type state;
   reader.reset(state, "42");
-  EXPECT_TRUE((reader.next_token<CustomHint::string, CustomHint::number>(state)));
+  EXPECT_TRUE(
+      (reader.next_token<CustomHint::string, CustomHint::number>(state)));
   EXPECT_EQ(reader.current_token(state).type, TokenType::Scalar);
   reader.report_error(state, {.code = hosq::ErrorCode::type_mismatch});
   EXPECT_FALSE(reader.next_token<Expect::member_value>(state));

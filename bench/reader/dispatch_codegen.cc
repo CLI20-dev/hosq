@@ -7,9 +7,7 @@ extern "C" bool adapter(const R& r, S& s) {
 extern "C" bool direct(const R& r, S& s) {
   return r.next_token_impl<hosq::Expect::member_value>(s);
 }
-extern "C" bool generic(const R& r, S& s) {
-  return r.next_token_impl(s);
-}
+extern "C" bool generic(const R& r, S& s) { return r.next_token_impl(s); }
 extern "C" bool proven_member(const R& r, S& s) {
   return hosq::next_token<hosq::ReadPosition::member_value>(r, s);
 }
