@@ -55,8 +55,9 @@ construction and destruction are also timed.
 Glaze receives a mutable string, so its normal temporary input padding and
 restoration are included in the timed call.
 
-The randomized-key cases use a second fixed-seed SplitMix64 sequence only for
-member order. Their decoded values are identical to the canonical-order cases.
+The randomized-key cases use a second fixed-seed `std::mt19937_64` engine only
+for member order and permute keys with `std::shuffle`. Their decoded values are
+identical to the canonical-order cases.
 Pretty inputs use a four-space indent at every nesting level and otherwise keep
 the same values and ordering contract as their compact counterparts.
 

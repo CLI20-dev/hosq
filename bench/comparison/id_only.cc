@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <glaze/glaze.hpp>
 #include <iostream>
+#include <random>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,32 +21,22 @@ static_assert(glz::version.major == 8 && glz::version.minor == 3 &&
 
 namespace id_only {
 
-auto next_random(std::uint64_t& state) -> std::uint64_t {
-  state += 0x9e3779b97f4a7c15ULL;
-  auto value = state;
-  value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
-  value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
-  return value ^ (value >> 31);
-}
-
 auto make_input(std::size_t rows) -> std::string {
   std::string json{"["};
   json.reserve(rows * 112);
-  std::uint64_t random_state = 0x8f3c5a1d7b9246e0ULL;
+  std::mt19937_64 generator{0x8f3c5a1d7b9246e0ULL};
   for (std::size_t i = 0; i < rows; ++i) {
     if (i != 0) json.push_back(',');
-    json += R"({"id":)" + std::to_string(next_random(random_state));
-    json += R"(,"payload":{"name":"record-)" +
-            std::to_string(next_random(random_state));
-    json += R"(","count":)" + std::to_string(next_random(random_state));
-    json += R"(,"ratio":)" +
-            std::to_string(next_random(random_state) % 100'000'000 / 100.0);
+    json += R"({"id":)" + std::to_string(generator());
+    json += R"(,"payload":{"name":"record-)" + std::to_string(generator());
+    json += R"(","count":)" + std::to_string(generator());
+    json += R"(,"ratio":)" + std::to_string(generator() % 100'000'000 / 100.0);
     json += R"(,"ok":)";
-    json += (next_random(random_state) & 1) != 0 ? "true" : "false";
+    json += (generator() & 1) != 0 ? "true" : "false";
     json += R"(,"none":null,"values":[)";
     for (std::size_t value = 0; value < 4; ++value) {
       if (value != 0) json.push_back(',');
-      json += std::to_string(next_random(random_state));
+      json += std::to_string(generator());
     }
     json += "]}}";
   }

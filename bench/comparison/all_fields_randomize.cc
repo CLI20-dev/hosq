@@ -1,6 +1,7 @@
 #include <benchmark/benchmark.h>
 #include <yyjson.h>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -8,6 +9,7 @@
 #include <cstdlib>
 #include <glaze/glaze.hpp>
 #include <iostream>
+#include <random>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -23,28 +25,20 @@ static_assert(glz::version.major == 8 && glz::version.minor == 3 &&
 
 namespace all_fields_randomize {
 
-auto next_random(std::uint64_t& state) -> std::uint64_t {
-  state += 0x9e3779b97f4a7c15ULL;
-  auto value = state;
-  value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
-  value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
-  return value ^ (value >> 31);
-}
-
 auto make_input(std::size_t rows) -> std::string {
   std::string json{"["};
   json.reserve(rows * 112);
-  std::uint64_t random_state = 0x8f3c5a1d7b9246e0ULL;
-  std::uint64_t order_state = 0x21d4a76cb985e30fULL;
+  std::mt19937_64 generator{0x8f3c5a1d7b9246e0ULL};
+  std::mt19937_64 order_generator{0x21d4a76cb985e30fULL};
   for (std::size_t i = 0; i < rows; ++i) {
     if (i != 0) json.push_back(',');
-    const auto id = next_random(random_state);
-    const auto name = next_random(random_state);
-    const auto count = next_random(random_state);
-    const auto ratio = next_random(random_state) % 100'000'000 / 100.0;
-    const auto ok = (next_random(random_state) & 1) != 0;
+    const auto id = generator();
+    const auto name = generator();
+    const auto count = generator();
+    const auto ratio = generator() % 100'000'000 / 100.0;
+    const auto ok = (generator() & 1) != 0;
     std::array<std::uint64_t, 4> values{};
-    for (auto& value : values) value = next_random(random_state);
+    for (auto& value : values) value = generator();
 
     std::array<std::string, 6> payload_members{
         R"("name":"record-)" + std::to_string(name) + '"',
@@ -56,10 +50,8 @@ auto make_input(std::size_t rows) -> std::string {
             std::to_string(values[1]) + ',' + std::to_string(values[2]) + ',' +
             std::to_string(values[3]) + ']',
     };
-    for (std::size_t member = payload_members.size() - 1; member > 0; --member) {
-      std::swap(payload_members[member],
-                payload_members[next_random(order_state) % (member + 1)]);
-    }
+    std::shuffle(payload_members.begin(), payload_members.end(),
+                 order_generator);
 
     std::string payload{"\"payload\":{"};
     for (std::size_t member = 0; member < payload_members.size(); ++member) {
@@ -70,7 +62,7 @@ auto make_input(std::size_t rows) -> std::string {
 
     std::array<std::string, 2> record_members{R"("id":)" + std::to_string(id),
                                               std::move(payload)};
-    if ((next_random(order_state) & 1) != 0)
+    if ((order_generator() & 1) != 0)
       std::swap(record_members[0], record_members[1]);
 
     json.push_back('{');
