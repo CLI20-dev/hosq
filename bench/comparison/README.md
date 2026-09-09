@@ -6,19 +6,26 @@ parser-only ranking, a conformance suite, or a Cartesian product of every knob.
 ## Typed comparison (primary)
 
 Use `hosq_static_comparison` to compare typed HOSQ and Glaze pipelines with yyjson.
-The twelve cases cover small/medium/large input, id-only/five-field/all-field
-selection, wide objects with the selected key first or last, mixed numbers, and
-raw UTF-8 versus escaped strings. Five-field selection reads id and payload's
-name, count, ratio, and ok.
+The sixteen cases cover small/medium/large input, id-only/five-field/all-field
+selection, canonical and deterministically shuffled medium object keys, and
+five-field selection with either unknown payload members (`many_skip`) or a
+known-only wire (`many_known`). Wide objects, mixed numbers, and raw UTF-8 versus
+escaped strings complete the matrix. Five-field selection reads id and
+payload's name, count, ratio, and ok.
 
 Glaze uses typed metadata for both selected and complete output, with
-`error_on_unknown_keys=false` and `partial_read=false` for selection. HOSQ uses
-unordered constant-key matching plus skip for selection; its all-field Entry
-schemas assume declared key order. Glaze's object reader accepts arbitrary
-order. Do not interpret these all-field cases as equal ordering guarantees.
+`error_on_unknown_keys=false` and `partial_read=false` for five-field selection.
+HOSQ uses unordered constant-key matching plus skip for selection. All-field
+HOSQ schemas also use unordered constant-key matching, but have no skip
+fallback, so unknown members are rejected like Glaze's strict path. The
+`medium/many_skip_shuffled`, `medium/many_known_shuffled`, and
+`medium/all_shuffled` cases exercise this ordering contract explicitly; no
+ordered path is included in these three-way results. Comparing `many_skip` with
+`many_known` isolates the cost of skipping unknown `none` and `values` members.
 
 Each implementation creates a fresh output vector, computes the same digest,
-and destroys the output within timing. yyjson also builds and frees its DOM;
+and destroys the output within timing. No implementation pre-reserves its
+output vector. yyjson also builds and frees its DOM;
 multiple selected fields use one traversal, not repeated linear lookups. HOSQ
 and Glaze borrow string views and use common unescape/hash processing; yyjson
 provides decoded strings. Input preparation is outside timing, while Glaze's
@@ -37,9 +44,9 @@ cmake -S bench/comparison -B build/comparison -DCMAKE_BUILD_TYPE=Release \
   -DGLAZE_SOURCE_DIR=/path/to/glaze-v8.3.0
 cmake --build build/comparison --target hosq_static_comparison static_comparison_fixtures
 python3 bench/comparison/run_static.py build/comparison/hosq_static_comparison \
-  build/comparison/fixtures-static bench/comparison/results/run1 --seed 2026090801
+  build/comparison/fixtures-static bench/comparison/results/run1 --seed 2026090901
 python3 bench/comparison/run_static.py build/comparison/hosq_static_comparison \
-  build/comparison/fixtures-static bench/comparison/results/run2 --seed 2026090802
+  build/comparison/fixtures-static bench/comparison/results/run2 --seed 2026090902
 python3 bench/comparison/summarize_static.py bench/comparison/results/run1 \
   bench/comparison/results/run2 bench/comparison/results/summary
 python3 bench/comparison/plot_static.py bench/comparison/results/summary/chart-data.json \
@@ -53,14 +60,22 @@ Chart ranges show variation between runs, not confidence intervals. An optional
 `--before-executable PATH` runs matched controls built from another header snapshot.
 Keep generated results untracked. The [checkpoint](../../docs/reader-flow-checkpoint.md)
 retains the latest focused measurement; superseded experiment reports are omitted.
+Any pre-existing result directory from an older case matrix must be regenerated;
+the plotting script does not treat historical 12-case results as valid input for
+the current sixteen-case matrix.
+
+The first measurement produced with this matrix is recorded in the
+[2026-09-09 typed comparison report](../../docs/benchmarks/typed-json-comparison-2026-09-09.md).
 
 ## Generic comparison (diagnostic)
 
 The remaining sections describe `hosq_comparison`, whose full-value cases use
 generic traversal. They do not establish typed-deserialization performance.
 
-Twelve workloads, three implementations, plus paired static-schema controls give
-38 measurements. Every workload has a distinct diagnostic purpose.
+Twelve workloads and three implementations give 36 diagnostic measurements.
+Typed-schema comparisons belong to the separate sixteen-case static suite
+above; they are not mixed into these generic results. Every workload has a
+distinct diagnostic purpose.
 
 | Workload | Operation | Purpose |
 |---|---|---|
@@ -72,12 +87,10 @@ Twelve workloads, three implementations, plus paired static-schema controls give
 | numbers (652 KB) | all values | Signed/unsigned integers, uint64 maximum, decimals and exponents |
 | strings_utf8 / strings_escaped | all values | Identical decoded strings, raw UTF-8 versus Unicode escapes, including surrogate pairs |
 
-`medium/all/HOSQtyped` and `medium/all/Glazetyped` produce the same result as `medium/all/HOSQ`, but use
-static schemas and known scalar types. Glaze reads a vector of explicitly
-registered C++ records (including an array of four known integer values). These are controls, not separate inputs.
-They prevent attributing the cost of generic runtime traversal entirely to the
-Reader. The remaining full-value cases use a generic recursive consumer;
-they do not establish the speed ceiling of a specialized HOSQ pipeline.
+The generic full-value cases use a streaming HOSQ recursive consumer versus
+Glaze's owning `generic_u64` DOM and yyjson's DOM. They are diagnostic
+streaming-versus-DOM comparisons, not typed-deserialization rankings. Use the
+static suite for equivalent typed schemas and known scalar types.
 
 ## Result and comparison contract
 
@@ -87,9 +100,12 @@ they do not establish the speed ceiling of a specialized HOSQ pipeline.
   input contents are verified unchanged. HOSQ and yyjson read the same buffer. Each case repeatedly
   processes its own buffer: these are resident-input tests, not disk or cold
   streaming measurements. Large does not guarantee a cache miss on every read.
-- HOSQ uses bounded `FastReader<>`, no padding option. Sparse selection uses
-  constant-key schema matching and the standard skip fallback. It keeps no
-  output vector; full consumption produces the same fixed-size digest.
+- HOSQ's generic path uses bounded `FastReader<>`, no padding option. Sparse
+  selection uses constant-key schema matching and the standard skip fallback;
+  generic full-value traversal keeps no output vector and computes the fixed-
+  size digest while consuming the input. The static suite intentionally
+  materializes fresh HOSQ vectors so its typed allocation path is comparable
+  to the other typed adapters.
 - yyjson uses default `yyjson_read` flags and allocator. Parsing, DOM allocation,
   output computation and `yyjson_doc_free` are all timed. Sparse mode uses one
   object lookup for one requested field; full mode iterates each value once.
@@ -102,9 +118,11 @@ they do not establish the speed ceiling of a specialized HOSQ pipeline.
   type (the fixture includes UINT64_MAX). It is an owning DOM with materialized
   keys. Construction, parsing, consumption and destruction are all timed.
   Output vectors/DOMs are fresh each iteration, with no pre-reserve or reuse.
-  Input capacity can be retained across repetitions, as in resident-buffer use.
-  **The dynamic table is not Glaze's typed-deserialization performance.** The
-  medium static controls are necessary to interpret it.
+  The typed comparison records `std::string_view` fields, matching HOSQ's
+  borrowed string views; yyjson's views refer to its timed DOM. Input capacity
+  can be retained across repetitions, as in resident-buffer use. **The dynamic
+  table is not Glaze's typed-deserialization performance.** The medium static
+  controls are not part of this generic measurement set.
 - Output is ten uint64 accumulators: leaf count, integer sum, double-bit sum,
   string count, decoded UTF-8 byte count, sum of per-string FNV-1a hashes,
   true count, null count, object count and array count. Sparse output counts
@@ -115,10 +133,11 @@ they do not establish the speed ceiling of a specialized HOSQ pipeline.
   computes the digest. All implementations must equal that oracle before
   benchmarks run; matching each other alone is insufficient. Raw UTF-8 and
   escaped-string fixtures have equal decoded digests. Input hashes are recorded.
-- Valid inputs only: HOSQ's permissive skipped-value handling is not equivalent
-  to yyjson's full validation. A faster skip result is an end-to-end benefit,
-  not evidence of equal validation work. Invalid-input/error performance is
-  deliberately outside this suite.
+- Valid inputs only: HOSQ's permissive skipped-value handling for the selected
+  five-field mode is not equivalent to Glaze's skipped-value validation or
+  yyjson's DOM validation and materialization. A faster skip result is an
+  end-to-end benefit, not evidence of equal validation work. Invalid-input/error
+  performance is deliberately outside this suite.
 - Both C and C++ use the same selected compiler and Release optimization.
   yyjson is built from source, not an opaque prebuilt library. The bundled
   fast_float is enabled by default; an explicit opt-out must be reported. No
@@ -183,6 +202,7 @@ Pinned v8.3.0 documentation and implementation were used to check the adapter:
 - [Mutable input padding and restoration](https://github.com/stephenberry/glaze/blob/v8.3.0/include/glaze/core/read.hpp)
 
 This suite measures equal application outputs, not identical memory layouts or
-validation work. Glaze's materialized strings undergo UTF-8 validation; HOSQ's
-raw-string/skip behavior has different guarantees. Do not infer parser-only
-speed or a universal library ranking from these end-to-end results.
+validation work. Generic Glaze materializes strings and validates UTF-8, while
+the typed static adapters borrow string views; HOSQ's raw-string/skip behavior
+has different guarantees. Do not infer parser-only speed or a universal
+library ranking from these end-to-end results.

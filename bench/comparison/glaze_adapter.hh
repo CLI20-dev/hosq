@@ -4,6 +4,7 @@ namespace glaze_bench {
 struct Id {
   uint64_t id{};
 };
+#ifdef HOSQ_COMPARISON_DIAGNOSTICS
 struct Payload {
   std::string name;
   uint64_t count{};
@@ -16,6 +17,7 @@ struct Record {
   uint64_t id{};
   Payload payload;
 };
+#endif
 
 }  // namespace glaze_bench
 // Explicit metadata avoids compiler-dependent aggregate reflection (nullptr_t).
@@ -24,6 +26,7 @@ struct glz::meta<glaze_bench::Id> {
   using T = glaze_bench::Id;
   static constexpr auto value = object("id", &T::id);
 };
+#ifdef HOSQ_COMPARISON_DIAGNOSTICS
 template <>
 struct glz::meta<glaze_bench::Payload> {
   using T = glaze_bench::Payload;
@@ -36,6 +39,7 @@ struct glz::meta<glaze_bench::Record> {
   using T = glaze_bench::Record;
   static constexpr auto value = object("id", &T::id, "payload", &T::payload);
 };
+#endif
 namespace glaze_bench {
 void visit(const glz::generic_u64& value, Stats& out) {
   if (value.is_object()) {
@@ -92,6 +96,7 @@ Stats run(Fixture& f) {
   return out;
 }
 
+#ifdef HOSQ_COMPARISON_DIAGNOSTICS
 Stats typed_run(Fixture& f) {
   std::vector<Record> rows;
   read(rows, f);
@@ -110,4 +115,5 @@ Stats typed_run(Fixture& f) {
   }
   return out;
 }
+#endif
 }  // namespace glaze_bench

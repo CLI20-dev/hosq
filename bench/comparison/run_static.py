@@ -87,9 +87,11 @@ def main():
     summary = []
     for case, engine in jobs:
         values = [r['cpu_us'] for r in samples if (r['case'], r['engine']) == (case, engine)]
+        cv = (statistics.stdev(values) / statistics.mean(values)
+              if len(values) > 1 else 0.0)
         summary.append(dict(case=case, engine=engine, median_us=statistics.median(values),
                             min_us=min(values), max_us=max(values),
-                            cv=statistics.stdev(values)/statistics.mean(values)))
+                            cv=cv))
     (out / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
 
 

@@ -37,7 +37,6 @@ def main():
     jobs = []
     for case in cases:
         engines = ['HOSQ', 'yyjson', 'Glaze']
-        if case == 'medium/all': engines += ['HOSQtyped', 'Glazetyped']
         rng.shuffle(engines)
         jobs.extend((case, engine) for engine in engines)
     context = dict(mode='fresh process per case/implementation', seed=args.seed,
@@ -80,11 +79,8 @@ def main():
              '|---|---:|---:|---:|---:|---:|']
     dispersion = {}
     cases = [row['case'] for row in json.loads((args.fixtures / 'metadata.json').read_text())]
-    for case in cases + ['medium/all/static']:
-        typed = case.endswith('/static')
-        base = case[:-7] if typed else case
-        names = [base + '/HOSQ' + ('typed' if typed else ''), base + '/yyjson',
-                 base + '/Glaze' + ('typed' if typed else '')]
+    for case in cases:
+        names = [case + '/HOSQ', case + '/yyjson', case + '/Glaze']
         samples = [groups[name] for name in names]
         h, y, g = [statistics.median(x) for x in samples]
         for name, values in zip(names, samples):

@@ -13,9 +13,16 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace hosq;
+static_assert(YYJSON_VERSION_MAJOR == 0 && YYJSON_VERSION_MINOR == 12 &&
+                  YYJSON_VERSION_PATCH == 0,
+              "static comparison requires yyjson 0.12.0");
+static_assert(glz::version.major == 8 && glz::version.minor == 3 &&
+                  glz::version.patch == 0,
+              "static comparison requires Glaze 8.3.0");
 
 namespace {
 
@@ -278,23 +285,27 @@ struct HMany {
   Try<Entry<HSkipKey, HSkipValue>> skip;
 };
 struct HAllPayload {
-  Entry<Key<"name">, HString> name;
-  Entry<Key<"count">, HNumber<uint64_t>> count;
-  Entry<Key<"ratio">, HNumber<double>> ratio;
-  Entry<Key<"ok">, HBool> ok;
-  Entry<Key<"none">, HNull> none;
-  Entry<Key<"values">,
-        Elem<scan::array |
-                 decode::collect<scan::scalar | decode::number<uint64_t>, 4> |
-                 store::assign,
-             noop_encoder>>
+  // Try entries deliberately use unordered constant-key matching.  There is
+  // no skip fallback here: all-field schemas reject unknown members just as
+  // Glaze's error_on_unknown_keys=true path does.
+  Try<Entry<Key<"name">, HString>> name;
+  Try<Entry<Key<"count">, HNumber<uint64_t>>> count;
+  Try<Entry<Key<"ratio">, HNumber<double>>> ratio;
+  Try<Entry<Key<"ok">, HBool>> ok;
+  Try<Entry<Key<"none">, HNull>> none;
+  Try<Entry<
+      Key<"values">,
+      Elem<scan::array |
+               decode::collect<scan::scalar | decode::number<uint64_t>, 4> |
+               store::assign,
+           noop_encoder>>>
       values;
 };
 using HAllPayloadValue =
     Elem<scan::object | decode::to<HAllPayload> | store::assign, noop_encoder>;
 struct HAll {
-  Entry<Key<"id">, HNumber<uint64_t>> id;
-  Entry<Key<"payload">, HAllPayloadValue> payload;
+  Try<Entry<Key<"id">, HNumber<uint64_t>>> id;
+  Try<Entry<Key<"payload">, HAllPayloadValue>> payload;
 };
 struct HNumberTuple {
   HNumber<uint64_t> u;
@@ -305,12 +316,12 @@ struct HNumberTuple {
 using HNumberTupleValue =
     Elem<scan::array | decode::to<HNumberTuple> | store::assign, noop_encoder>;
 struct HNumbers {
-  Entry<Key<"id">, HNumber<uint64_t>> id;
-  Entry<Key<"payload">, HNumberTupleValue> payload;
+  Try<Entry<Key<"id">, HNumber<uint64_t>>> id;
+  Try<Entry<Key<"payload">, HNumberTupleValue>> payload;
 };
 struct HStrings {
-  Entry<Key<"id">, HNumber<uint64_t>> id;
-  Entry<Key<"payload">, HString> payload;
+  Try<Entry<Key<"id">, HNumber<uint64_t>>> id;
+  Try<Entry<Key<"payload">, HString>> payload;
 };
 
 IdRecord project(const HId& row) { return {row.id.value().value()}; }
@@ -337,15 +348,32 @@ StringRecord project(const HStrings& row) {
   return {row.id.value().value(), row.payload.value().value()};
 }
 
-template <class Schema>
-using HRoot =
-    Elem<scan::array | decode::collect<scan::object | decode::to<Schema>> |
-             store::assign,
-         noop_encoder>;
+inline constexpr auto project_id = [](HId row) -> IdRecord {
+  return project(row);
+};
+inline constexpr auto project_many = [](HMany row) -> ManyRecord {
+  return project(row);
+};
+inline constexpr auto project_all = [](HAll row) -> AllRecord {
+  return project(row);
+};
+inline constexpr auto project_numbers = [](HNumbers row) -> NumberRecord {
+  return project(row);
+};
+inline constexpr auto project_strings = [](HStrings row) -> StringRecord {
+  return project(row);
+};
 
-template <class Schema>
-HRoot<Schema> hosq_decode(const Fixture& f) {
-  HRoot<Schema> root;
+template <class Schema, class Native, auto Project>
+using HNativeRoot = Elem<scan::array |
+                             decode::collect<scan::object | decode::to<Schema> |
+                                             decode::custom<Project>> |
+                             store::assign,
+                         noop_encoder>;
+
+template <class Schema, class Native, auto Project>
+std::vector<Native> hosq_decode(const Fixture& f) {
+  HNativeRoot<Schema, Native, Project> root;
   Reader reader;
   Reader::state_type state;
   reader.reset(state, std::string_view{f.input});
@@ -354,30 +382,30 @@ HRoot<Schema> hosq_decode(const Fixture& f) {
       !next_token<Expect::document_end>(reader, state) ||
       !reader.error(state).is_ok())
     fatal("HOSQ decode/full input check failed for " + f.name);
-  return root;
+  return std::move(root.value());
 }
 
 Stats hosq_run(const Fixture& f) {
   switch (f.mode) {
     case Mode::id: {
-      auto root = hosq_decode<HId>(f);
-      return consume_ids(root.value());
+      auto rows = hosq_decode<HId, IdRecord, project_id>(f);
+      return consume_ids(rows);
     }
     case Mode::many: {
-      auto root = hosq_decode<HMany>(f);
-      return consume_many(root.value(), true);
+      auto rows = hosq_decode<HMany, ManyRecord, project_many>(f);
+      return consume_many(rows, true);
     }
     case Mode::all: {
-      auto root = hosq_decode<HAll>(f);
-      return consume_all(root.value(), true);
+      auto rows = hosq_decode<HAll, AllRecord, project_all>(f);
+      return consume_all(rows, true);
     }
     case Mode::numbers: {
-      auto root = hosq_decode<HNumbers>(f);
-      return consume_numbers(root.value());
+      auto rows = hosq_decode<HNumbers, NumberRecord, project_numbers>(f);
+      return consume_numbers(rows);
     }
     case Mode::strings: {
-      auto root = hosq_decode<HStrings>(f);
-      return consume_strings(root.value(), true);
+      auto rows = hosq_decode<HStrings, StringRecord, project_strings>(f);
+      return consume_strings(rows, true);
     }
   }
   fatal("unknown mode");
@@ -515,12 +543,14 @@ Stats yyjson_run(const Fixture& f) {
   yyjson_doc* doc = yyjson_read(f.input.data(), f.input.size(), 0);
   if (!doc) fatal("yyjson parse failed for " + f.name);
   yyjson_val* root = yyjson_doc_get_root(doc);
-  if (!yyjson_is_arr(root)) fatal("yyjson expected root array");
+  if (!yyjson_is_arr(root)) {
+    yyjson_doc_free(doc);
+    fatal("yyjson expected root array");
+  }
 
   Stats out;
   if (f.mode == Mode::id) {
     std::vector<IdRecord> rows;
-    rows.reserve(yyjson_arr_size(root));
     size_t i, n;
     yyjson_val* row;
     yyjson_arr_foreach(root, i, n, row) {
@@ -530,11 +560,6 @@ Stats yyjson_run(const Fixture& f) {
   } else if (f.mode == Mode::many || f.mode == Mode::all) {
     std::vector<ManyRecord> many;
     std::vector<AllRecord> all;
-    const auto count = yyjson_arr_size(root);
-    if (f.mode == Mode::many)
-      many.reserve(count);
-    else
-      all.reserve(count);
     size_t i, n;
     yyjson_val* row;
     yyjson_arr_foreach(root, i, n, row) {
@@ -544,7 +569,11 @@ Stats yyjson_run(const Fixture& f) {
           id = v;
         else if (k == "payload")
           payload = v;
+        else if (f.mode == Mode::all)
+          fatal("yyjson unknown row member in strict mode");
       });
+      if (!id || !payload || !yyjson_is_obj(payload))
+        fatal("yyjson missing row member");
       yyjson_val *name = nullptr, *number = nullptr, *ratio = nullptr,
                  *ok = nullptr, *none = nullptr, *values = nullptr;
       each_member(payload, [&](std::string_view k, yyjson_val* v) {
@@ -560,6 +589,8 @@ Stats yyjson_run(const Fixture& f) {
           none = v;
         else if (k == "values")
           values = v;
+        else if (f.mode == Mode::all)
+          fatal("yyjson unknown payload member in strict mode");
       });
       if (!ok || !yyjson_is_bool(ok)) fatal("yyjson expected boolean");
       if (f.mode == Mode::many) {
@@ -583,7 +614,6 @@ Stats yyjson_run(const Fixture& f) {
                                : consume_all(all, false);
   } else if (f.mode == Mode::numbers) {
     std::vector<NumberRecord> rows;
-    rows.reserve(yyjson_arr_size(root));
     size_t i, n;
     yyjson_val* row;
     yyjson_arr_foreach(root, i, n, row) {
@@ -593,8 +623,10 @@ Stats yyjson_run(const Fixture& f) {
           id = v;
         else if (k == "payload")
           payload = v;
+        else
+          fatal("yyjson unknown row member in strict mode");
       });
-      if (!payload || yyjson_arr_size(payload) != 6)
+      if (!id || !payload || yyjson_arr_size(payload) != 6)
         fatal("yyjson invalid number tuple");
       rows.push_back(
           {yuint(id),
@@ -606,7 +638,6 @@ Stats yyjson_run(const Fixture& f) {
     out = consume_numbers(rows);
   } else {
     std::vector<StringRecord> rows;
-    rows.reserve(yyjson_arr_size(root));
     size_t i, n;
     yyjson_val* row;
     yyjson_arr_foreach(root, i, n, row) {
@@ -616,7 +647,10 @@ Stats yyjson_run(const Fixture& f) {
           id = v;
         else if (k == "payload")
           payload = v;
+        else
+          fatal("yyjson unknown row member in strict mode");
       });
+      if (!id || !payload) fatal("yyjson missing string row member");
       rows.push_back({yuint(id), ystring(payload)});
     }
     out = consume_strings(rows, false);
@@ -668,7 +702,7 @@ int main(int argc, char** argv) {
     fixture.input.assign(std::istreambuf_iterator<char>(input), {});
     found = true;
   }
-  if (manifest_count != 12) fatal("manifest must contain exactly 12 cases");
+  if (manifest_count != 16) fatal("manifest must contain exactly 16 cases");
   if (!found || fixture.input.empty()) fatal("selected case missing or empty");
 
   fixture.input.reserve(fixture.input.size() + glz::padding_bytes);

@@ -11,6 +11,12 @@
 #include <string>
 using namespace hosq;
 using R = json::FastReader<>;
+static_assert(YYJSON_VERSION_MAJOR == 0 && YYJSON_VERSION_MINOR == 12 &&
+                  YYJSON_VERSION_PATCH == 0,
+              "comparison requires yyjson 0.12.0");
+static_assert(glz::version.major == 8 && glz::version.minor == 3 &&
+                  glz::version.patch == 0,
+              "comparison requires Glaze 8.3.0");
 struct Stats {
   std::array<uint64_t, 10> v{};
   void add(const Stats& s) {
@@ -123,7 +129,10 @@ void hvisit(R& r, R::state_type& s, Stats& out) {
   auto& t = r.current_token(s);
   if (t.context == uint8_t(JsonTokenContext::string)) {
     DecodeContext<void, R, TryPhase::first> c{r, s};
-    ext::ScanScalar<R>{}(c);
+    // hvisit enters scalar tokens directly, so use the resolving adapter. A
+    // plain ScanScalar call only supplies a pipeline input tag and leaves an
+    // unresolved token length, which can make the digest walk past input end.
+    ext::ScanScalar<R>::resolved(c);
     string_stats({s.begin + t.offset, t.length}, true, out);
     return;
   }
@@ -220,8 +229,9 @@ struct Selected {
   Try<Entry<SkipKey, SkipVal>> skip;
 };
 
-// Fixed-schema control for medium/all: same digest as the generic visitor.
-// It isolates application traversal from the Reader's static execution path.
+// Static-gap diagnostic support. The primary typed comparison is in
+// static_comparison.cc; keep these controls out of the generic executable.
+#ifdef HOSQ_COMPARISON_DIAGNOSTICS
 enum class ScalarKind { uint, real, string, boolean, null };
 template <ScalarKind K>
 struct TypedScalar {
@@ -243,7 +253,8 @@ struct TypedScalar {
       if (!r.template read_number<double>(st, n)) std::abort();
       out.v[2] += std::bit_cast<uint64_t>(n);
     } else if constexpr (K == ScalarKind::string) {
-      ext::ScanScalar<R>{}(c);
+      using CReader = std::remove_cvref_t<decltype(c.reader())>;
+      ext::ScanScalar<CReader>{}(c);
       auto& t = r.current_token(st);
       string_stats({st.begin + t.offset, t.length}, true, out);
     } else {
@@ -300,7 +311,9 @@ struct TypedPayload {
     ++out.v[8];
     Payload p;
     p.bind(out);
-    if (!Decoder<R>::decode_nested(p, c.reader(), c.reader_state()).is_ok())
+    using CReader = std::remove_cvref_t<decltype(c.reader())>;
+    if (!Decoder<CReader>::decode_nested(p, c.reader(), c.reader_state())
+             .is_ok())
       std::abort();
   }
 };
@@ -312,6 +325,7 @@ struct TypedRecord {
     payload.value().value().out = &out;
   }
 };
+#endif
 struct Fixture {
   std::string name, input;
   bool sparse;
@@ -343,6 +357,7 @@ Stats hosq_run(const Fixture& f) {
   return out;
 }
 
+#ifdef HOSQ_COMPARISON_DIAGNOSTICS
 Stats typed_run(const Fixture& f) {
   R r;
   R::state_type s;
@@ -362,6 +377,7 @@ Stats typed_run(const Fixture& f) {
     std::abort();
   return out;
 }
+#endif
 Stats yy_run(const Fixture& f) {
   auto* d = yyjson_read(f.input.data(), f.input.size(), 0);
   if (!d) std::abort();
@@ -428,22 +444,6 @@ int main(int argc, char** argv) {
     std::cout << "verified " << f.name << " bytes=" << f.input.size()
               << " leaves=" << f.expected.v[0] << "\n";
 
-    if (f.name == "medium/all") {
-      if ((check_engine("HOSQtyped") && typed_run(f) != f.expected) ||
-          (check_engine("Glazetyped") &&
-           glaze_bench::typed_run(f) != f.expected)) {
-        std::cerr << "Typed mismatch\n";
-        return 8;
-      }
-      benchmark::RegisterBenchmark(
-          "medium/all/HOSQtyped", [i](benchmark::State& s) {
-            for (auto _ : s) {
-              auto out = typed_run(fixtures[i]);
-              benchmark::DoNotOptimize(out);
-            }
-            s.SetBytesProcessed(s.iterations() * fixtures[i].input.size());
-          });
-    }
     benchmark::RegisterBenchmark(
         (f.name + "/Glaze").c_str(), [i](benchmark::State& s) {
           for (auto _ : s) {
@@ -452,16 +452,6 @@ int main(int argc, char** argv) {
           }
           s.SetBytesProcessed(s.iterations() * fixtures[i].input.size());
         });
-    if (f.name == "medium/all") {
-      benchmark::RegisterBenchmark(
-          "medium/all/Glazetyped", [i](benchmark::State& s) {
-            for (auto _ : s) {
-              auto out = glaze_bench::typed_run(fixtures[i]);
-              benchmark::DoNotOptimize(out);
-            }
-            s.SetBytesProcessed(s.iterations() * fixtures[i].input.size());
-          });
-    }
     for (bool hosq : {true, false}) {
       benchmark::RegisterBenchmark(
           (f.name + (hosq ? "/HOSQ" : "/yyjson")).c_str(),
@@ -483,4 +473,5 @@ int main(int argc, char** argv) {
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 7;
   benchmark::RunSpecifiedBenchmarks();
   benchmark::Shutdown();
+  return 0;
 }

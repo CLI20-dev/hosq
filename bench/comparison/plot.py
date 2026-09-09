@@ -36,23 +36,18 @@ def main():
             ('small/all', 'Small · 109 B'), ('medium/all', 'Medium · 230 KB'),
             ('large/all', 'Large · 30 MB'), ('deep/all', 'Deep containers'),
             ('numbers/all', 'Mixed numbers'), ('strings_utf8/all', 'Long UTF-8 strings'),
-            ('strings_escaped/all', 'Same strings · escaped')]),
-        ('Static-schema control — same medium input and output', [
-            ('medium/all/static', 'Medium · 230 KB')])]
+            ('strings_escaped/all', 'Same strings · escaped')])]
     plt.rcParams.update({'font.family': 'DejaVu Sans', 'font.size': 11,
                          'axes.spines.top': False, 'axes.spines.right': False,
                          'axes.spines.left': False})
-    fig, axes = plt.subplots(3, 1, figsize=(12, 13), gridspec_kw={'height_ratios': [5, 7, 1.8]})
+    fig, axes = plt.subplots(2, 1, figsize=(12, 11), gridspec_kw={'height_ratios': [5, 7]})
     colors = {'yyjson': '#8b97a5', 'HOSQ': '#1676bd', 'Glaze': '#8954bb'}
     for ax, (title, cases) in zip(axes, panels):
         limit = 1
         for j, engine in enumerate(['yyjson', 'HOSQ', 'Glaze']):
             center, lo, hi = [], [], []
             for case, label in cases:
-                typed = case.endswith('/static')
-                base = case[:-7] if typed else case
-                suffix = 'typed' if typed and engine != 'yyjson' else ''
-                ratios = [r[base + '/' + engine + suffix] / r[base + '/yyjson'] for r in runs]
+                ratios = [r[case + '/' + engine] / r[case + '/yyjson'] for r in runs]
                 mid = statistics.mean(ratios)
                 center.append(mid); lo.append(mid - min(ratios)); hi.append(max(ratios) - mid)
                 limit = max(limit, max(ratios))
@@ -75,7 +70,7 @@ def main():
     fig.suptitle('HOSQ / yyjson / Glaze', x=.04, y=.995, ha='left', fontsize=23, fontweight='bold')
     fig.text(.04, .965, 'Same decoded output · fresh process per case / implementation · yyjson = 1', fontsize=11)
     fig.text(.04, .025, 'Bars: mean of two within-run median ratios. Whiskers: run-to-run range (not confidence intervals).\n'
-             'Glaze: typed id selection; generic_u64 DOM for dynamic full reads; typed records in the static control.\n'
+             'Glaze: typed id selection; generic_u64 DOM for dynamic full reads.\n'
              'Parsing, output consumption and output allocation/free included. Current power conditions; no historical timings.',
              fontsize=9, color='#444444', linespacing=1.6)
     fig.subplots_adjust(left=.24, right=.96, top=.91, bottom=.10, hspace=.58)

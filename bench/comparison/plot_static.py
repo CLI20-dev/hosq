@@ -16,18 +16,24 @@ def main():
     parser.add_argument('output', type=Path)
     args = parser.parse_args()
     data = {(r['case'], r['engine']): r for r in json.loads(args.data.read_text())}
-    panels = [('Selected fields + skip', [
+    panels = [('Selected fields + unknown skip', [
         ('small/id', 'Small / id · 109 B'), ('medium/id', 'Medium / id · 230 KB'),
-        ('medium/many', 'Medium / 5 fields'), ('large/id', 'Large / id · 30 MB'),
+        ('medium/many_skip', 'Medium / 5 fields · skip'),
+        ('medium/many_skip_shuffled', 'Medium / 5 fields · skip + shuffled'),
+        ('large/id', 'Large / id · 30 MB'),
         ('wide_first/id', 'Wide / id first'), ('wide_last/id', 'Wide / id last')]),
+        ('Known-only typed projection', [
+        ('medium/many_known', 'Medium / 5 fields · known-only'),
+        ('medium/many_known_shuffled', 'Medium / 5 fields · known + shuffled')]),
         ('All fields · typed schemas', [
         ('small/all', 'Small / all · 109 B'), ('medium/all', 'Medium / all · 230 KB'),
+        ('medium/all_shuffled', 'Medium / all · shuffled'),
         ('large/all', 'Large / all · 30 MB'), ('numbers/all', 'Mixed numeric tuple'),
         ('strings_utf8/all', 'Long UTF-8 strings'), ('strings_escaped/all', 'Same strings / escaped')])]
     colors = {'HOSQ': '#2469A0', 'Glaze': '#8256A3', 'yyjson': '#86909C'}
     plt.rcParams.update({'font.family': 'DejaVu Sans', 'font.size': 11,
                          'axes.spines.top': False, 'axes.spines.right': False})
-    fig, axes = plt.subplots(2, 1, figsize=(11.5, 12.5))
+    fig, axes = plt.subplots(3, 1, figsize=(11.5, 14.5))
     limit = max(r['ratio_max'] for r in data.values()) * 1.16 + .12
     for ax, (title, cases) in zip(axes, panels):
         for j, engine in enumerate(('HOSQ','Glaze','yyjson')):
@@ -50,8 +56,8 @@ def main():
     fig.suptitle('HOSQ / Glaze / yyjson — typed JSON decoding',x=.03,ha='left',fontsize=17,fontweight='bold')
     fig.text(.03,.944,'Fresh selected-value vectors · parse + postpass + destruction · valid inputs',fontsize=10)
     fig.legend(*axes[0].get_legend_handles_labels(),loc='upper right',bbox_to_anchor=(.985,.986),frameon=False,ncol=3)
-    fig.text(.03,.024,'Bars: mean of two independently ordered run ratios (5 repetitions each).\nWhiskers: range of the two run ratios, not confidence intervals. HOSQ full schemas use declared key order.\nGlaze 8.3.0 / yyjson 0.12.0 · Clang 21 -O3 · AC power · raw results: static-threeway-2026-09-08',fontsize=9,color='#485563')
-    fig.subplots_adjust(left=.27,right=.97,top=.90,bottom=.105,hspace=.29)
+    fig.text(.03,.024,'Bars: mean of two independently ordered run ratios (5 repetitions each).\nWhiskers: range of the two run ratios, not confidence intervals. Primary HOSQ schemas use unordered matching.\nGlaze 8.3.0 / yyjson 0.12.0 · values come from the supplied chart-data.json; rerun the 16-case matrix for current results.',fontsize=9,color='#485563')
+    fig.subplots_adjust(left=.27,right=.97,top=.90,bottom=.105,hspace=.38)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     fig.savefig(args.output.with_suffix('.png'),dpi=180)
     fig.savefig(args.output.with_suffix('.svg'))

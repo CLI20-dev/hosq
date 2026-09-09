@@ -1,4 +1,5 @@
 // Diagnostic only: Hordered requires the generator's exact field order.
+#define HOSQ_COMPARISON_DIAGNOSTICS
 #define main comparison_suite_main
 #include "../comparison.cc"
 #undef main
@@ -49,7 +50,9 @@ struct FixedPayloadStep {
     ++out.v[8];
     FixedPayload p;
     p.bind(out);
-    if (!Decoder<R>::decode_nested(p, c.reader(), c.reader_state()).is_ok())
+    using CReader = std::remove_cvref_t<decltype(c.reader())>;
+    if (!Decoder<CReader>::decode_nested(p, c.reader(), c.reader_state())
+             .is_ok())
       std::abort();
   }
 };
@@ -245,7 +248,9 @@ struct TypedPlainPayload {
     ++out.v[8];
     PlainPayload p;
     p.bind(out);
-    if (!Decoder<R>::decode_nested(p, c.reader(), c.reader_state()).is_ok())
+    using CReader = std::remove_cvref_t<decltype(c.reader())>;
+    if (!Decoder<CReader>::decode_nested(p, c.reader(), c.reader_state())
+             .is_ok())
       std::abort();
   }
 };
@@ -304,7 +309,9 @@ struct TypedPlainFixedPayload {
     ++out.v[8];
     PlainFixedPayload p;
     p.bind(out);
-    if (!Decoder<R>::decode_nested(p, c.reader(), c.reader_state()).is_ok())
+    using CReader = std::remove_cvref_t<decltype(c.reader())>;
+    if (!Decoder<CReader>::decode_nested(p, c.reader(), c.reader_state())
+             .is_ok())
       std::abort();
   }
 };
@@ -465,7 +472,9 @@ struct CanonicalPayloadStep {
     ++out.v[8];
     CanonicalPayload<Fixed4, Native> p;
     p.bind(out);
-    if (!Decoder<R>::decode_nested(p, c.reader(), c.reader_state()).is_ok())
+    using CReader = std::remove_cvref_t<decltype(c.reader())>;
+    if (!Decoder<CReader>::decode_nested(p, c.reader(), c.reader_state())
+             .is_ok())
       std::abort();
   }
 };
