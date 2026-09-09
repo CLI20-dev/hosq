@@ -1,52 +1,38 @@
 cmake_minimum_required(VERSION 3.20)
 project(hosq_comparison LANGUAGES C CXX)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 find_package(benchmark CONFIG REQUIRED)
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
-set(YYJSON_SOURCE "" CACHE FILEPATH "Path to yyjson.c (header must be beside it)")
+
+set(YYJSON_SOURCE "" CACHE FILEPATH "Path to yyjson.c")
 if(NOT EXISTS "${YYJSON_SOURCE}")
-  message(FATAL_ERROR "Set YYJSON_SOURCE to yyjson.c; both libraries are built with the same toolchain")
+  message(FATAL_ERROR "Set YYJSON_SOURCE to yyjson.c")
 endif()
 get_filename_component(YYJSON_INCLUDE "${YYJSON_SOURCE}" DIRECTORY)
 add_library(comparison_yyjson STATIC "${YYJSON_SOURCE}")
 target_include_directories(comparison_yyjson PUBLIC "${YYJSON_INCLUDE}")
-set(GLAZE_SOURCE_DIR "" CACHE PATH "Pinned Glaze source directory")
+
+set(GLAZE_SOURCE_DIR "" CACHE PATH "Path to Glaze 8.3.0")
 if(NOT EXISTS "${GLAZE_SOURCE_DIR}/include/glaze/glaze.hpp")
-  message(FATAL_ERROR "Set GLAZE_SOURCE_DIR to a pinned Glaze checkout")
-endif()
-add_executable(hosq_comparison comparison.cc)
-target_include_directories(hosq_comparison SYSTEM PRIVATE "${GLAZE_SOURCE_DIR}/include")
-target_include_directories(hosq_comparison PRIVATE ../../include)
-target_link_libraries(hosq_comparison PRIVATE comparison_yyjson benchmark::benchmark)
-option(CXX_HOSQ_USE_FAST_FLOAT "Use bundled fast_float for HOSQ number conversion" ON)
-if(CXX_HOSQ_USE_FAST_FLOAT)
-  target_compile_definitions(hosq_comparison PRIVATE HOSQ_USE_FAST_FLOAT=1)
-else()
-  target_compile_definitions(hosq_comparison PRIVATE HOSQ_USE_FAST_FLOAT=0)
+  message(FATAL_ERROR "Set GLAZE_SOURCE_DIR to Glaze 8.3.0")
 endif()
 
-add_executable(hosq_static_comparison static_comparison.cc)
-target_include_directories(hosq_static_comparison SYSTEM PRIVATE "${GLAZE_SOURCE_DIR}/include")
-target_include_directories(hosq_static_comparison PRIVATE ../../include)
-target_link_libraries(hosq_static_comparison PRIVATE comparison_yyjson benchmark::benchmark)
-if(CXX_HOSQ_USE_FAST_FLOAT)
-  target_compile_definitions(hosq_static_comparison PRIVATE HOSQ_USE_FAST_FLOAT=1)
-else()
-  target_compile_definitions(hosq_static_comparison PRIVATE HOSQ_USE_FAST_FLOAT=0)
-endif()
-add_custom_target(comparison_fixtures
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/generate.py" "${CMAKE_CURRENT_BINARY_DIR}/fixtures"
-  VERBATIM)
-add_custom_target(static_comparison_fixtures
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/generate_static.py" "${CMAKE_CURRENT_BINARY_DIR}/fixtures-static"
-  VERBATIM)
+option(CXX_HOSQ_USE_FAST_FLOAT "Use bundled fast_float" ON)
 
-# Explicit diagnostic target; not part of the minimal default workload set.
-add_executable(hosq_static_gap EXCLUDE_FROM_ALL diagnostics/static_gap.cc)
-foreach(prop INCLUDE_DIRECTORIES SYSTEM_INCLUDE_DIRECTORIES COMPILE_DEFINITIONS LINK_LIBRARIES)
-  get_target_property(comparison_prop hosq_comparison ${prop})
-  if(comparison_prop)
-    set_property(TARGET hosq_static_gap PROPERTY ${prop} "${comparison_prop}")
-  endif()
-endforeach()
+function(add_comparison_case name)
+  add_executable("hosq_bench_${name}" "${name}.cc")
+  target_include_directories("hosq_bench_${name}"
+    SYSTEM PRIVATE "${GLAZE_SOURCE_DIR}/include")
+  target_include_directories("hosq_bench_${name}" PRIVATE ../../include)
+  target_link_libraries("hosq_bench_${name}"
+    PRIVATE comparison_yyjson benchmark::benchmark)
+  target_compile_definitions("hosq_bench_${name}" PRIVATE
+    HOSQ_USE_FAST_FLOAT=$<BOOL:${CXX_HOSQ_USE_FAST_FLOAT}>)
+endfunction()
+
+# One source file and one executable per benchmark case.
+add_comparison_case(id_only)
+add_comparison_case(partial_fields)
+add_comparison_case(all_fields)
