@@ -1,13 +1,21 @@
 #pragma once
 
 #include <optional>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include "hosq/context.hh"
 #include "hosq/error.hh"
 #include "hosq/pipeline.hh"
+
+namespace hosq::detail {
+template <class T>
+struct ConstructFn;
+}  // namespace hosq::detail
 
 namespace hosq::store {
 
@@ -42,6 +50,30 @@ struct IgnoreImpl {
 };
 
 struct OnceImpl {
+  // Called after the first step's input adapter. Unknown constructors,
+  // contexts and result adapters retain ordinary execution.
+  template <class Store, auto Maker, class Input, class Context>
+    requires std::same_as<Store, OnceImpl> &&
+             std::same_as<std::remove_cvref_t<decltype(Maker)>,
+                          hosq::detail::ConstructFn<std::string>> &&
+             std::same_as<Input, std::string_view> &&
+             std::same_as<
+                 std::remove_cv_t<Context>,
+                 DecodeContext<std::optional<std::string>,
+                               typename std::remove_cv_t<Context>::reader_type,
+                               std::remove_cv_t<Context>::scan_phase>> &&
+             std::same_as<
+                 typename ext::InputView<std::invoke_result_t<
+                     decltype(Maker), Input&&>>::identity_view,
+                 ext::InputView<std::invoke_result_t<decltype(Maker), Input&&>>>
+  HOSQ_ALWAYS_INLINE static constexpr auto try_construct(Input& input,
+                                                         Context& ctx) -> bool {
+    // Preserve ordinary construction before duplicate reporting.
+    if (ctx.value().has_value()) return false;
+    ctx.value().emplace(input);
+    return true;
+  }
+
   template <class Input>
   using storage_type = std::optional<std::remove_cvref_t<Input>>;
 

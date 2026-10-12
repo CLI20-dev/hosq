@@ -138,132 +138,38 @@ struct Pipeline {
     constexpr auto first = std::get<0>(std::tuple{Fns...});
     using First = std::remove_cvref_t<decltype(first)>;
     using Input = detail::step_input_t<Arg, First, Context>;
-    return []<auto FnHead, auto... FnTail>(Input input,
-                                           Context& ctx) HOSQ_ALWAYS_INLINE_ATTR
-           -> decltype(auto) {
-      using Head = std::remove_cvref_t<decltype(FnHead)>;
+    constexpr auto run =
+        []<auto FnHead, auto... FnTail>(Input input, Context& ctx)
+            HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
       constexpr auto Fn = FnHead;
-      constexpr bool last_function = sizeof...(FnTail) == 0;
-
-      // 1. Fn(input, ctx) -> void
-      if constexpr (  //
-          requires(Input i, Context& c) {
-            { Fn(std::move(i), c) } -> std::same_as<void>;
-          }) {
-        if constexpr (last_function) {
-          return detail::invoke_terminal(
-              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
-                return Fn(std::move(input), ctx);
-              });
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Fn(std::move(input), ctx), Pipe::invoke(ctx);
+      // A terminal storage step may consume a known constructor directly.
+      // A failed attempt falls through without moving or adapting input again.
+      if constexpr (sizeof...(FnTail) == 1) {
+        using Last = std::tuple_element_t<0, decltype(std::tuple{FnTail...})>;
+        if constexpr (requires {
+                        {
+                          Last::template try_construct<Last, FnHead>(input, ctx)
+                        } -> std::same_as<bool>;
+                      }) {
+          if (Last::template try_construct<Last, FnHead>(input, ctx)) return;
         }
       }
-      // 2. Fn(input, ctx) -> MatchResult
-      else if constexpr (  //
-          requires(Input i, Context& c) {
-            { Fn(std::move(i), c) } -> detail::MatchResultT;
-          }) {
-        if constexpr (last_function) {
-          return bool(Fn(std::move(input), ctx));
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          auto ret = Fn(std::move(input), ctx);
-          if (!ret) {
-            return false;
-          }
-          if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
-                           void>) {
-            Pipe::invoke(std::move(ret).value(), ctx);
-            return true;
-          } else {
-            return Pipe::invoke(std::move(ret).value(), ctx);
-          }
-        }
-      }
-      // 3. Fn(input, ctx) -> AfterType
-      else if constexpr (  //
-          requires(Input i, Context& c) {
-            { Fn(std::move(i), c) };
-          }) {
-        if constexpr (last_function) {
-          return detail::invoke_terminal(
-              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
-                return Fn(std::move(input), ctx);
-              });
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Pipe::invoke(Fn(std::move(input), ctx), ctx);
-        }
-      }
-      // 4. Fn(input) -> void
-      else if constexpr (  //
-          requires(Input i) {
-            { Fn(std::move(i)) } -> std::same_as<void>;
-          }) {
-        if constexpr (last_function) {
-          return detail::invoke_terminal(
-              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
-                return Fn(std::move(input));
-              });
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Fn(std::move(input)), Pipe::invoke(ctx);
-        }
-      }
-      // 5. Fn(input) -> MatchResult
-      else if constexpr (  //
-          requires(Input i) {
-            { Fn(std::move(i)) } -> detail::MatchResultT;
-          }) {
-        if constexpr (last_function) {
-          return bool(Fn(std::move(input)));
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          auto ret = Fn(std::move(input));
-          if (!ret) {
-            return false;
-          }
-          if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
-                           void>) {
-            Pipe::invoke(std::move(ret).value(), ctx);
-            return true;
-          } else {
-            return Pipe::invoke(std::move(ret).value(), ctx);
-          }
-        }
-      }
-      // 6. Fn(input) -> AfterType
-      else if constexpr (  //
-          requires(Input i) {
-            { Fn(std::move(i)) };
-          }) {
-        if constexpr (last_function) {
-          return detail::invoke_terminal(
-              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
-                return Fn(std::move(input));
-              });
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Pipe::invoke(Fn(std::move(input)), ctx);
-        }
-      } else {
-        static_assert(
-            detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<Input> is non-void, "
-            "so the step must be callable as one of: "
-            "Fn(input, ctx) -> after_type<Input>, "
-            "Fn(input) -> after_type<Input>, ");
-      }
-    }
-                  .template operator()<Fns...>(
-                      std::move(
-                          ext::InputView<Arg>::template get<First>(input, ctx)),
-                      ctx);
-  };
+      return invoke_next<FnTail...>(
+          ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+            if constexpr (requires { Fn(std::move(input), ctx); }) {
+              return Fn(std::move(input), ctx);
+            } else if constexpr (requires { Fn(std::move(input)); }) {
+              return Fn(std::move(input));
+            } else {
+              static_assert(detail::always_false<decltype(FnHead)>,
+                            "Pipeline step must accept Fn(input, ctx) or "
+                            "Fn(input)");
+            }
+          });
+    };
+    return run.template operator()<Fns...>(
+        std::move(ext::InputView<Arg>::template get<First>(input, ctx)), ctx);
+  }
 
   /**
    * @brief Invokes this pipeline without an explicit input value.
@@ -304,123 +210,53 @@ struct Pipeline {
   HOSQ_ALWAYS_INLINE static constexpr auto invoke(Context&& ctx) {
     return []<auto FnHead, auto... FnTail>(
                Context& ctx) HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
-      using Head = std::remove_cvref_t<decltype(FnHead)>;
       constexpr auto Fn = FnHead;
-      constexpr bool last_function = sizeof...(FnTail) == 0;
-
-      // 1. Fn(ctx) -> void
-      if constexpr (  //
-          requires(Context& c) {
-            { Fn(c) } -> std::same_as<void>;
-          }) {
-        if constexpr (last_function) {
-          return detail::invoke_terminal(
-              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
-                return Fn(ctx);
-              });
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Fn(ctx), Pipe::invoke(ctx);
-        }
-      }
-      // 2. Fn(ctx) -> MatchResult
-      else if constexpr (  //
-          requires(Context& c) {
-            { Fn(c) } -> detail::MatchResultT;
-          }) {
-        if constexpr (last_function) {
-          return bool(Fn(ctx));
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          auto ret = Fn(ctx);
-          if (!ret) {
-            return false;
-          }
-          if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
-                           void>) {
-            Pipe::invoke(std::move(ret).value(), ctx);
-            return true;
-          } else {
-            return Pipe::invoke(std::move(ret).value(), ctx);
-          }
-        }
-      }
-      // 3. Fn(ctx) -> AfterType
-      else if constexpr (  //
-          requires(Context& c) {
-            { Fn(c) };
-          }) {
-        if constexpr (last_function) {
-          return detail::invoke_terminal(
-              ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
-                return Fn(ctx);
-              });
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Pipe::invoke(Fn(ctx), ctx);
-        }
-      }
-      // 4. Fn() -> void
-      else if constexpr (  //
-          requires() {
-            { Fn() } -> std::same_as<void>;
-          }) {
-        if constexpr (last_function) {
-          return detail::invoke_terminal(
-              ctx,
-              [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(); });
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Fn(), Pipe::invoke(ctx);
-        }
-      }
-      // 5. Fn() -> MatchResult
-      else if constexpr (  //
-          requires() {
-            { Fn() } -> detail::MatchResultT;
-          }) {
-        if constexpr (last_function) {
-          return bool(Fn());
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          auto ret = Fn();
-          if (!ret) {
-            return false;
-          }
-          if constexpr (  //
-              std::same_as<decltype(Pipe::invoke(std::move(ret).value(), ctx)),
-                           void>) {
-            Pipe::invoke(std::move(ret).value(), ctx);
-            return true;
-          } else {
-            return Pipe::invoke(std::move(ret).value(), ctx);
-          }
-        }
-      }
-      // 6. Fn() -> AfterType
-      else if constexpr (  //
-          requires() {
-            { Fn() };
-          }) {
-        if constexpr (last_function) {
-          return detail::invoke_terminal(
-              ctx,
-              [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) { return Fn(); });
-        } else {
-          using Pipe = Pipeline<FnTail...>;
-          return Pipe::invoke(Fn(), ctx);
-        }
-      } else {
-        static_assert(
-            detail::always_false<Head>,
-            "Pipeline step return type mismatch: after_type<Input> is non-void, "
-            "so the step must be callable as one of: "
-            "Fn(input, ctx) -> after_type<Input>, "
-            "Fn(input) -> after_type<Input>, ");
-      }
+      return invoke_next<FnTail...>(
+          ctx, [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+            if constexpr (requires { Fn(ctx); }) {
+              return Fn(ctx);
+            } else if constexpr (requires { Fn(); }) {
+              return Fn();
+            } else {
+              static_assert(detail::always_false<decltype(FnHead)>,
+                            "Pipeline step must accept Fn(ctx) or Fn()");
+            }
+          });
     }.template operator()<Fns...>(ctx);
-  };
+  }
+
+ private:
+  // Input adaptation and signature selection happen before this common
+  // continuation. It carries no additional owned input value.
+  template <auto... Tail, class Context, class F>
+  HOSQ_ALWAYS_INLINE static constexpr decltype(auto) invoke_next(Context& ctx,
+                                                                 F&& fn) {
+    using Result = std::invoke_result_t<F>;
+    if constexpr (sizeof...(Tail) == 0) {
+      if constexpr (detail::MatchResultT<Result>) {
+        return bool(std::forward<F>(fn)());
+      } else {
+        return detail::invoke_terminal(ctx, std::forward<F>(fn));
+      }
+    } else if constexpr (std::same_as<Result, void>) {
+      std::forward<F>(fn)();
+      return Pipeline<Tail...>::invoke(ctx);
+    } else if constexpr (detail::MatchResultT<Result>) {
+      auto ret = std::forward<F>(fn)();
+      if (!ret) return false;
+      using Pipe = Pipeline<Tail...>;
+      if constexpr (std::same_as<decltype(Pipe::invoke(std::move(ret).value(),
+                                                       ctx)),
+                                 void>) {
+        Pipe::invoke(std::move(ret).value(), ctx);
+        return true;
+      } else {
+        return Pipe::invoke(std::move(ret).value(), ctx);
+      }
+    } else {
+      return Pipeline<Tail...>::invoke(std::forward<F>(fn)(), ctx);
+    }
+  }
 };
 
 /// Convenience variable template that wraps a default-constructed `T` as a

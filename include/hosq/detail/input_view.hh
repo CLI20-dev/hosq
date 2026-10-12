@@ -17,6 +17,9 @@ struct EntryInput {};
 // pipeline steps is inspected or replaced.
 template <class Input>
 struct InputView {
+  // Exact self marker; inherited and custom projections do not opt in.
+  using identity_view = InputView;
+
   template <class Step, class Context>
   using type = Input;
 

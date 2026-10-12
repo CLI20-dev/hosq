@@ -12,6 +12,15 @@ namespace hosq {
 
 namespace detail {
 
+template <class T>
+struct ConstructFn {
+  template <class Input>
+    requires std::constructible_from<T, Input&&>
+  HOSQ_ALWAYS_INLINE constexpr auto operator()(Input&& input) const -> T {
+    return T(std::forward<Input>(input));
+  }
+};
+
 template <class In, class Out, auto Fn>
 struct ActionFn {
   using input_type = std::remove_cvref_t<In>;
@@ -140,6 +149,11 @@ struct NoopEncoder {
 };
 
 }  // namespace detail
+
+/// Constructs T from the previous input. A supported storage pair can construct
+/// directly in that storage.
+template <class T>
+inline constexpr auto construct = step<detail::ConstructFn<T>>;
 
 template <class In, class Out, auto Fn>
 inline constexpr auto action = step<detail::ActionFn<In, Out, Fn>>;
