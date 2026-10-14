@@ -6,7 +6,9 @@
 
 #include "hosq/detail/as_tuple.hh"
 #include "hosq/detail/compiler.hh"
+#include "hosq/detail/native_encode.hh"
 #include "hosq/detail/type_traits.hh"
+#include "hosq/pipeline_util.hh"
 #include "hosq/writer_base.hh"
 
 namespace hosq {
@@ -25,7 +27,7 @@ class Encoder<W> {
   ~Encoder() = default;
 
   template <class T>
-    requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
+    requires(detail::DecoderAcceptableT<T>)
   [[nodiscard]]
   auto encode(const T& t) -> bool {
     if (!encode_value(t)) {
@@ -41,7 +43,7 @@ class Encoder<W> {
   }
 
   template <class T>
-    requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
+    requires(detail::DecoderAcceptableT<T>)
   [[nodiscard]]
   static auto encode_to_writer(const T& t, W& writer) -> bool {
     Encoder encoder{writer};
@@ -55,13 +57,15 @@ class Encoder<W> {
   }
 
   template <class T>
-    requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
+    requires(detail::DecoderAcceptableT<T> || detail::TryT<T>)
   [[nodiscard]]
   HOSQ_ALWAYS_INLINE auto encode_value(const T& t) -> bool {
-    if constexpr (detail::ElemT<T>) {
+    if constexpr (detail::TryT<T>) {
+      return encode_value(static_cast<const detail::try_base_t<T>&>(t));
+    } else if constexpr (detail::ElemT<T>) {
       return encode_element(t);
-    } else if constexpr (detail::AsEntryTupleT<T>) {
-      return encode_as_entry_tuple(t);
+    } else {
+      return encode_as_tuple(t);
     }
   }
 
@@ -69,19 +73,30 @@ class Encoder<W> {
   [[nodiscard]]
   HOSQ_ALWAYS_INLINE auto encode_element(const T& t) -> bool {
     using Elem = std::remove_cvref_t<T>;
-    using Storage = typename Elem::storage_type;
-    auto& value = const_cast<Storage&>(t.value());  // NOLINT
-    EncodeContext<Storage, W> ctx{value, writer()};
-    t.encode(ctx);
-    return !writer().error().has_error();
+    if constexpr (std::same_as<typename Elem::encoder_type,
+                               std::remove_cvref_t<decltype(noop_encoder)>>) {
+      return detail::encode_error(
+          writer(), ErrorCode::unsupported_type,
+          "noop_encoder is reader-only; provide an encoder pipeline");
+    } else {
+      using Storage = typename Elem::storage_type;
+      auto& value = const_cast<Storage&>(t.value());  // NOLINT
+      EncodeContext<Storage, W> ctx{value, writer()};
+      t.encode(ctx);
+      return !writer().error().has_error();
+    }
   }
 
-  template <detail::AsEntryTupleT T>
+  template <class T>
+    requires(detail::AsEntryTupleT<T> || detail::AsTryEntryTupleT<T> ||
+             detail::AsElemTupleT<T> || detail::AsTryElemTupleT<T>)
   [[nodiscard]]
-  HOSQ_ALWAYS_INLINE auto encode_as_entry_tuple(const T& t) -> bool {
+  HOSQ_ALWAYS_INLINE auto encode_as_tuple(const T& t) -> bool {
+    constexpr bool object =
+        detail::AsEntryTupleT<T> || detail::AsTryEntryTupleT<T>;
     (void)writer().write(WriteRequest{
         .length = 0,
-        .type = TokenType::ObjectBegin,
+        .type = object ? TokenType::ObjectBegin : TokenType::ArrayBegin,
         .context = 0,
     });
     if (writer().error().has_error()) {
@@ -92,7 +107,10 @@ class Encoder<W> {
     std::apply(
         [&](const auto&... entry) HOSQ_ALWAYS_INLINE_ATTR -> auto {
           ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
-            ok = encode_one_member(entry);
+            if constexpr (object)
+              ok = encode_one_member(entry);
+            else
+              ok = encode_value(entry);
             return !ok;
           }() || ...);
         },
@@ -103,27 +121,35 @@ class Encoder<W> {
 
     (void)writer().write(WriteRequest{
         .length = 0,
-        .type = TokenType::ObjectEnd,
+        .type = object ? TokenType::ObjectEnd : TokenType::ArrayEnd,
         .context = 0,
     });
     return !writer().error().has_error();
   }
 
   template <class Entry>
-    requires(detail::EntryT<std::remove_cvref_t<Entry>>)
+    requires(detail::EntryT<std::remove_cvref_t<Entry>> || detail::TryT<Entry>)
   [[nodiscard]]
   HOSQ_ALWAYS_INLINE auto encode_one_member(const Entry& entry) -> bool {
-    if (!encode_entry_key(entry)) {
-      return false;
+    if constexpr (detail::TryT<Entry>) {
+      return encode_one_member(
+          static_cast<const detail::try_base_t<Entry>&>(entry));
+    } else {
+      if (!encode_entry_key(entry)) return false;
+      return encode_entry_value(entry);
     }
-    return encode_entry_value(entry);
   }
 
   template <class Entry>
     requires(detail::EntryT<std::remove_cvref_t<Entry>>)
   [[nodiscard]]
   HOSQ_ALWAYS_INLINE auto encode_entry_key(const Entry& entry) -> bool {
-    return encode_element(entry.key());
+    if constexpr (detail::ConstKeyEntryT<Entry>) {
+      static constexpr auto name = std::remove_cvref_t<Entry>::key();
+      return ext::EncodeValue<W>{}(name.view(), writer());
+    } else {
+      return encode_element(entry.key());
+    }
   }
 
   template <class Entry>
@@ -137,7 +163,7 @@ class Encoder<W> {
 };
 
 template <WriterConcept W, class T>
-  requires(detail::ElemT<T> || detail::AsEntryTupleT<T>)
+  requires(detail::DecoderAcceptableT<T>)
 [[nodiscard]]
 auto encode_into(const T& t, W& writer) -> bool {
   Encoder<W> encoder{writer};

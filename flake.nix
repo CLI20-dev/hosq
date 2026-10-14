@@ -32,6 +32,16 @@
             pkgs.ninja
             gtest
           ];
+          tomlCorpus = pkgs.fetchFromGitHub {
+            owner = "toml-lang";
+            repo = "toml-test";
+            rev = "ff49d109861c1ad25af53f687f2aef19ab650600";
+            hash = "sha256-HwRAQ7FJXIDIHDtrjxn/wa8wHpSWCTVohz/ID7Nj+Jk=";
+          };
+          conformancePython = pkgs.python3.withPackages (ps: [
+            ps.msgpack
+            ps.pymongo
+          ]);
           formatter = pkgs.writeShellApplication {
             name = "hosq-fmt";
             runtimeInputs = [
@@ -68,7 +78,28 @@
               packages = developmentTools;
             };
             ci = default;
+            conformance = pkgs.mkShellNoCC {
+              packages = developmentTools ++ [ conformancePython ];
+              HOSQ_TOML_CORPUS = tomlCorpus;
+            };
           };
+
+          checks.format-conformance =
+            pkgs.runCommand "hosq-format-conformance"
+              {
+                nativeBuildInputs = [
+                  pkgs.llvmPackages.libcxxClang
+                  conformancePython
+                ];
+                src = ./.;
+              }
+              ''
+                clang++ -std=c++20 -O1 -I"$src/include" "$src/tests/support/toml_conformance.cpp" -o toml_conformance
+                clang++ -std=c++20 -O1 -I"$src/include" "$src/tests/support/writer_interop.cpp" -o writer_interop
+                python3 "$src/tests/support/check_toml_conformance.py" ./toml_conformance ${tomlCorpus}
+                python3 "$src/tests/support/check_writer_interop.py" ./writer_interop
+                touch "$out"
+              '';
 
           packages.default = pkgs.stdenvNoCC.mkDerivation {
             pname = "hosq";

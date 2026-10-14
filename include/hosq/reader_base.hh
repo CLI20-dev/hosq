@@ -195,8 +195,9 @@ HOSQ_ALWAYS_INLINE constexpr auto next_token(R& reader,
 enum class Format : std::uint8_t {
   unknown,
   json,
-  // bson,
-  // msgpack,
+  bson,
+  msgpack,
+  toml,
   // cbor,
 };
 

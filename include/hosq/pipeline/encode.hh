@@ -10,6 +10,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "hosq/detail/native_encode.hh"
 #include "hosq/pipeline.hh"
 
 namespace hosq::encode {
@@ -82,7 +83,24 @@ struct IdentityImpl {
   }
 };
 
+// Terminal semantic encoding: storage and traversal stay format-independent.
+struct ValueImpl {
+  template <class T, class Context>
+  auto operator()(const T& input, Context& ctx) const -> void {
+    using W = std::remove_cvref_t<decltype(ctx.writer())>;
+    if (!ext::EncodeValue<W>{}(input, ctx.writer()) &&
+        ctx.writer().error().is_ok())
+      (void)hosq::detail::encode_error(
+          ctx.writer(), ErrorCode::write_failed,
+          "EncodeValue returned false without reporting an error");
+  }
+};
+
 }  // namespace detail
+
+/// Writes a semantic value through the concrete writer. Supports scalar,
+/// optional/variant, range, Map and schema storage; empty optionals are errors.
+inline constexpr auto value = step<detail::ValueImpl>;
 
 /// Encodes arithmetic values as JSON number text.
 template <detail::Number T>

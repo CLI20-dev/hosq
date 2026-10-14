@@ -20,6 +20,7 @@ function(add_hosq_tests suffix cxx_std)
   set(target_name hosq_tests${suffix})
   add_executable(${target_name} ${TEST_SOURCES})
   set_target_properties(${target_name} PROPERTIES CXX_CLANG_TIDY "")
+  target_compile_definitions(${target_name} PRIVATE HOSQ_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
   target_link_libraries(${target_name} PRIVATE hosq GTest::gtest GTest::gtest_main)
   string(REGEX REPLACE "cxx_std_" "" cxx_std_num ${cxx_std})
   set_target_properties(${target_name} PROPERTIES
@@ -41,4 +42,14 @@ endfunction()
 add_hosq_tests("_cxx20" cxx_std_20)
 if(NOT MSVC)
   add_hosq_tests("_cxx26" cxx_std_26)
+endif()
+
+set(HOSQ_TOML_CORPUS "$ENV{HOSQ_TOML_CORPUS}" CACHE PATH "Pinned toml-test source tree (optional)")
+if(HOSQ_TOML_CORPUS)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_executable(hosq_toml_conformance support/toml_conformance.cpp)
+  target_link_libraries(hosq_toml_conformance PRIVATE hosq)
+  add_test(NAME corpus/toml-1.0 COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/support/check_toml_conformance.py
+    $<TARGET_FILE:hosq_toml_conformance> ${HOSQ_TOML_CORPUS})
 endif()
