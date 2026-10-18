@@ -4,6 +4,7 @@
 
 #include "hosq/element.hh"
 #include "hosq/pipeline/encode.hh"
+#include "hosq/pipeline/enum.hh"
 #include "hosq/pipeline/store.hh"
 #include "hosq/pipeline/typed_decode.hh"
 #include "hosq/types_field.hh"
@@ -36,6 +37,12 @@ using Text = Elem<scan::scalar | decode::text | store::assign, encode::value>;
 using RawText =
     Elem<scan::scalar | decode::raw_text | store::assign, encode::value>;
 using Bytes = Elem<scan::scalar | decode::bytes | store::assign, encode::value>;
+
+/// An enum stored as Mapping::enum_type and represented as semantic text.
+template <hosq::detail::EnumMappingT Mapping>
+using Enum = Elem<scan::scalar | decode::text | decode::enum_value<Mapping> |
+                      store::assign,
+                  encode::enum_value<Mapping>>;
 }  // namespace hosq::types::value
 
 namespace hosq::types {
@@ -76,6 +83,8 @@ template <StringLiteral K>
 using RawText = Field<K, value::RawText>;
 template <StringLiteral K>
 using Bytes = Field<K, value::Bytes>;
+template <StringLiteral K, hosq::detail::EnumMappingT Mapping>
+using Enum = Field<K, value::Enum<Mapping>>;
 }  // namespace hosq::types
 
 #include "hosq/types_containers.hh"

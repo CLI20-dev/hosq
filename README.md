@@ -116,6 +116,7 @@ representation and rejects values that its format cannot represent.
 | `Text` | Owned `std::string`, with escapes resolved |
 | `RawText` | Borrowed `RawTextValue`, with the source representation tagged |
 | `Bytes` | Owned `BytesValue` payload and BSON binary subtype |
+| `Enum<Names>` | `Names::enum_type`, decoded from text and encoded with its canonical name |
 | `Array<E>` | `std::vector<E::storage_type>` |
 | `Mapping<K, V>` | `hosq::Map` of parallel key/value vectors |
 | `Record<S>`, `Object<S>` | A fixed object schema `S` of constant-key entries |
@@ -170,6 +171,46 @@ escaped string bodies, full TOML string literals, and semantic UTF-8 text;
 the encoder resolves that representation before writing the destination
 format. Copying the wrapper does not extend the input lifetime. Use `Text`
 for ownership.
+
+For an enum represented as text, declare one mapping and use it with any
+reader or writer. Each `EnumName` lists the enum value, its canonical output
+name, and optional legacy input aliases:
+
+```cpp
+enum class Mode { stopped, running };
+using ModeNames = hosq::EnumMapping<
+    hosq::EnumName<Mode::stopped, "stopped", "old-stop">,
+    hosq::EnumName<Mode::running, "running", "old-run", "RUN">>;
+
+struct Settings {
+  hosq::types::Enum<"mode", ModeNames> mode;
+};
+using ModeValue = hosq::types::value::Enum<ModeNames>;
+```
+
+`"old-run"` and `"RUN"` decode to `Mode::running`; encoding always writes
+`"running"`. Names are semantic text: JSON and TOML escapes resolve before
+exact, case-sensitive matching, and each writer escapes the canonical name
+once. Empty names and embedded null bytes are permitted. The mapping keeps
+enum storage independent of the format and owns no input string references.
+Use an object root such as `value::Record<Settings>` for BSON and TOML.
+
+An empty table, mixed enum types, repeated enum values (including enum
+synonyms), or any repeated name or alias is rejected at compile time. A
+non-string value fails with `type_mismatch`; an unknown name fails with
+`invalid_choice`. Encoding an unmapped enum value fails with
+`invalid_object_state` on native writers. Legacy writers such as
+`json::CompactWriter` report their existing generic error instead. Invalid
+scalar enum encoding writes no value bytes; encoding an object may have
+already written its object/key prefix when it fails.
+
+The aliases are ordinary `Elem`/`Field` types and compose with `Array`,
+`Optional`, and custom pipelines. For custom storage policies, use
+`scan::scalar | decode::text | decode::enum_value<ModeNames> | store::once`,
+or another existing store step. `encode::enum_value<ModeNames>` is the
+terminal encoder for a plain enum value. The mapping's constexpr
+`from_string` and `to_string` functions return optionals for standalone
+lookup; unknown names and values have no result.
 
 `Mapping` rejects duplicate decoded keys. `Record`/`Object` reject duplicate
 and unknown members and require ordinary `Entry` fields. A `Try<Entry<...>>`
