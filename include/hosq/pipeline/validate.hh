@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "hosq/detail/native_encode.hh"
 #include "hosq/error.hh"
 #include "hosq/pipeline.hh"
 
@@ -15,13 +16,17 @@ namespace detail {
 template <class Context>
 void report_validation_error(Context& ctx, ErrorCode code,
                              std::string_view detail) {
-  ctx.reader().report_error(
-      ctx.reader_state(),
-      Error{
-          .code = code,
-          .offset = ctx.reader().current_token(ctx.reader_state()).offset,
-          .detail = detail,
-      });
+  if constexpr (requires { ctx.reader(); }) {
+    ctx.reader().report_error(
+        ctx.reader_state(),
+        Error{
+            .code = code,
+            .offset = ctx.reader().current_token(ctx.reader_state()).offset,
+            .detail = detail,
+        });
+  } else {
+    (void)hosq::detail::encode_error(ctx.writer(), code, detail);
+  }
 }
 
 template <auto V>

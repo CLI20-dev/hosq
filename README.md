@@ -99,6 +99,49 @@ explicit null is part of the schema. Without optional storage, a missing
 and encodes that value later. Each typed `Record` decode builds fresh schema
 storage; the legacy in-place dispatch described below preserves prior values.
 
+`Constrained` composes the existing `validate` rules with a value alias. Reuse
+the resulting value type in fields and containers, or use the key-first alias:
+
+```cpp
+namespace check = hosq::validate;
+constexpr auto even = [](const auto& n) { return n % 2 == 0; };
+using Age = v::Constrained<v::Int8,
+                          check::range<0, 120> | check::predicate<even>>;
+using Name = v::Constrained<v::Text, check::non_empty>;
+using Code = v::Constrained<v::Text, check::size<3>>;
+struct ValidatedUser {
+  t::Field<"age", Age> age;
+  t::Constrained<"name", v::Text, check::non_empty> name;
+  t::Constrained<"code", v::Text, check::size<3>> code;
+  t::Array<"children", Age> children;
+};
+```
+
+These remain exact `Elem`/`Entry` aliases with the original storage and strict
+scalar categories (`Age` still rejects `42.0`). Accepted rules are `range`,
+`min`, `max`, `non_empty`, `size`, `size_range`, and `predicate`, composed with
+`|`. Rules must accept const storage; transforming or context-dependent
+`validate::custom` steps are not accepted. String size counts decoded UTF-8
+bytes. Predicates run at decode and encode, so use stable, side-effect-free
+predicates.
+
+Numeric rules keep their existing comparison semantics: native floating-point
+NaN passes `range`/`min`/`max` because it compares neither below nor above a
+bound. For finite bounds, include `<cmath>` and compose an explicit predicate:
+`check::range<-2, 2> | check::predicate<[](double n) { return std::isfinite(n); }>`.
+
+Constraints check stored values after successful decoding and before the
+underlying encoder runs, stopping at the first failed rule. Failed validation
+is not transactional: newly decoded storage may remain available. Default
+construction and mutable `.value()`/`*` access are unchanged; encoding rechecks
+them and rejects invalid values. An
+invalid standalone value writes no payload; an enclosing object or array may
+already have written a prefix when a child fails. Decode errors retain the
+existing validation codes and details. On encode, writers with `report_error`
+retain those codes; legacy writers such as JSON `CompactWriter` report their
+existing `invalid_token` error. Check the error/result and discard failed
+output.
+
 ## Common types
 
 `<hosq/types.hh>` (also included by `<hosq/hosq.hh>`) provides aliases

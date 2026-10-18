@@ -78,5 +78,6 @@ template <StringLiteral K>
 using Bytes = Field<K, value::Bytes>;
 }  // namespace hosq::types
 
+#include "hosq/types_constraints.hh"
 #include "hosq/types_containers.hh"
 #include "hosq/types_extended.hh"
