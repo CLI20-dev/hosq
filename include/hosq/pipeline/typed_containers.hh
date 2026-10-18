@@ -17,6 +17,7 @@
 #include "hosq/pipeline/store.hh"
 #include "hosq/pipeline/typed_decode.hh"
 #include "hosq/pipeline_util.hh"
+#include "hosq/record_policy.hh"
 #include "hosq/try.hh"
 
 namespace hosq::detail {
@@ -48,6 +49,79 @@ using record_entry_t = typename RecordEntry<std::remove_cvref_t<T>>::type;
 template <class Entry>
 inline constexpr auto record_key = Entry::key();
 
+template <class Entry, class = void>
+struct RecordPolicies {
+  using type = std::tuple<>;
+};
+template <class Entry>
+struct RecordPolicies<Entry, std::void_t<typename Entry::input_policies>> {
+  using type = typename Entry::input_policies;
+};
+
+template <class Entry>
+struct RecordInput {
+  using policies = typename RecordPolicies<Entry>::type;
+  static constexpr auto names = []<class... P>(std::tuple<P...>*) {
+    constexpr auto count = std::size_t{1} + (std::size_t{0} + ... + [] {
+                             if constexpr (IsInputAliases<P>::value)
+                               return P::names.size();
+                             else
+                               return std::size_t{0};
+                           }());
+    std::array<std::string_view, count> result{record_key<Entry>.view()};
+    std::size_t i = 1;
+    (
+        [&] {
+          if constexpr (IsInputAliases<P>::value)
+            for (auto name : P::names) result[i++] = name;
+        }(),
+        ...);
+    return result;
+  }(static_cast<policies*>(nullptr));
+  static constexpr bool has_default = []<class... P>(std::tuple<P...>*) {
+    return (IsRecordDefault<P>::value || ...);
+  }(static_cast<policies*>(nullptr));
+
+  static auto apply_default(Entry& field) -> void {
+    [&]<class... P>(std::tuple<P...>*) {
+      (
+          [&] {
+            if constexpr (IsRecordDefault<P>::value) {
+              using Storage = typename Entry::value_type::storage_type;
+              static_assert(
+                  std::constructible_from<Storage, decltype(P::make())>,
+                  "Default factory must return field storage");
+              field.value().value() = Storage(P::make());
+            }
+          }(),
+          ...);
+    }(static_cast<policies*>(nullptr));
+  }
+};
+
+// Shared by Record's static assertion and compile-time schema diagnostics.
+template <class Tuple>
+consteval auto unique_record_input_names() -> bool {
+  return []<std::size_t... I>(std::index_sequence<I...>) {
+    constexpr auto count =
+        (std::size_t{0} + ... +
+         RecordInput<record_entry_t<std::tuple_element_t<I, Tuple>>>::names
+             .size());
+    std::array<std::string_view, count> names{};
+    std::size_t i = 0;
+    (([&] {
+       for (auto name :
+            RecordInput<record_entry_t<std::tuple_element_t<I, Tuple>>>::names)
+         names[i++] = name;
+     }()),
+     ...);
+    for (std::size_t a = 0; a < count; ++a)
+      for (std::size_t b = a + 1; b < count; ++b)
+        if (names[a] == names[b]) return false;
+    return true;
+  }(std::make_index_sequence<std::tuple_size_v<Tuple>>{});
+}
+
 template <class Schema>
 struct RecordInfo {
   using tuple_type = decltype(record_tuple(std::declval<Schema&>()));
@@ -59,16 +133,8 @@ struct RecordInfo {
   }(std::make_index_sequence<size>{});
   static_assert(
       valid, "Record schema requires constant-key Entry or Try<Entry> fields");
-  static constexpr bool unique = []<std::size_t... I>(
-                                     std::index_sequence<I...>) {
-    constexpr auto names = std::array<std::string_view, size>{
-        record_key<record_entry_t<std::tuple_element_t<I, tuple_type>>>.view()...};
-    for (std::size_t a = 0; a < size; ++a)
-      for (std::size_t b = a + 1; b < size; ++b)
-        if (names[a] == names[b]) return false;
-    return true;
-  }(std::make_index_sequence<size>{});
-  static_assert(unique, "Record schema has duplicate constant keys");
+  static constexpr bool unique = unique_record_input_names<tuple_type>();
+  static_assert(unique, "Record schema has colliding canonical or alias names");
 };
 
 template <class T, class Context>
@@ -248,7 +314,8 @@ struct TypedMappingImpl {
   }
 };
 
-template <class Schema>
+template <class Schema,
+          types::UnknownMembers Unknown = types::UnknownMembers::reject>
 struct TypedRecordImpl {
   using info = hosq::detail::RecordInfo<Schema>;
   static_assert(info::valid && info::unique);
@@ -268,10 +335,19 @@ struct TypedRecordImpl {
       if (reader.current_token(state).type == TokenType::ObjectEnd) {
         bool missing = false;
         [&]<std::size_t... I>(std::index_sequence<I...>) {
-          ((missing |=
-            !seen[I] && !hosq::detail::TryT<
-                            std::tuple_element_t<I, typename info::tuple_type>>),
-           ...);
+          (
+              [&] {
+                using Field = std::tuple_element_t<I, typename info::tuple_type>;
+                using Input = hosq::detail::RecordInput<
+                    hosq::detail::record_entry_t<Field>>;
+                if (!seen[I]) {
+                  if constexpr (Input::has_default)
+                    Input::apply_default(std::get<I>(fields));
+                  else if constexpr (!hosq::detail::TryT<Field>)
+                    missing = true;
+                }
+              }(),
+              ...);
         }(std::make_index_sequence<info::size>{});
         if (missing)
           return hosq::detail::container_error<Schema>(
@@ -290,7 +366,10 @@ struct TypedRecordImpl {
             [&] {
               using Entry = hosq::detail::record_entry_t<
                   std::tuple_element_t<I, typename info::tuple_type>>;
-              if (matched || name != hosq::detail::record_key<Entry>.view())
+              if (matched ||
+                  std::ranges::find(hosq::detail::RecordInput<Entry>::names,
+                                    name) ==
+                      hosq::detail::RecordInput<Entry>::names.end())
                 return;
               matched = true;
               if (seen[I]) {
@@ -307,9 +386,18 @@ struct TypedRecordImpl {
             }(),
             ...);
       }(std::make_index_sequence<info::size>{});
-      if (!matched)
-        return hosq::detail::container_error<Schema>(
-            ctx, ErrorCode::unknown_member, "typed record unknown member");
+      if (!matched) {
+        if constexpr (Unknown == types::UnknownMembers::ignore) {
+          if (!hosq::next_token<Expect::member_value>(reader, state))
+            return result;
+          // Preserve decode::skip's structural contract for discarded input;
+          // lazy readers need not semantically validate ignored scalar payloads.
+          ext::DecodeSkipValue<typename Context::reader_type>{}(key_ctx);
+        } else {
+          return hosq::detail::container_error<Schema>(
+              ctx, ErrorCode::unknown_member, "typed record unknown member");
+        }
+      }
       if (reader.error(state)) return result;
     }
     return result;
@@ -338,8 +426,9 @@ template <hosq::detail::ElemT E>
 inline constexpr auto array = step<detail::TypedArrayImpl<E>>;
 template <hosq::detail::ElemT K, hosq::detail::ElemT V>
 inline constexpr auto mapping = step<detail::TypedMappingImpl<K, V>>;
-template <class Schema>
-inline constexpr auto record = step<detail::TypedRecordImpl<Schema>>;
+template <class Schema,
+          types::UnknownMembers Unknown = types::UnknownMembers::reject>
+inline constexpr auto record = step<detail::TypedRecordImpl<Schema, Unknown>>;
 template <hosq::detail::ElemT E>
 inline constexpr auto optional = step<detail::TypedOptionalImpl<E>>;
 }  // namespace hosq::decode

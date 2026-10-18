@@ -99,6 +99,51 @@ explicit null is part of the schema. Without optional storage, a missing
 and encodes that value later. Each typed `Record` decode builds fresh schema
 storage; the legacy in-place dispatch described below preserves prior values.
 
+## Record input policies
+
+Typed `Record`/`Object` keep their strict behavior by default. To migrate an
+input schema, attach `InputAliases` and/or `Default` policies to `t::Field`:
+
+```cpp
+struct Settings {
+  t::Field<"name", v::Text, t::InputAliases<"old_name", "legacy_name">> name;
+  t::Field<"retries", v::Uint8, t::Default<[] { return 3; }>> retries;
+  t::Optional<"note", v::Text> note;
+};
+v::Record<Settings> strict;
+v::Record<Settings, t::UnknownMembers::ignore> extensible;
+// Named form: t::Record<"settings", Settings, t::UnknownMembers::ignore>.
+```
+
+`Default<factory>` calls a zero-argument factory at object end only when the
+member is missing; its result constructs the field's storage. Present input
+always uses the normal value decoder: `null`, invalid values, rejected
+candidates, and malformed present values never fall back to the default.
+Factories must provide values suitable for the field's storage and encoder.
+An ordinary C++ member initializer does not make a required field optional;
+existing `Try<Field<...>>` still permits absence and keeps its fresh schema
+initializer. Explicit `Default` supplies the missing value even inside `Try`.
+The `v::Optional` presence and encoding rules above still apply.
+
+The first `Field` argument is the canonical wire name. Choosing that name
+already permits a single wire rename independently of the C++ member name;
+`InputAliases` additionally accepts legacy names on input. Encoding always
+emits the canonical name. Canonical names and aliases must be unique across
+the entire schema, including within one field; collisions are compile-time
+errors. Receiving the same logical field twice is a duplicate-member error,
+including canonical plus alias, two different aliases, and escaped spellings.
+
+`UnknownMembers::ignore` skips unknown input values, including nested values,
+for that record only. It uses the existing structural `decode::skip` contract:
+discarded payloads are not semantically decoded or fully grammar-validated.
+For example, a lazy JSON reader may skip malformed literal or number spellings;
+reported traversal errors such as unterminated nesting still fail the decode.
+Known fields still require presence and reject duplicates and invalid values. Nested records choose their own policy; ignored members
+are not stored or re-encoded. The default is `UnknownMembers::reject`.
+These policies belong to typed `Record`/`Object`; legacy aggregate dispatch
+continues to use its existing canonical-key and `Try` behavior. A policy-free
+`t::Field<K, E>` remains exactly `Entry<Key<K>, E>`.
+
 ## Common types
 
 `<hosq/types.hh>` (also included by `<hosq/hosq.hh>`) provides aliases
@@ -171,8 +216,10 @@ the encoder resolves that representation before writing the destination
 format. Copying the wrapper does not extend the input lifetime. Use `Text`
 for ownership.
 
-`Mapping` rejects duplicate decoded keys. `Record`/`Object` reject duplicate
-and unknown members and require ordinary `Entry` fields. A `Try<Entry<...>>`
+`Mapping` rejects duplicate decoded keys. By default, `Record`/`Object` reject
+duplicate and unknown members and require ordinary `Entry` fields. Explicit
+[record input policies](#record-input-policies) can supply missing defaults,
+accept input aliases, or ignore unknown members. A `Try<Entry<...>>`
 may be absent and keeps its fresh schema default; use optional storage when
 absence must be observable. Explicit `Null`, a missing member, and an empty
 optional are separate states. Within

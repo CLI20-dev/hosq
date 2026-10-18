@@ -16,7 +16,7 @@ struct Pipeline;
 
 struct BytesView;
 
-template <class Key, class Value>
+template <class Key, class Value, class... Policies>
 struct Entry;
 
 template <auto Decoder, auto Encoder>

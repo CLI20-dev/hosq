@@ -8,7 +8,7 @@
 
 namespace hosq {
 
-template <class Key, class Value>
+template <class Key, class Value, class... Policies>
 struct Entry;
 
 /// A key–value pair where both Key and Value are Elem types.

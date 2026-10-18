@@ -20,17 +20,17 @@ using Mapping = Elem<decode::mapping<KeyElem, ValueElem> | store::assign,
 /// An unordered, closed object schema. Schema is an aggregate or std::tuple of
 /// constant-key Entry<Key<...>, E> / Try<Entry<Key<...>, E>> fields. Plain Entry
 /// fields are required; Try<Entry> may be missing and keeps default storage.
-/// Unknown and duplicate members are errors. Use Optional<E> storage when
-/// absence must be observable; an empty optional Try member is omitted on
-/// encode.
-template <class Schema>
-using Record = Elem<decode::record<Schema> | store::assign,
+/// Unknown (unless explicitly ignored) and duplicate members are errors. Use
+/// Optional<E> storage when absence must be observable; an empty optional Try
+/// member is omitted on encode.
+template <class Schema, UnknownMembers Unknown = UnknownMembers::reject>
+using Record = Elem<decode::record<Schema, Unknown> | store::assign,
                     step<encode::detail::TypedRecordImpl<Schema>>>;
 
 /// Object and Record name the same fixed schema wrapper. Dynamic objects use
 /// Mapping<Text, ValueElem> (or another explicitly selected key Elem).
-template <class Schema>
-using Object = Record<Schema>;
+template <class Schema, UnknownMembers Unknown = UnknownMembers::reject>
+using Object = Record<Schema, Unknown>;
 
 /// Presence storage, not a nullable conversion: a present value must decode as
 /// E (including Null only when E accepts it). Empty optionals mean missing and
@@ -50,11 +50,13 @@ template <StringLiteral K, hosq::detail::ElemT KeyElem,
           hosq::detail::ElemT ValueElem>
 using Mapping = Field<K, value::Mapping<KeyElem, ValueElem>>;
 
-template <StringLiteral K, class Schema>
-using Record = Field<K, value::Record<Schema>>;
+template <StringLiteral K, class Schema,
+          UnknownMembers Unknown = UnknownMembers::reject>
+using Record = Field<K, value::Record<Schema, Unknown>>;
 
-template <StringLiteral K, class Schema>
-using Object = Record<K, Schema>;
+template <StringLiteral K, class Schema,
+          UnknownMembers Unknown = UnknownMembers::reject>
+using Object = Record<K, Schema, Unknown>;
 
 /// A field that may be absent. In value::Record/Object an empty optional is
 /// omitted on encode; a present value must match E, with no implicit null.
