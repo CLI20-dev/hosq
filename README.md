@@ -236,6 +236,46 @@ are deliberately deferred.
 
 ## Decoding complete documents
 
+Use `parse<R, T>(input)` (or `Decoder<R>::parse<T>(input)`) to decode into a
+fresh value and receive `ParseResult<T>`. A value is available only after
+`decode_document` reports success, including its check for trailing input.
+`T` is the explicit decodable type: use `v::Record<User>`, `v::Int64`, or
+`v::Array<v::Text>`, for example. The result retains that wrapper; its stored
+schema or scalar is available through `result->value()`.
+
+```cpp
+auto result = hosq::parse<hosq::json::FastReader<>, v::Record<User>>(
+    R"({"id":42,"name":"Ada"})");
+if (result) {
+  assert(result->value().id.value().value() == 42);
+} else {
+  const hosq::Error error = result.error();
+  // Handle error.code, error.offset, and error.detail.
+}
+```
+
+`has_value()` and explicit `bool` report success. `value()`, `*result`, and
+`result->` provide checked access and throw `std::bad_variant_access` on
+failure. `error()` returns the preserved error on failure and `Error::ok()`
+on success. Results follow `T`'s copy/move support; `std::move(result).value()`
+can transfer a move-only value and leaves a successful result with moved-from
+storage. A decoder may be reused for another parse; each call starts with a
+fresh `T`. `T` must be default constructible and move constructible.
+
+`parse` preserves `decode_document`'s pipeline semantics. `match::*` steps
+are dispatch predicates: a direct root or legacy aggregate field returning
+soft `false` does not become a hard validation error and may retain default
+storage in a successful result. Use `validate::*` for validation failures.
+Typed containers such as `v::Array` and `v::Record` also reject unmatched
+candidate values rather than accepting default storage.
+
+This isolates the decoded destination. External effects of custom callbacks
+are not rolled back on failure. `RawText` and other input views remain borrowed:
+the input must outlive their use, and the result does not extend its lifetime.
+Construction, callback, and move exceptions propagate rather than becoming
+parse errors. If an exception during result assignment leaves its internal
+value unavailable, `error()` reports `invalid_state`.
+
 Use `decode_document_into<R>` (or `Decoder<R>::decode_document`) to require
 the schema to consume one complete document and reject trailing values.
 Reader depth and format checks apply during decoding. A decode error may leave

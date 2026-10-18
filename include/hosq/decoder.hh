@@ -11,6 +11,7 @@
 #include "hosq/detail/compiler.hh"
 #include "hosq/detail/type_traits.hh"
 #include "hosq/meta_match.hh"
+#include "hosq/parse_result.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/reader_base.hh"
@@ -64,6 +65,25 @@ class Decoder<R> {
       return Error{ErrorCode::trailing_data, token.offset,
                    "expected end of document after decoded value"};
     return reader_.error(reader_state_);
+  }
+
+  /// Decode into a fresh T and expose it only after decode_document succeeds.
+  /// T is an explicit decodable type, not its storage. Pipeline semantics are
+  /// unchanged: root/legacy aggregate match::* soft false is not a hard error;
+  /// use validate::* or typed containers for validation failures.
+  /// External callback effects are not rolled back. Input views (including
+  /// RawText) remain borrowed; the result does not extend input lifetime.
+  /// Construction, pipeline and move exceptions propagate to the caller.
+  template <class T>
+    requires detail::DecoderAcceptableT<T> &&
+             std::same_as<T, std::remove_cvref_t<T>> &&
+             std::default_initializable<T> && std::move_constructible<T>
+  [[nodiscard]]
+  auto parse(input_type input) -> ParseResult<T> {
+    T value{};
+    const auto error = decode_document(value, input);
+    if (error) return ParseResult<T>{error};
+    return ParseResult<T>{std::move(value)};
   }
 
   template <detail::ElemT T, TryPhase Phase = TryPhase::normal>
@@ -751,6 +771,18 @@ template <ReaderConcept R, class T>
 auto decode_document_into(T& t, typename R::input_type input) -> Error {
   Decoder<R> decoder;
   return decoder.decode_document(t, input);
+}
+
+/// Value-returning complete-document parse. Select T explicitly, for example
+/// parse<json::FastReader<>, types::value::Record<Schema>>(input).
+template <ReaderConcept R, class T>
+  requires detail::DecoderAcceptableT<T> &&
+           std::same_as<T, std::remove_cvref_t<T>> &&
+           std::default_initializable<T> && std::move_constructible<T>
+[[nodiscard]]
+auto parse(typename R::input_type input) -> ParseResult<T> {
+  Decoder<R> decoder;
+  return decoder.template parse<T>(input);
 }
 
 }  // namespace hosq

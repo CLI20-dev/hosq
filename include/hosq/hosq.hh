@@ -10,6 +10,7 @@
 #include "hosq/map.hh"
 #include "hosq/match_result.hh"
 #include "hosq/meta_match.hh"
+#include "hosq/parse_result.hh"
 #include "hosq/pipeline.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/encode.hh"
