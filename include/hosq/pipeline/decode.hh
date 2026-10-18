@@ -323,7 +323,10 @@ struct EachImpl<Pipeline> {
         std::same_as<Storage, expected_storage_type>,
         "decode::each<P> context storage must be std::vector<PipelineStorage>");
 
+    std::size_t index = 0;
     while (true) {
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::element(index)};
       if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
           [[unlikely]] {
         ctx.value().clear();
@@ -335,11 +338,12 @@ struct EachImpl<Pipeline> {
         return hosq::detail::terminal_return<terminal_type>(true);
       }
 
+      ++index;
       ctx.value().emplace_back();
 
       auto elem_ctx =
           DecodeContext<typename Storage::value_type, R, TryPhase::first>{
-              ctx.value().back(), reader, state};
+              ctx.value().back(), reader, state, ctx.path_diagnostics()};
 
       if constexpr (std::same_as<actual_decoder_terminal, bool>) {
         if (!pipeline_type::invoke(elem_ctx)) {
@@ -399,6 +403,8 @@ struct EachImpl<Pipeline, N> {
     auto& state = ctx.reader_state();
     size_t index = 0;
     while (index < N) {
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::element(index)};
       if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
           [[unlikely]] {
         return hosq::detail::terminal_return<terminal_type>(false);
@@ -415,7 +421,7 @@ struct EachImpl<Pipeline, N> {
       }
       auto elem_ctx =
           DecodeContext<typename Storage::value_type, R, TryPhase::first>{
-              ctx.value()[index], reader, state};
+              ctx.value()[index], reader, state, ctx.path_diagnostics()};
       if constexpr (std::same_as<terminal_type, bool>) {
         if (!pipeline_type::invoke(elem_ctx)) {
           return false;
@@ -526,6 +532,7 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
 
+    std::size_t ordinal = 0;
     while (true) {
       if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
           [[unlikely]] {
@@ -536,9 +543,11 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
       if (tok.type == TokenType::ObjectEnd) {
         return hosq::detail::terminal_return<pipeline_output_type>(true);
       }
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::key_at(ordinal++)};
       ctx.value().keys().emplace_back();
       auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-          ctx.value().keys().back(), reader, state};
+          ctx.value().keys().back(), reader, state, ctx.path_diagnostics()};
 
       if constexpr (std::same_as<actual_key_terminal, bool>) {
         if (!key_pipeline_type::invoke(key_ctx)) {
@@ -548,13 +557,14 @@ struct EachImpl<KeyPipeline, ValuePipeline> {
       } else {
         key_pipeline_type::invoke(key_ctx);
       }
+      path.name_key(ctx.value().keys().back());
       if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
         ctx.value().clear();
         return hosq::detail::terminal_return<pipeline_output_type>(false);
       }
       ctx.value().values().emplace_back();
       auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-          ctx.value().values().back(), reader, state};
+          ctx.value().values().back(), reader, state, ctx.path_diagnostics()};
       if constexpr (std::same_as<actual_value_terminal, bool>) {
         if (!value_pipeline_type::invoke(value_ctx)) {
           ctx.value().clear();
@@ -652,6 +662,8 @@ struct EachImpl<KeyPipeline, ValuePipeline, N> {
 
     size_t index = 0;
     while (index < N) {
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::key_at(index)};
       if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
           [[unlikely]] {
         return hosq::detail::terminal_return<pipeline_output_type>(false);
@@ -667,7 +679,7 @@ struct EachImpl<KeyPipeline, ValuePipeline, N> {
         return hosq::detail::terminal_return<pipeline_output_type>(false);
       }
       auto key_ctx = DecodeContext<key_storage_type, R, TryPhase::first>{
-          ctx.value().keys()[index], reader, state};
+          ctx.value().keys()[index], reader, state, ctx.path_diagnostics()};
 
       if constexpr (std::same_as<actual_key_terminal, bool>) {
         if (!key_pipeline_type::invoke(key_ctx)) {
@@ -676,11 +688,12 @@ struct EachImpl<KeyPipeline, ValuePipeline, N> {
       } else {
         key_pipeline_type::invoke(key_ctx);
       }
+      path.name_key(ctx.value().keys()[index]);
       if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
         return hosq::detail::terminal_return<pipeline_output_type>(false);
       }
       auto value_ctx = DecodeContext<value_storage_type, R, TryPhase::first>{
-          ctx.value().values()[index], reader, state};
+          ctx.value().values()[index], reader, state, ctx.path_diagnostics()};
       if constexpr (std::same_as<actual_value_terminal, bool>) {
         if (!value_pipeline_type::invoke(value_ctx)) {
           return hosq::detail::terminal_return<pipeline_output_type>(false);
@@ -757,6 +770,8 @@ struct CollectImpl<Pipeline> {
     auto ret = std::vector<terminal_type>{};
 
     while (true) {
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::element(ret.size())};
       if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
           [[unlikely]] {
         return ret;
@@ -767,7 +782,8 @@ struct CollectImpl<Pipeline> {
         return ret;
       }
 
-      DecodeContext<void, R, TryPhase::first> elem_ctx{reader, state};
+      DecodeContext<void, R, TryPhase::first> elem_ctx{reader, state,
+                                                       ctx.path_diagnostics()};
       ret.push_back(pipeline_type::invoke(elem_ctx));
     }
   }
@@ -889,14 +905,19 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
         return ret;
       }
 
-      DecodeContext<void, R, TryPhase::first> key_ctx{reader, state};
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::key_at(ret.keys().size())};
+      DecodeContext<void, R, TryPhase::first> key_ctx{reader, state,
+                                                      ctx.path_diagnostics()};
       ret.keys().push_back(key_pipeline_type::invoke(key_ctx));
+      path.name_key(ret.keys().back());
 
       if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
         return ret;
       }
 
-      DecodeContext<void, R, TryPhase::first> value_ctx{reader, state};
+      DecodeContext<void, R, TryPhase::first> value_ctx{reader, state,
+                                                        ctx.path_diagnostics()};
       ret.values().push_back(value_pipeline_type::invoke(value_ctx));
     }
   }
@@ -977,6 +998,8 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
     std::size_t index = 0;
 
     while (index < N) {
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::key_at(index)};
       if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
           [[unlikely]] {
         return ret;
@@ -993,14 +1016,17 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
         return ret;
       }
 
-      DecodeContext<void, R, TryPhase::first> key_ctx{reader, state};
+      DecodeContext<void, R, TryPhase::first> key_ctx{reader, state,
+                                                      ctx.path_diagnostics()};
       ret.keys()[index] = key_pipeline_type::invoke(key_ctx);
+      path.name_key(ret.keys()[index]);
 
       if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
         return ret;
       }
 
-      DecodeContext<void, R, TryPhase::first> value_ctx{reader, state};
+      DecodeContext<void, R, TryPhase::first> value_ctx{reader, state,
+                                                        ctx.path_diagnostics()};
       ret.values()[index] = value_pipeline_type::invoke(value_ctx);
 
       ++index;
@@ -1074,7 +1100,7 @@ struct ToImpl {
     T value{};
 
     const auto error = ::hosq::Decoder<reader_type>::decode_nested(
-        value, ctx.reader(), ctx.reader_state());
+        value, ctx.reader(), ctx.reader_state(), ctx.path_diagnostics());
 
     if (error.code != ErrorCode::ok) {
       ctx.reader().report_error(ctx.reader_state(), error);
@@ -1091,7 +1117,7 @@ struct ToImpl {
     T value{};
 
     const auto error = ::hosq::Decoder<reader_type>::decode_nested(
-        value, ctx.reader(), ctx.reader_state());
+        value, ctx.reader(), ctx.reader_state(), ctx.path_diagnostics());
 
     if (error.code != ErrorCode::ok) {
       ctx.reader().report_error(ctx.reader_state(), error);
@@ -1212,6 +1238,8 @@ struct DecodeCollectDefault {
     std::size_t index = 0;
 
     while (index < N) {
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::element(index)};
       if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
           [[unlikely]] {
         return ret;
@@ -1228,7 +1256,8 @@ struct DecodeCollectDefault {
         return ret;
       }
 
-      DecodeContext<void, R, TryPhase::first> elem_ctx{reader, state};
+      DecodeContext<void, R, TryPhase::first> elem_ctx{reader, state,
+                                                       ctx.path_diagnostics()};
       ret[index] = pipeline_type::invoke(elem_ctx);
       ++index;
     }

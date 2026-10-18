@@ -82,10 +82,10 @@ auto container_error(Context& ctx, ErrorCode code, std::string_view detail)
 }
 
 template <ElemT E, ReaderConcept R>
-auto decode_container_into(E& element, R& reader, typename R::state_type& state)
-    -> void {
+auto decode_container_into(E& element, R& reader, typename R::state_type& state,
+                           PathDiagnostics* diagnostics = nullptr) -> void {
   DecodeContext<typename E::storage_type, R, TryPhase::first> ctx{
-      element.storage(), reader, state};
+      element.storage(), reader, state, diagnostics};
   if constexpr (std::same_as<decltype(element.decode(ctx)), bool>) {
     if (!element.decode(ctx) && reader.error(state).is_ok())
       reader.report_error(state,
@@ -98,10 +98,11 @@ auto decode_container_into(E& element, R& reader, typename R::state_type& state)
 }
 
 template <ElemT E, ReaderConcept R>
-auto decode_container_element(R& reader, typename R::state_type& state) ->
+auto decode_container_element(R& reader, typename R::state_type& state,
+                              PathDiagnostics* diagnostics = nullptr) ->
     typename E::storage_type {
   E element;
-  decode_container_into(element, reader, state);
+  decode_container_into(element, reader, state, diagnostics);
   return std::move(element.storage());
 }
 
@@ -203,9 +204,13 @@ struct TypedArrayImpl {
     if (reader.current_token(state).type != TokenType::ArrayBegin)
       return hosq::detail::container_error<Result>(ctx, ErrorCode::type_mismatch,
                                                    "typed array expected array");
-    while (hosq::next_token<Expect::next_element_or_end>(reader, state)) {
+    while (true) {
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::element(result.size())};
+      if (!hosq::next_token<Expect::next_element_or_end>(reader, state)) break;
       if (reader.current_token(state).type == TokenType::ArrayEnd) break;
-      auto item = hosq::detail::decode_container_element<E>(reader, state);
+      auto item = hosq::detail::decode_container_element<E>(
+          reader, state, ctx.path_diagnostics());
       if (reader.error(state)) break;
       result.push_back(std::move(item));
     }
@@ -229,8 +234,27 @@ struct TypedMappingImpl {
           ctx, ErrorCode::type_mismatch, "typed mapping expected object");
     while (hosq::next_token<Expect::next_member_or_end>(reader, state)) {
       if (reader.current_token(state).type == TokenType::ObjectEnd) break;
-      auto key = hosq::detail::decode_container_element<K>(reader, state);
+      // Key decoding errors use the member ordinal. Text names are attached
+      // only after successful semantic key decoding.
+      auto key = [&] {
+        hosq::detail::DecodePathScope path{
+            ctx.path_diagnostics(), reader, state,
+            PathSegment::key_at(result.keys().size())};
+        return hosq::detail::decode_container_element<K>(reader, state,
+                                                         ctx.path_diagnostics());
+      }();
       if (reader.error(state)) break;
+      auto location = PathSegment::key_at(result.keys().size());
+      if constexpr (std::convertible_to<const typename K::storage_type&,
+                                        std::string_view>) {
+        location.name = std::string(std::string_view(key));
+        location.has_name = true;
+      } else if constexpr (std::same_as<typename K::storage_type,
+                                        RawTextValue>) {
+        location.has_name = hosq::detail::resolve_raw_text(key, location.name);
+      }
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         std::move(location)};
       for (std::size_t i = 0; i < result.keys().size(); ++i) {
         const typename K::storage_type& existing = result.keys()[i];
         if (hosq::detail::container_equal(existing, key))
@@ -239,7 +263,8 @@ struct TypedMappingImpl {
               "typed mapping has duplicate key");
       }
       if (!hosq::next_token<Expect::member_value>(reader, state)) break;
-      auto value = hosq::detail::decode_container_element<V>(reader, state);
+      auto value = hosq::detail::decode_container_element<V>(
+          reader, state, ctx.path_diagnostics());
       if (reader.error(state)) break;
       result.keys().push_back(std::move(key));
       result.values().push_back(std::move(value));
@@ -266,24 +291,35 @@ struct TypedRecordImpl {
     std::array<bool, info::size> seen{};
     while (hosq::next_token<Expect::next_member_or_end>(reader, state)) {
       if (reader.current_token(state).type == TokenType::ObjectEnd) {
-        bool missing = false;
         [&]<std::size_t... I>(std::index_sequence<I...>) {
-          ((missing |=
-            !seen[I] && !hosq::detail::TryT<
-                            std::tuple_element_t<I, typename info::tuple_type>>),
-           ...);
+          (
+              [&] {
+                using Field = std::tuple_element_t<I, typename info::tuple_type>;
+                if constexpr (!hosq::detail::TryT<Field>) {
+                  if (!seen[I] && reader.error(state).is_ok()) {
+                    using Entry = hosq::detail::record_entry_t<Field>;
+                    hosq::detail::DecodePathScope path{
+                        ctx.path_diagnostics(), reader, state,
+                        PathSegment::field(
+                            hosq::detail::record_key<Entry>.view())};
+                    (void)hosq::detail::container_error<Schema>(
+                        ctx, ErrorCode::missing_required,
+                        "typed record required member missing");
+                  }
+                }
+              }(),
+              ...);
         }(std::make_index_sequence<info::size>{});
-        if (missing)
-          return hosq::detail::container_error<Schema>(
-              ctx, ErrorCode::missing_required,
-              "typed record required member missing");
+        if (reader.error(state)) return Schema{};
         return result;
       }
       // Resolve escapes before matching names, including TOML quoted keys.
       DecodeContext<void, typename Context::reader_type, TryPhase::first>
-          key_ctx{reader, state};
+          key_ctx{reader, state, ctx.path_diagnostics()};
       const auto name = (scan::scalar | decode::text).invoke(key_ctx);
       if (reader.error(state)) return result;
+      hosq::detail::DecodePathScope path{ctx.path_diagnostics(), reader, state,
+                                         PathSegment::field(name)};
       bool matched = false;
       [&]<std::size_t... I>(std::index_sequence<I...>) {
         (
@@ -303,7 +339,8 @@ struct TypedRecordImpl {
               seen[I] = true;
               if (!hosq::next_token<Expect::member_value>(reader, state)) return;
               auto& field = std::get<I>(fields).value();
-              hosq::detail::decode_container_into(field, reader, state);
+              hosq::detail::decode_container_into(field, reader, state,
+                                                  ctx.path_diagnostics());
             }(),
             ...);
       }(std::make_index_sequence<info::size>{});
@@ -322,8 +359,8 @@ struct TypedOptionalImpl {
     requires(!std::is_const_v<Context>)
   auto operator()(Context& ctx) const
       -> std::optional<typename E::storage_type> {
-    auto result = hosq::detail::decode_container_element<E>(ctx.reader(),
-                                                            ctx.reader_state());
+    auto result = hosq::detail::decode_container_element<E>(
+        ctx.reader(), ctx.reader_state(), ctx.path_diagnostics());
     if (ctx.reader().error(ctx.reader_state())) return std::nullopt;
     return result;
   }

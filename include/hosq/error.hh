@@ -1,6 +1,9 @@
 #pragma once
 
+#include <cstddef>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace hosq {
 
@@ -171,10 +174,40 @@ enum class ErrorKind {
   return "unknown error";
 }
 
+/// A location component, ordered from the document root to the failure.
+/// `name` owns field/key text; scalar values are never stored here. Non-text
+/// mapping keys use an ordinal in `index` and `has_name == false`.
+enum class PathSegmentKind { field, index, key };
+
+struct PathSegment {
+  PathSegmentKind kind{PathSegmentKind::index};
+  std::string name{};
+  std::size_t index{0};
+  bool has_name{false};
+
+  [[nodiscard]] static auto field(std::string_view name) -> PathSegment {
+    return {PathSegmentKind::field, std::string(name), 0, true};
+  }
+  [[nodiscard]] static auto element(std::size_t index) -> PathSegment {
+    return {PathSegmentKind::index, {}, index, false};
+  }
+  [[nodiscard]] static auto key(std::string_view name, std::size_t ordinal = 0)
+      -> PathSegment {
+    return {PathSegmentKind::key, std::string(name), ordinal, true};
+  }
+  [[nodiscard]] static auto key_at(std::size_t ordinal) -> PathSegment {
+    return {PathSegmentKind::key, {}, ordinal, false};
+  }
+  auto operator==(const PathSegment&) const -> bool = default;
+};
+
+using ErrorPath = std::vector<PathSegment>;
+
 struct Error {
   ErrorCode code{ErrorCode::unknown_error};
   size_t offset{0};
   std::string_view detail{};
+  ErrorPath path{};
 
   [[nodiscard]] static constexpr auto ok() noexcept -> Error {
     return Error{.code = ErrorCode::ok, .offset = 0, .detail = ""};

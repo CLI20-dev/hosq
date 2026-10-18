@@ -68,43 +68,50 @@ class Decoder<R> {
 
   template <detail::ElemT T, TryPhase Phase = TryPhase::normal>
   [[nodiscard]]
-  static auto make_decode_context(T& t, R& reader, reader_state_type& state) {
+  static auto make_decode_context(
+      T& t, R& reader, reader_state_type& state,
+      detail::PathDiagnostics* diagnostics = nullptr) {
     return DecodeContext<typename T::storage_type, R, Phase>{t.storage(), reader,
-                                                             state};
+                                                             state, diagnostics};
   }
 
   template <class T>
     requires detail::DecoderAcceptableT<T>
   [[nodiscard]]
-  static HOSQ_ALWAYS_INLINE auto decode_nested(T& t, reader_type& reader,
-                                               reader_state_type& reader_state)
-      -> Error {
-    return ext::ReaderDispatch<R>{}(reader, reader_state, [&](auto* active) {
-      using Active = std::remove_pointer_t<decltype(active)>;
-      if constexpr (std::same_as<Active, R>) {
-        return decode_impl(t, *active, reader_state);
-      } else {
-        return Decoder<Active>::decode_nested(t, *active, reader_state);
-      }
-    });
+  static HOSQ_ALWAYS_INLINE auto decode_nested(
+      T& t, reader_type& reader, reader_state_type& reader_state,
+      detail::PathDiagnostics* diagnostics = nullptr) -> Error {
+    detail::PathDiagnostics local;
+    if (!diagnostics) diagnostics = &local;
+    auto result =
+        ext::ReaderDispatch<R>{}(reader, reader_state, [&](auto* active) {
+          using Active = std::remove_pointer_t<decltype(active)>;
+          if constexpr (std::same_as<Active, R>) {
+            return decode_impl(t, *active, reader_state, diagnostics);
+          } else {
+            return Decoder<Active>::decode_nested(t, *active, reader_state,
+                                                  diagnostics);
+          }
+        });
+    return diagnostics->attach(std::move(result));
   }
 
  private:
   template <detail::ElemT T>
   [[nodiscard]]
-  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
-                                             reader_state_type& reader_state)
-      -> Error {
-    auto ctx = make_decode_context(t, reader, reader_state);
+  static HOSQ_ALWAYS_INLINE auto decode_impl(
+      T& t, reader_type& reader, reader_state_type& reader_state,
+      detail::PathDiagnostics* diagnostics) -> Error {
+    auto ctx = make_decode_context(t, reader, reader_state, diagnostics);
     t.decode(ctx);
     return reader.error(reader_state);
   }
 
   template <detail::AsElemTupleT T>
   [[nodiscard]]
-  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
-                                             reader_state_type& reader_state)
-      -> Error {
+  static HOSQ_ALWAYS_INLINE auto decode_impl(
+      T& t, reader_type& reader, reader_state_type& reader_state,
+      detail::PathDiagnostics* diagnostics) -> Error {
     if (reader.current_token(reader_state).type != TokenType::ArrayBegin)
         [[unlikely]] {
       return Error{
@@ -113,14 +120,18 @@ class Decoder<R> {
           .detail = "expected array while decoding tuple",
       };
     }
+    std::size_t index = 0;
     std::apply(
         [&](auto&... elem) HOSQ_ALWAYS_INLINE_ATTR -> void {
           ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
+            detail::DecodePathScope path{diagnostics, reader, reader_state,
+                                         PathSegment::element(index++)};
             if (!hosq::next_token<Expect::next_element_or_end>(
                     reader, reader_state)) [[unlikely]] {
               return false;
             }
-            auto ctx = make_decode_context(elem, reader, reader_state);
+            auto ctx =
+                make_decode_context(elem, reader, reader_state, diagnostics);
             elem.decode(ctx);
             // If decode puts the reader into an error state, subsequent
             // next_token() is a noop and the error is reported below.
@@ -145,14 +156,16 @@ class Decoder<R> {
 
   template <detail::EntryT T, class ReaderT, class StateT>
   [[nodiscard]]
-  static HOSQ_ALWAYS_INLINE auto read_entry_key(T& t, ReaderT& reader,
-                                                StateT& reader_state) -> bool {
+  static HOSQ_ALWAYS_INLINE auto read_entry_key(
+      T& t, ReaderT& reader, StateT& reader_state,
+      detail::PathDiagnostics* diagnostics) -> bool {
     if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
         [[unlikely]] {
       return false;
     }
     if constexpr (detail::ConstKeyEntryT<T>) {
-      const DecodeContext<void, ReaderT> key_ctx{reader, reader_state};
+      const DecodeContext<void, ReaderT> key_ctx{reader, reader_state,
+                                                 diagnostics};
       auto scan_key = [&]() -> std::string_view {
         return (scan::scalar | decode::string_view).invoke(key_ctx);
       };
@@ -181,7 +194,8 @@ class Decoder<R> {
           [[unlikely]]
         return false;
     } else {
-      auto key_ctx = make_decode_context(t.key(), reader, reader_state);
+      auto key_ctx =
+          make_decode_context(t.key(), reader, reader_state, diagnostics);
       t.key().decode(key_ctx);
       if (!hosq::next_token<Expect::member_value>(reader, reader_state))
           [[unlikely]]
@@ -192,8 +206,16 @@ class Decoder<R> {
 
   template <detail::EntryT T, class ReaderT, class StateT>
   [[nodiscard]]
-  static HOSQ_ALWAYS_INLINE auto decode_entry(T& t, ReaderT& reader,
-                                              StateT& reader_state) -> bool {
+  static HOSQ_ALWAYS_INLINE auto decode_entry(
+      T& t, ReaderT& reader, StateT& reader_state,
+      detail::PathDiagnostics* diagnostics, std::size_t ordinal) -> bool {
+    auto location = PathSegment::key_at(ordinal);
+    if constexpr (detail::ConstKeyEntryT<T>) {
+      static constexpr auto key = T::key();
+      location = PathSegment::field(key.view());
+    }
+    detail::DecodePathScope path{diagnostics, reader, reader_state,
+                                 std::move(location)};
     if constexpr (detail::ConstKeyEntryT<T> && requires {
                     ext::EntryInput<ReaderT>{}.template decode<T::key()>(
                         t.value(), reader, reader_state);
@@ -211,17 +233,19 @@ class Decoder<R> {
         ready = reader.template try_read_const_member<T::key()>(reader_state);
       }
     }
-    if (!ready && !read_entry_key(t, reader, reader_state)) return false;
-    auto value_ctx = make_decode_context(t.value(), reader, reader_state);
+    if (!ready && !read_entry_key(t, reader, reader_state, diagnostics))
+      return false;
+    auto value_ctx =
+        make_decode_context(t.value(), reader, reader_state, diagnostics);
     t.value().decode(value_ctx);
     return true;
   }
 
   template <detail::AsEntryTupleT T>
   [[nodiscard]]
-  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
-                                             reader_state_type& reader_state)
-      -> Error {
+  static HOSQ_ALWAYS_INLINE auto decode_impl(
+      T& t, reader_type& reader, reader_state_type& reader_state,
+      detail::PathDiagnostics* diagnostics) -> Error {
     if (reader.current_token(reader_state).type != TokenType::ObjectBegin)
         [[unlikely]] {
       return Error{
@@ -236,7 +260,9 @@ class Decoder<R> {
       // The && fold evaluates entries left-to-right and stops at the first
       // failed decode. If decode puts the reader into an error state,
       // subsequent next_token() is a noop and the error is reported below.
-      (void)(decode_entry(std::get<I>(tuple), reader, reader_state) && ...);
+      (void)(decode_entry(std::get<I>(tuple), reader, reader_state, diagnostics,
+                          I) &&
+             ...);
     }(std::make_index_sequence<
             std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>>{});
     if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
@@ -256,9 +282,9 @@ class Decoder<R> {
 
   template <detail::AsTryElemTupleT T>
   [[nodiscard]]
-  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
-                                             reader_state_type& reader_state)
-      -> Error {
+  static HOSQ_ALWAYS_INLINE auto decode_impl(
+      T& t, reader_type& reader, reader_state_type& reader_state,
+      detail::PathDiagnostics* diagnostics) -> Error {
     if (reader.error(reader_state)) return reader.error(reader_state);
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
@@ -272,7 +298,10 @@ class Decoder<R> {
     constexpr auto tuple_size =
         std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>;
     bool matched = true;
+    std::size_t index = 0;
     while (matched) [[likely]] {
+      detail::DecodePathScope path{diagnostics, reader, reader_state,
+                                   PathSegment::element(index)};
       if (!hosq::next_token<Expect::next_element_or_end>(reader, reader_state))
           [[unlikely]] {
         return reader.error(reader_state);
@@ -281,6 +310,7 @@ class Decoder<R> {
       if (tok.type == TokenType::ArrayEnd) {
         return Error::ok();
       }
+      ++index;
       matched = [&]<size_t... I>(auto& tuple, std::index_sequence<I...>)
                     HOSQ_ALWAYS_INLINE_ATTR -> bool {
         // A hard reader error stops dispatch even when the terminal rejects.
@@ -292,7 +322,7 @@ class Decoder<R> {
               auto ctx =
                   make_decode_context<base_type, I == 0 ? TryPhase::first
                                                         : TryPhase::normal>(
-                      elem, reader, reader_state);
+                      elem, reader, reader_state, diagnostics);
               using context_type = decltype(ctx);
               constexpr bool const_decodable =
                   elem_type::template decoder_const_invokable<context_type>;
@@ -329,6 +359,7 @@ class Decoder<R> {
         .code = ErrorCode::unknown_member,
         .offset = reader.current_token(reader_state).offset,
         .detail = "no try tuple candidate matched array element",
+        .path = {PathSegment::element(index - 1)},
     };
   }
 
@@ -409,11 +440,11 @@ class Decoder<R> {
   }
 
   template <bool DeferredKey = false, std::size_t... I>
-  static auto match_try_constkey_entry_tuple(auto& tuple, reader_type& reader,
-                                             reader_state_type& reader_state,
-                                             std::index_sequence<I...>) -> bool {
-    const auto key_ctx =
-        DecodeContext<void, reader_type, TryPhase::first>{reader, reader_state};
+  static auto match_try_constkey_entry_tuple(
+      auto& tuple, reader_type& reader, reader_state_type& reader_state,
+      std::index_sequence<I...>, detail::PathDiagnostics* diagnostics) -> bool {
+    const auto key_ctx = DecodeContext<void, reader_type, TryPhase::first>{
+        reader, reader_state, diagnostics};
 
     auto scan_key = [&]() -> std::string_view {
       return (::hosq::scan::scalar | ::hosq::decode::string_view)
@@ -425,6 +456,11 @@ class Decoder<R> {
         std::remove_cvref_t<decltype(std::get<I>(tuple))>>::key()>(
         [&]() HOSQ_ALWAYS_INLINE_ATTR -> void {
           auto& entry = std::get<I>(tuple);
+          using Selected =
+              detail::try_base_t<std::remove_cvref_t<decltype(entry)>>;
+          static constexpr auto selected_key = Selected::key();
+          detail::DecodePathScope path{diagnostics, reader, reader_state,
+                                       PathSegment::field(selected_key.view())};
 
           using try_entry_type = std::remove_cvref_t<decltype(entry)>;
           using entry_type = typename try_entry_type::base_type;
@@ -452,7 +488,7 @@ class Decoder<R> {
 
             auto& value = entry.value();
             auto value_ctx = make_decode_context<value_type, TryPhase::first>(
-                value, reader, reader_state);
+                value, reader, reader_state, diagnostics);
 
             bool ret = false;
             if constexpr (value_is_const_decodable) {
@@ -492,7 +528,7 @@ class Decoder<R> {
 
             auto& value = entry.value();
             auto value_ctx = make_decode_context<value_type, TryPhase::first>(
-                value, reader, reader_state);
+                value, reader, reader_state, diagnostics);
 
             if constexpr (value_is_const_decodable) {
               const auto& const_value_ctx = value_ctx;
@@ -524,10 +560,14 @@ class Decoder<R> {
   template <size_t... I>
   static auto match_try_entry_tuple(auto& tuple, reader_type& reader,
                                     reader_state_type& reader_state,
-                                    std::index_sequence<I...>) -> bool {
+                                    std::index_sequence<I...>,
+                                    detail::PathDiagnostics* diagnostics,
+                                    std::size_t ordinal) -> bool {
     return (
         ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
           auto& entry = std::get<I>(tuple);
+          detail::DecodePathScope path{diagnostics, reader, reader_state,
+                                       PathSegment::key_at(ordinal)};
 
           static constexpr TryPhase phase =
               I == 0 ? TryPhase::first : TryPhase::normal;
@@ -557,7 +597,7 @@ class Decoder<R> {
 
           auto& key_elem = entry.key();
           auto key_ctx = make_decode_context<key_elem_type, phase>(
-              key_elem, reader, reader_state);
+              key_elem, reader, reader_state, diagnostics);
           if constexpr (key_is_const_decodable) {
             if constexpr (std::same_as<key_elem_raw_result_type, bool>) {
               const auto& const_key_ctx = key_ctx;
@@ -580,7 +620,7 @@ class Decoder<R> {
               auto& value_elem = entry.value();
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
-                      value_elem, reader, reader_state);
+                      value_elem, reader, reader_state, diagnostics);
               auto ret = value_elem.decode(value_ctx);
               if (!ret) {
                 rollback_try_entry_candidate(reader, reader_state,
@@ -596,7 +636,7 @@ class Decoder<R> {
               auto& value_elem = entry.value();
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
-                      value_elem, reader, reader_state);
+                      value_elem, reader, reader_state, diagnostics);
               value_elem.decode(value_ctx);
               return true;
             }
@@ -626,7 +666,7 @@ class Decoder<R> {
             auto& value_elem = entry.value();
             auto value_ctx =
                 make_decode_context<value_elem_type, TryPhase::first>(
-                    value_elem, reader, reader_state);
+                    value_elem, reader, reader_state, diagnostics);
             {
               if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
                 auto ret = value_elem.decode(value_ctx);
@@ -647,9 +687,9 @@ class Decoder<R> {
 
   template <detail::AsTryEntryTupleT T>
   [[nodiscard]]
-  static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
-                                             reader_state_type& reader_state)
-      -> Error {
+  static HOSQ_ALWAYS_INLINE auto decode_impl(
+      T& t, reader_type& reader, reader_state_type& reader_state,
+      detail::PathDiagnostics* diagnostics) -> Error {
     if (reader.error(reader_state)) return reader.error(reader_state);
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ObjectBegin) [[unlikely]] {
@@ -691,6 +731,7 @@ class Decoder<R> {
       return false;
     }();
     bool matched = true;
+    std::size_t ordinal = 0;
 
     while (matched) [[likely]] {
       if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
@@ -703,20 +744,22 @@ class Decoder<R> {
         return Error::ok();
       }
 
+      const auto member_ordinal = ordinal++;
       matched = false;
 
       if constexpr (const_key_tuple_size > 0) {
         matched = match_try_constkey_entry_tuple<deferred_key>(
             const_key_entries, reader, reader_state,
-            std::make_index_sequence<const_key_tuple_size>{});
+            std::make_index_sequence<const_key_tuple_size>{}, diagnostics);
       }
       if (reader.error(reader_state)) return reader.error(reader_state);
 
       if (!matched) {
         if constexpr (entry_tuple_size > 0) {
-          matched = match_try_entry_tuple(
-              entries, reader, reader_state,
-              std::make_index_sequence<entry_tuple_size>{});
+          matched =
+              match_try_entry_tuple(entries, reader, reader_state,
+                                    std::make_index_sequence<entry_tuple_size>{},
+                                    diagnostics, member_ordinal);
         }
       }
       if (reader.error(reader_state)) return reader.error(reader_state);
@@ -726,6 +769,7 @@ class Decoder<R> {
         .code = ErrorCode::unknown_member,
         .offset = reader.current_token(reader_state).offset,
         .detail = "no try entry candidate matched object member",
+        .path = {PathSegment::key_at(ordinal - 1)},
     };
   }
 

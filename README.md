@@ -14,6 +14,7 @@ compiler's header search path; the examples below use C++20.
 - [Basic schemas](#basic-schemas)
 - [Common types](#common-types)
 - [Decoding complete documents](#decoding-complete-documents)
+- [Error locations](#error-locations)
 - [Encoding with the format writers](#encoding-with-the-format-writers)
 - [Other input formats](#other-input-formats)
 - [Advanced: custom pipelines](#advanced-custom-pipelines)
@@ -43,7 +44,7 @@ int main() {
   v::Record<User> user;
   const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
       user, R"({"name":"a\nb","id":42})");
-  if (error) return 1;  // error.code, error.offset, and error.detail explain it.
+  if (error) return 1;  // Inspect error.code, offset, detail, and path.
   assert(user.value().id.value().value() == 42);
   assert(user.value().name.value().value() == "a\nb");
 }
@@ -258,6 +259,68 @@ assert(wrong_type.code == hosq::ErrorCode::type_mismatch);
 custom pipeline may observe or consume only part of the input; successful
 partial decoding does not establish that the entire document is valid. See
 [Advanced: custom pipelines](#advanced-custom-pipelines).
+
+## Error locations
+
+`Error::path` is an owning `ErrorPath` (`std::vector<PathSegment>`), ordered
+from the root to the failing location. `code`, byte `offset`, and `detail`
+keep their existing meanings. Positional `Error{code, offset, detail}` and
+designated initializers remain valid; their path defaults to empty.
+
+With the `User` schema above:
+
+```cpp
+const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
+    user, R"({"id":42.0,"name":"Ada"})");
+assert(error.code == hosq::ErrorCode::type_mismatch);
+assert(error.path.size() == 1);
+assert(error.path[0] == hosq::PathSegment::field("id"));
+```
+
+Each segment has a `PathSegmentKind` (`field`, `index`, or `key`), an owning
+`name`, a zero-based `index`, and `has_name`. Fields use their schema/input
+name; arrays use the element index. Mapping keys use their decoded text name
+and member ordinal. Non-text keys and failures while decoding a key use the
+member ordinal with `has_name == false`; key values are never stringified.
+An empty text key has `has_name == true`. Text escapes are resolved by typed
+`Record`/`Mapping` decoding, so punctuation in a name is literal metadata,
+not a path separator. No scalar value payload is retained in a path.
+
+For example, a failure in the second array element's mapping value could
+produce `{PathSegment::field("items"), PathSegment::element(1),
+PathSegment::key("a/b"), PathSegment::field("count")}`. Missing required fields
+point to the first absent required field in schema order; duplicate/unknown
+record members point to the offending name. Returned paths remain valid after
+input destruction, decoder reuse, and copying or moving the error.
+
+Paths are collected by `Decoder::decode`, `decode_document`, their free
+wrappers, and `decode_nested`. They cover nested typed `Record`, `Array`,
+`Mapping`, and `Optional`, legacy tuple/Try dispatch, `decode::to`, and standard
+`decode::each`/`collect` pipelines (including fixed sizes). Named legacy entries
+use declared field names; dynamic legacy entries and unmatched Try object
+members use ordinals. Generic each/collect object pipelines preserve the key
+text produced by their key pipeline; choose `decode::text` to resolve escapes.
+A hard error retains its original code, offset, and detail; a soft Try rejection
+does not leave a path behind or prevent the next candidate from matching.
+The original `ReaderConcept` protocol remains sufficient for custom readers.
+
+Coverage is structural, not a second parser: a syntax/traversal error before a
+member or element is identified can point only to its enclosing container.
+Root failures and document-suffix errors have an empty path. `decode::skip`
+does not track locations inside skipped values. A manually invoked pipeline
+with a separately constructed `DecodeContext`, custom context construction
+that omits the diagnostic collector, or custom extension traversal may have
+an empty or partial path. Custom forwarding contexts can preserve the
+collector with the optional final constructor argument
+`parent.path_diagnostics()`; custom `decode_nested` calls can pass it as their
+fourth argument. The collector is local to a decode call, with no global or
+thread-local state. Reader-owned `reader.error(state)` remains the original
+reader diagnostic; consume the `Error` returned by `Decoder` for the path.
+
+Encoding does not collect paths in this release: writer errors, including
+errors within typed containers and generic encoding pipelines, retain an empty
+path unless a custom writer explicitly supplies one. This API does not change
+encoding coverage or claim a universal encode location.
 
 ## Encoding with the format writers
 
