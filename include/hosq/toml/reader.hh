@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "hosq/detail/native_reader.hh"
+#include "hosq/detail/temporal.hh"
 #include "hosq/meta_match.hh"
 
 namespace hosq::toml {
@@ -30,6 +31,7 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
   struct KeyPart {
     Token token;
     std::string name;
+    std::size_t source = 0;
   };
   struct Event {
     std::size_t node;
@@ -150,6 +152,66 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     }
     return true;
   }
+  // Preserve quote kind, escapes, and multiline continuations in a view of the
+  // caller's input. Bare keys already contain semantic UTF-8 bytes.
+  auto read_raw_text(const state_type& s, RawTextValue& output) const -> bool {
+    output = {};
+    if (s.failure) return false;
+    if (s.current == absent || s.token.type != TokenType::Scalar ||
+        s.token.context !=
+            static_cast<std::uint8_t>(detail::NativeContext::string)) {
+      report_error(
+          s, {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
+      return false;
+    }
+    const auto& node = s.nodes[s.current];
+    const auto start = node.source;
+    if (!node.children.empty() && s.input[start] != '"' &&
+        s.input[start] != '\'') {
+      output = {s.input.substr(s.token.offset, s.token.length), Format::unknown};
+      return true;
+    }
+    state_type cursor;
+    cursor.input = s.input;
+    cursor.pos = start;
+    if (!string(cursor)) {
+      report_error(s, cursor.failure);
+      return false;
+    }
+    output = {s.input.substr(start, cursor.pos - start), Format::toml};
+    return true;
+  }
+  auto read_semantic(const state_type& s, LocalDateValue& output) const -> bool {
+    return read_temporal(s, output, detail::TemporalKind::date,
+                         detail::parse_local_date);
+  }
+  auto read_semantic(const state_type& s, LocalTimeValue& output) const -> bool {
+    return read_temporal(s, output, detail::TemporalKind::time,
+                         detail::parse_local_time);
+  }
+  auto read_semantic(const state_type& s, LocalDateTimeValue& output) const
+      -> bool {
+    return read_temporal(s, output, detail::TemporalKind::local_datetime,
+                         detail::parse_local_datetime);
+  }
+  auto read_semantic(const state_type& s, OffsetDateTimeValue& output) const
+      -> bool {
+    return read_temporal(s, output, detail::TemporalKind::offset_datetime,
+                         detail::parse_offset_datetime);
+  }
+  // An Instant is an explicit conversion of an offset date-time. A local
+  // wall-clock value does not identify a point on the Unix time line.
+  auto read_semantic(const state_type& s, InstantValue& output) const -> bool {
+    output = {};
+    OffsetDateTimeValue offset;
+    if (!read_semantic(s, offset)) return false;
+    if (!detail::offset_to_instant(offset, output)) {
+      report_error(s, {ErrorCode::conversion_error, s.token.offset,
+                       "TOML date-time cannot identify an Instant"});
+      return false;
+    }
+    return true;
+  }
   // Constant schema keys compare decoded names. decode::string_view continues
   // to expose borrowed raw key/value bytes, consistent with the JSON API.
   template <class Handlers, class Scan, class Deferred>
@@ -160,6 +222,39 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
   }
 
  private:
+  template <class Value, class Parse>
+  auto read_temporal(const state_type& s, Value& output,
+                     detail::TemporalKind kind, Parse parse) const -> bool {
+    output = {};
+    if (s.failure) return false;
+    if (s.current == absent || s.token.type != TokenType::Scalar ||
+        s.token.context !=
+            static_cast<std::uint8_t>(detail::NativeContext::datetime)) {
+      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                       "expected native TOML date/time"});
+      return false;
+    }
+    if (s.current >= s.nodes.size() || s.token.offset > s.input.size() ||
+        s.token.length > s.input.size() - s.token.offset) {
+      report_error(s, {ErrorCode::invalid_state, s.token.offset,
+                       "invalid TOML date/time token span"});
+      return false;
+    }
+    const auto text = s.input.substr(s.token.offset, s.token.length);
+    if (detail::classify_temporal(text) != kind) {
+      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                       "TOML date/time category does not match schema"});
+      return false;
+    }
+    Value parsed;
+    if (!parse(text, parsed)) {
+      report_error(s, {ErrorCode::conversion_error, s.token.offset,
+                       "TOML date/time is not representable without loss"});
+      return false;
+    }
+    output = parsed;
+    return true;
+  }
   static auto at(const state_type& s, char c) -> bool {
     return s.pos < s.input.size() && s.input[s.pos] == c;
   }
@@ -182,6 +277,7 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     Node node;
     node.token = key.token;
     node.key = key.name;
+    node.source = key.source;
     node.children.push_back(value);
     const auto id = s.nodes.size();
     s.nodes.push_back(std::move(node));
@@ -480,6 +576,7 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
       whitespace(s, false);
       if (s.failure) return false;
       KeyPart part;
+      part.source = s.pos;
       if (at(s, '"') || at(s, '\'')) {
         if (!string(s, &part.name, true)) return false;
         part.token = s.token;

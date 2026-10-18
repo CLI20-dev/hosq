@@ -1,6 +1,7 @@
 #pragma once
 
 #include "hosq/detail/native_reader.hh"
+#include "hosq/extended_value_types.hh"
 
 namespace hosq::msgpack {
 // All map key types remain traversable for decode::skip. Constant object
@@ -9,6 +10,65 @@ template <std::size_t MaxDepth = 64>
 class Reader : public ReaderBase<Reader<MaxDepth>>,
                public detail::NativeReaderAccess {
  public:
+  auto read_semantic(const state_type& s, InstantValue& output) const -> bool {
+    output = {};
+    if (!extension_token(s)) return false;
+    const auto raw = s.input.substr(s.token.offset, s.token.length);
+    if (static_cast<unsigned char>(raw.front()) != 0xff) {
+      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                       "expected MessagePack timestamp extension"});
+      return false;
+    }
+    const auto payload = raw.substr(1);
+    auto uint_at = [&](std::size_t offset, unsigned count) {
+      std::uint64_t result = 0;
+      for (unsigned i = 0; i < count; ++i)
+        result = (result << 8) | static_cast<unsigned char>(payload[offset + i]);
+      return result;
+    };
+    InstantValue result;
+    switch (payload.size()) {
+      case 4:
+        result.seconds = static_cast<std::int64_t>(uint_at(0, 4));
+        break;
+      case 8: {
+        const auto packed = uint_at(0, 8);
+        result.nanoseconds = static_cast<std::uint32_t>(packed >> 34);
+        result.seconds = static_cast<std::int64_t>(packed & 0x3ffffffffULL);
+        break;
+      }
+      case 12:
+        result.nanoseconds = static_cast<std::uint32_t>(uint_at(0, 4));
+        result.seconds = std::bit_cast<std::int64_t>(uint_at(4, 8));
+        break;
+      default:
+        report_error(s, {ErrorCode::invalid_length, s.token.offset,
+                         "MessagePack timestamp requires 4, 8, or 12 bytes"});
+        return false;
+    }
+    if (result.nanoseconds >= 1000000000) {
+      report_error(s, {ErrorCode::out_of_range, s.token.offset,
+                       "MessagePack timestamp nanoseconds exceed 999999999"});
+      return false;
+    }
+    output = result;
+    return true;
+  }
+  auto read_semantic(const state_type& s, ExtensionValue& output) const -> bool {
+    output = {};
+    if (!extension_token(s)) return false;
+    const auto raw = s.input.substr(s.token.offset, s.token.length);
+    if (static_cast<unsigned char>(raw.front()) == 0xff) {
+      InstantValue timestamp;
+      if (!read_semantic(s, timestamp)) return false;
+    }
+    output.type =
+        std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(raw.front()));
+    output.payload.reserve(raw.size() - 1);
+    for (unsigned char byte : raw.substr(1))
+      output.payload.push_back(static_cast<std::byte>(byte));
+    return true;
+  }
   auto next_token_impl(state_type& s) const -> bool {
     using C = detail::NativeContext;
     if (s.failure) return false;
@@ -119,6 +179,26 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     }
     return fail(s, ErrorCode::invalid_type_marker,
                 "reserved MessagePack marker");
+  }
+
+ private:
+  auto extension_token(const state_type& s) const -> bool {
+    if (s.failure) return false;
+    if (s.token.type != TokenType::Scalar ||
+        s.token.context !=
+            static_cast<std::uint8_t>(detail::NativeContext::extension)) {
+      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                       "expected MessagePack extension"});
+      return false;
+    }
+    if (s.token.length == 0 || s.token.offset > s.input.size() ||
+        s.token.length > s.input.size() - s.token.offset) {
+      report_error(
+          s, {ErrorCode::invalid_length, s.token.offset,
+              "MessagePack extension token requires an in-bounds type byte"});
+      return false;
+    }
+    return true;
   }
 };
 }  // namespace hosq::msgpack

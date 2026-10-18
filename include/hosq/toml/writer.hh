@@ -5,6 +5,7 @@
 
 #include "hosq/bytes_view.hh"
 #include "hosq/detail/semantic_writer.hh"
+#include "hosq/detail/temporal.hh"
 
 namespace hosq::toml {
 // Canonical TOML 1.0: one assignment per root member; nested tables and arrays
@@ -95,8 +96,43 @@ class Writer
     return this->fail(ErrorCode::unsupported_type,
                       "TOML 1.0 has no binary value");
   }
+  auto write_semantic(LocalDateValue value) -> bool {
+    if (!this->ready()) return false;
+    if (!detail::valid_date(value)) return invalid_temporal();
+    return write_temporal(detail::format_local_date(value));
+  }
+  auto write_semantic(LocalTimeValue value) -> bool {
+    if (!this->ready()) return false;
+    if (!detail::valid_time(value)) return invalid_temporal();
+    return write_temporal(detail::format_local_time(value));
+  }
+  auto write_semantic(LocalDateTimeValue value) -> bool {
+    if (!this->ready()) return false;
+    if (!detail::valid_local_datetime(value)) return invalid_temporal();
+    return write_temporal(detail::format_local_datetime(value));
+  }
+  auto write_semantic(OffsetDateTimeValue value) -> bool {
+    if (!this->ready()) return false;
+    if (!detail::valid_offset_datetime(value)) return invalid_temporal();
+    return write_temporal(detail::format_offset_datetime(value));
+  }
+  auto write_semantic(InstantValue value) -> bool {
+    if (!this->ready()) return false;
+    OffsetDateTimeValue offset;
+    if (!detail::valid_instant(value) ||
+        !detail::instant_to_offset(value, offset))
+      return invalid_temporal();
+    return write_temporal(detail::format_offset_datetime(offset));
+  }
 
  private:
+  auto invalid_temporal() -> bool {
+    return this->fail(ErrorCode::out_of_range,
+                      "invalid or unrepresentable TOML date/time");
+  }
+  auto write_temporal(std::string_view text) -> bool {
+    return before_value() && this->append(text) && after_value();
+  }
   friend Base;
   void write_structure(TokenType type) {
     if (type == TokenType::ObjectBegin || type == TokenType::ArrayBegin) {

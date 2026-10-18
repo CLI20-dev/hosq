@@ -22,5 +22,6 @@
 #include "hosq/reader_base.hh"
 #include "hosq/string_literal.hh"
 #include "hosq/try.hh"
+#include "hosq/types.hh"
 #include "hosq/view.hh"
 #include "hosq/writer_base.hh"

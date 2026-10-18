@@ -4,6 +4,7 @@
 
 #include "hosq/bytes_view.hh"
 #include "hosq/detail/semantic_writer.hh"
+#include "hosq/extended_value_types.hh"
 
 namespace hosq::msgpack {
 template <std::size_t MaxDepth = 64,
@@ -143,6 +144,57 @@ class Writer
       return false;
     return this->byte(static_cast<unsigned char>(type)) && this->append(copy) &&
            after_value();
+  }
+  auto write_semantic(const InstantValue& value) -> bool {
+    if (!this->ready()) return false;
+    if (value.nanoseconds >= 1000000000)
+      return this->fail(ErrorCode::out_of_range,
+                        "MessagePack timestamp nanoseconds exceed 999999999");
+    std::array<std::uint8_t, 12> payload{};
+    auto put = [&](std::uint64_t bits, unsigned start, unsigned width) {
+      for (unsigned i = 0; i < width; ++i)
+        payload[start + i] =
+            static_cast<std::uint8_t>(bits >> (8 * (width - i - 1)));
+    };
+    unsigned size;
+    if (value.seconds >= 0 && value.seconds <= 0xffffffffLL &&
+        value.nanoseconds == 0) {
+      size = 4;
+      put(static_cast<std::uint64_t>(value.seconds), 0, 4);
+    } else if (value.seconds >= 0 && value.seconds <= 0x3ffffffffLL) {
+      size = 8;
+      put((std::uint64_t{value.nanoseconds} << 34) |
+              static_cast<std::uint64_t>(value.seconds),
+          0, 8);
+    } else {
+      size = 12;
+      put(value.nanoseconds, 0, 4);
+      put(static_cast<std::uint64_t>(value.seconds), 4, 8);
+    }
+    return write_extension(-1, BytesView(payload.data(), size));
+  }
+  auto write_semantic(const ExtensionValue& value) -> bool {
+    if (!this->ready()) return false;
+    if (value.type == -1) {
+      const auto size = value.payload.size();
+      if (size != 4 && size != 8 && size != 12)
+        return this->fail(ErrorCode::invalid_length,
+                          "MessagePack timestamp requires 4, 8, or 12 bytes");
+      if (size != 4) {
+        std::uint32_t nanos = 0;
+        for (unsigned i = 0; i < 4; ++i)
+          nanos = (nanos << 8) | std::to_integer<std::uint8_t>(value.payload[i]);
+        if (size == 8) nanos >>= 2;
+        if (nanos >= 1000000000)
+          return this->fail(
+              ErrorCode::out_of_range,
+              "MessagePack timestamp nanoseconds exceed 999999999");
+      }
+    }
+    return write_extension(
+        value.type,
+        BytesView(reinterpret_cast<const std::uint8_t*>(value.payload.data()),
+                  value.payload.size()));
   }
 
  private:

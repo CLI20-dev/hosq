@@ -4,6 +4,7 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -12,8 +13,10 @@
 #include <variant>
 
 #include "hosq/bytes_view.hh"
+#include "hosq/detail/raw_text.hh"
 #include "hosq/detail/type_traits.hh"
 #include "hosq/detail/utf8.hh"
+#include "hosq/extended_value_types.hh"
 #include "hosq/fwd.hh"
 #include "hosq/map.hh"
 #include "hosq/writer_base.hh"
@@ -124,17 +127,59 @@ auto encode_native_value(const T& value, W& writer) -> bool {
       return writer.write_boolean(value);
     else if constexpr (writer_traits_t<W>::format == Format::json)
       return encode_json_scalar(writer, value ? "true" : "false", false);
+  } else if constexpr (is_extended_value<V>) {
+    if constexpr (requires { writer.write_semantic(value); })
+      return writer.write_semantic(value);
+    return encode_error(writer, ErrorCode::unsupported_type,
+                        "this format has no codec for this semantic type");
+  } else if constexpr (std::same_as<V, RawTextValue>) {
+    std::string text;
+    if (!resolve_raw_text(value, text))
+      return encode_error(writer, ErrorCode::invalid_escape,
+                          "invalid raw string representation");
+    return encode_native_value(text, writer);
+  } else if constexpr (std::same_as<V, BytesValue>) {
+    const BytesView bytes(
+        reinterpret_cast<const std::uint8_t*>(value.value.data()),
+        value.value.size());
+    if constexpr (requires { writer.write_binary(bytes, value.subtype); })
+      return writer.write_binary(bytes, value.subtype);
+    else if constexpr (requires { writer.write_binary(bytes); }) {
+      if (value.subtype != 0)
+        return encode_error(writer, ErrorCode::unsupported_type,
+                            "writer cannot represent BSON binary subtype");
+      return writer.write_binary(bytes);
+    }
   } else if constexpr (std::integral<V> || std::floating_point<V>) {
     if constexpr (requires { writer.write_number(value); })
       return writer.write_number(value);
     else if constexpr (writer_traits_t<W>::format == Format::json) {
-      if constexpr (std::floating_point<V>)
+      if constexpr (std::floating_point<V>) {
         if (!std::isfinite(value))
           return encode_error(writer, ErrorCode::unsupported_type,
                               "JSON has no non-finite numbers");
+        if (value < -std::numeric_limits<double>::max() ||
+            value > std::numeric_limits<double>::max())
+          return encode_error(writer, ErrorCode::out_of_range,
+                              "floating value exceeds binary64 range");
+        if constexpr (std::numeric_limits<V>::digits >
+                      std::numeric_limits<double>::digits)
+          if (static_cast<V>(static_cast<double>(value)) != value)
+            return encode_error(
+                writer, ErrorCode::out_of_range,
+                "floating value is not representable as binary64");
+      }
       std::array<char, 128> buffer{};
-      const auto result =
-          std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+      const auto result = [&] {
+        // Common floating schemas decode JSON's numeric value as binary64.
+        // Promote float before formatting to retain its exact value there.
+        if constexpr (std::floating_point<V>)
+          return std::to_chars(buffer.data(), buffer.data() + buffer.size(),
+                               static_cast<double>(value));
+        else
+          return std::to_chars(buffer.data(), buffer.data() + buffer.size(),
+                               value);
+      }();
       if (result.ec != std::errc{})
         return encode_error(writer, ErrorCode::conversion_error,
                             "cannot format number");

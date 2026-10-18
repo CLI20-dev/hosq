@@ -527,8 +527,10 @@ TEST(MessagePack, NonStringKeysRemainTraversableAndSkippable) {
   ASSERT_TRUE(decode_into<msgpack::Reader<>>(record, input).is_ok());
   EXPECT_EQ(record.n.value().value(), 42);
   Nested strict;
+  // Preserve the reader's non-string-key type error instead of masking it as
+  // an unknown member during constant-key dispatch.
   EXPECT_EQ(decode_into<msgpack::Reader<>>(strict, bytes({0x81, 1, 2})).code,
-            EC::unknown_member);
+            EC::type_mismatch);
   EXPECT_EQ(read<msgpack::Reader<>>(bytes({0x81, 0x91})).code,
             EC::unexpected_eof);
 }
