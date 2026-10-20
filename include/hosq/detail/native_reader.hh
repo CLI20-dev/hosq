@@ -12,6 +12,7 @@
 #include "hosq/detail/utf8.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/reader_base.hh"
+#include "hosq/scalar_codec.hh"
 #include "hosq/value_types.hh"
 
 namespace hosq::detail {
@@ -85,6 +86,50 @@ struct NativeReaderAccess {
     if (s.failure.is_ok()) s.failure = e;
   }
   auto error(const state_type& s) const -> Error { return s.failure; }
+  auto read_semantic(const state_type& s, SemanticNumber& output) const -> bool {
+    if (s.failure) return false;
+    bool numeric = false;
+    if (s.token.type == TokenType::Scalar &&
+        s.token.context == static_cast<std::uint8_t>(NativeContext::number)) {
+      std::visit(
+          [&](auto value) {
+            using V = decltype(value);
+            if constexpr (std::same_as<V, std::int64_t> ||
+                          std::same_as<V, std::uint64_t> ||
+                          std::same_as<V, double>) {
+              output.value = value;
+              output.negative_integer = false;
+              numeric = true;
+            }
+          },
+          s.scalar);
+    }
+    if (!numeric)
+      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                       "expected numeric scalar"});
+    return numeric;
+  }
+  auto read_semantic(const state_type& s, bool& output) const -> bool {
+    if (s.failure) return false;
+    if (s.token.type == TokenType::Scalar &&
+        s.token.context == static_cast<std::uint8_t>(NativeContext::boolean)) {
+      if (const auto* value = std::get_if<bool>(&s.scalar)) {
+        output = *value;
+        return true;
+      }
+    }
+    report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                     "expected boolean scalar"});
+    return false;
+  }
+  auto read_semantic(const state_type& s, std::nullptr_t&) const -> bool {
+    if (s.failure) return false;
+    if (s.token.type == TokenType::Scalar &&
+        s.token.context == static_cast<std::uint8_t>(NativeContext::null))
+      return true;
+    report_error(s, {ErrorCode::type_mismatch, s.token.offset, "expected null"});
+    return false;
+  }
   auto read_string(const state_type& s, std::string& output) const -> bool {
     output.clear();
     RawTextValue text;

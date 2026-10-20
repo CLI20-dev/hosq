@@ -11,6 +11,7 @@
 #include "hosq/context.hh"
 #include "hosq/detail/compiler.hh"
 #include "hosq/error.hh"
+#include "hosq/json/scalar_codec.hh"
 #include "hosq/meta_match.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/scan.hh"
@@ -1908,3 +1909,10 @@ HOSQ_ALWAYS_INLINE auto ArrayInput<Reader>::materialize(Context& ctx)
   return ext::ScanArray<Reader>::resolved(ctx);
 }
 }  // namespace hosq::json::detail
+
+namespace hosq::ext {
+template <std::size_t Depth, json::InputPadding Padding,
+          json::WhitespaceMode Mode>
+struct DecodeSemanticScalar<json::FastReader<Depth, Padding, Mode>>
+    : json::detail::SemanticScalarCodec {};
+}  // namespace hosq::ext

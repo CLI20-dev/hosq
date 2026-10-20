@@ -10,6 +10,7 @@ template <std::size_t MaxDepth = 64>
 class Reader : public ReaderBase<Reader<MaxDepth>>,
                public detail::NativeReaderAccess {
  public:
+  using detail::NativeReaderAccess::read_semantic;
   auto read_semantic(const state_type& s, InstantValue& output) const -> bool {
     output = {};
     if (!extension_token(s)) return false;

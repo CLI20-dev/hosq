@@ -7,6 +7,7 @@
 
 #include "hosq/bytes_view.hh"
 #include "hosq/error.hh"
+#include "hosq/json/scalar_codec.hh"
 #include "hosq/reader_base.hh"
 
 namespace hosq {
@@ -639,3 +640,9 @@ struct ReaderTraits<json::SimpleReader> {
 static_assert(ReaderConcept<json::SimpleReader>);
 
 }  // namespace hosq
+
+namespace hosq::ext {
+template <>
+struct DecodeSemanticScalar<json::SimpleReader>
+    : json::detail::SemanticScalarCodec {};
+}  // namespace hosq::ext

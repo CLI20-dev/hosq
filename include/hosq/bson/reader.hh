@@ -10,6 +10,7 @@ template <std::size_t MaxDepth = 64>
 class Reader : public ReaderBase<Reader<MaxDepth>>,
                public detail::NativeReaderAccess {
  public:
+  using detail::NativeReaderAccess::read_semantic;
   auto next_token_impl(state_type& s) const -> bool {
     if (s.failure) return false;
     if (!s.started) {
