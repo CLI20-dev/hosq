@@ -488,9 +488,15 @@ class SimpleReader : public ReaderBase<SimpleReader> {
   }
 
   auto parse_literal(state_type& state) -> bool {
+    // Root prefix decoding leaves delimiters for document-end validation,
+    // just as root strings leave suffix data. Only containers have a frame.
     while (state.pos < state.input.size()) {
       switch (state.input[state.pos]) {
         case ']':
+          if (state.context.empty()) {
+            state.token.length = state.pos - state.token.offset;
+            return true;
+          }
           if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) == 0)
               [[unlikely]] {
             state.has_error = true;
@@ -505,6 +511,10 @@ class SimpleReader : public ReaderBase<SimpleReader> {
           state.end_flag = true;
           return true;
         case '}':
+          if (state.context.empty()) {
+            state.token.length = state.pos - state.token.offset;
+            return true;
+          }
           if (static_cast<uint8_t>(state.context.back()) & 0b0000'0010)
               [[unlikely]] {
             state.has_error = true;
@@ -519,6 +529,10 @@ class SimpleReader : public ReaderBase<SimpleReader> {
           state.end_flag = true;
           return true;
         case ',':
+          if (state.context.empty()) {
+            state.token.length = state.pos - state.token.offset;
+            return true;
+          }
           if (state.context.back() == Context::ObjectKey) [[unlikely]] {
             state.has_error = true;
             state.error = hosq::detail::ErrorInfo{
