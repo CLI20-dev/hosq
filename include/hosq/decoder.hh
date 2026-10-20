@@ -306,9 +306,11 @@ class Decoder<R> {
                 return outcome.status != DecodeStatus::no_match;
               } else {
                 auto checkpoint = reader_state.checkpoint();
+                const auto token = reader.current_token(reader_state);
                 const auto outcome = detail::invoke_decode(elem, ctx);
                 if (outcome.status == DecodeStatus::no_match) {
-                  reader_state.rollback(std::move(checkpoint));
+                  rollback_try_candidate(reader, reader_state,
+                                         std::move(checkpoint), token);
                   return false;
                 }
                 return true;
@@ -344,14 +346,15 @@ class Decoder<R> {
   using decode_raw_result_t =
       typename decode_raw_result<IsConst, Elem, Context>::type;
 
-  // Entry candidates cross from the key token to its value. Some readers keep
-  // the current token outside their checkpoint to cache lazy scalar scans.
-  // Restore the key on a soft rejection, retaining cached lengths when the
-  // candidate never left that token. Storage and hard errors are not restored.
-  static auto rollback_try_entry_candidate(reader_type& reader,
-                                           reader_state_type& reader_state,
-                                           auto checkpoint,
-                                           const Token& key_token) -> void {
+  // Consuming candidates can cross into nested tokens. Some readers keep the
+  // current token outside their checkpoint to cache lazy scalar scans.
+  // Restore the initial token on a soft rejection, retaining cached lengths when
+  // the candidate never left that token. Storage and hard errors are not
+  // restored.
+  static auto rollback_try_candidate(reader_type& reader,
+                                     reader_state_type& reader_state,
+                                     auto checkpoint, const Token& initial_token)
+      -> void {
     reader_state.rollback(std::move(checkpoint));
     if constexpr (requires {
                     {
@@ -360,9 +363,10 @@ class Decoder<R> {
                   }) {
       if (reader.error(reader_state).is_ok()) {
         auto& token = reader.current_token(reader_state);
-        if (token.offset != key_token.offset || token.type != key_token.type ||
-            token.context != key_token.context)
-          token = key_token;
+        if (token.offset != initial_token.offset ||
+            token.type != initial_token.type ||
+            token.context != initial_token.context)
+          token = initial_token;
       }
     }
   }
@@ -453,8 +457,8 @@ class Decoder<R> {
 
             const auto outcome = detail::invoke_decode(value, value_ctx);
             if (outcome.status == DecodeStatus::no_match) {
-              rollback_try_entry_candidate(reader, reader_state,
-                                           std::move(checkpoint), key_token);
+              rollback_try_candidate(reader, reader_state, std::move(checkpoint),
+                                     key_token);
               decoded = false;
               return;
             }
@@ -569,8 +573,8 @@ class Decoder<R> {
                       value_elem, reader, reader_state);
               const auto outcome = detail::invoke_decode(value_elem, value_ctx);
               if (outcome.status == DecodeStatus::no_match) {
-                rollback_try_entry_candidate(reader, reader_state,
-                                             std::move(checkpoint), key_token);
+                rollback_try_candidate(reader, reader_state,
+                                       std::move(checkpoint), key_token);
                 return false;
               }
               return true;
@@ -594,8 +598,8 @@ class Decoder<R> {
               {
                 const auto outcome = detail::invoke_decode(key_elem, key_ctx);
                 if (outcome.status == DecodeStatus::no_match) {
-                  rollback_try_entry_candidate(reader, reader_state,
-                                               std::move(checkpoint), key_token);
+                  rollback_try_candidate(reader, reader_state,
+                                         std::move(checkpoint), key_token);
                   return false;
                 }
               }
@@ -618,8 +622,8 @@ class Decoder<R> {
                 const auto outcome =
                     detail::invoke_decode(value_elem, value_ctx);
                 if (outcome.status == DecodeStatus::no_match) {
-                  rollback_try_entry_candidate(reader, reader_state,
-                                               std::move(checkpoint), key_token);
+                  rollback_try_candidate(reader, reader_state,
+                                         std::move(checkpoint), key_token);
                   return false;
                 }
               } else {

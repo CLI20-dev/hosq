@@ -418,6 +418,98 @@ int main() {
   const auto error =
       decode_document_into<Reader>(value, R"({"nested":{"n":2}})");
   return !error.is_ok() || value.nested->n.value().value() != 2;
+#elif HOSQ_MATCH_CASE == 113
+  using Ones = Elem<scan::array | decode::collect<integer_match> | store::assign,
+                    noop_encoder>;
+  using Any =
+      Elem<scan::array | decode::collect<scan::scalar | decode::integer<int>> |
+               store::assign,
+           noop_encoder>;
+  struct Choices {
+    Try<Ones> ones;
+    Try<Any> fallback;
+  } value;
+  const auto error = decode_document_into<Reader>(value, "[[1,1],[1,2]]");
+  return !error.is_ok() || value.ones.value() != std::vector<int>{1, 1} ||
+         value.fallback.value() != std::vector<int>{1, 2};
+#elif HOSQ_MATCH_CASE == 114
+  using Ones =
+      Elem<scan::array | decode::collect<integer_match, 2> | store::assign,
+           noop_encoder>;
+  using Any = Elem<scan::array |
+                       decode::collect<scan::scalar | decode::integer<int>, 2> |
+                       store::assign,
+                   noop_encoder>;
+  struct Choices {
+    Try<Ones> ones;
+    Try<Any> fallback;
+  } value;
+  const auto error =
+      decode_document_into<json::FastReader<>>(value, "[[1,1],[1,2]]");
+  return !error.is_ok() || value.ones.value()[1] != 1 ||
+         value.fallback.value()[1] != 2;
+#elif HOSQ_MATCH_CASE == 115
+  constexpr auto number = scan::scalar | decode::integer<int>;
+  constexpr auto text = scan::scalar | decode::string_view;
+  using Matched =
+      Elem<scan::object | decode::collect<text_match, number> | store::assign,
+           noop_encoder>;
+  using Any = Elem<scan::object | decode::collect<text, number> | store::assign,
+                   noop_encoder>;
+  struct Choices {
+    Try<Matched> matched;
+    Try<Any> fallback;
+  } value;
+  const auto error =
+      decode_document_into<Reader>(value, R"([{"n":1},{"other":2}])");
+  return !error.is_ok() || value.matched.value().keys().front() != "n" ||
+         value.fallback.value().values().front() != 2;
+#elif HOSQ_MATCH_CASE == 116
+  constexpr auto number = scan::scalar | decode::integer<int>;
+  constexpr auto text = scan::scalar | decode::string_view;
+  using Matched =
+      Elem<scan::object | decode::collect<text_match, integer_match, 1> |
+               store::assign,
+           noop_encoder>;
+  using Any =
+      Elem<scan::object | decode::collect<text, number, 1> | store::assign,
+           noop_encoder>;
+  struct Choices {
+    Try<Matched> matched;
+    Try<Any> fallback;
+  } value;
+  const auto error = decode_document_into<json::FastReader<>>(
+      value, R"([{"n":1},{"other":2},{"n":2}])");
+  return !error.is_ok() || value.matched.value().values()[0] != 1 ||
+         value.fallback.value().keys()[0] != "n" ||
+         value.fallback.value().values()[0] != 2;
+#elif HOSQ_MATCH_CASE == 117
+  constexpr auto inner = scan::array | decode::collect<integer_match>;
+  constexpr auto plain =
+      scan::array | decode::collect<scan::scalar | decode::integer<int>>;
+  using Matched =
+      Elem<scan::array | decode::collect<inner> | store::assign, noop_encoder>;
+  using Any =
+      Elem<scan::array | decode::collect<plain> | store::assign, noop_encoder>;
+  struct Choices {
+    Try<Matched> matched;
+    Try<Any> fallback;
+  } value;
+  const auto error =
+      decode_document_into<Reader>(value, "[[[1],[1]],[[1],[2]]]");
+  return !error.is_ok() || value.matched.value()[1][0] != 1 ||
+         value.fallback.value()[1][0] != 2;
+#elif HOSQ_MATCH_CASE == 118
+  using Matched =
+      Elem<scan::array | decode::collect<integer_match | step<FalsePayload>> |
+               store::assign,
+           noop_encoder>;
+  struct Choices {
+    Try<Matched> matched;
+  } value;
+  const auto error = decode_document_into<Reader>(value, "[[1,1]]");
+  return !error.is_ok() ||
+         value.matched.value() != std::vector<bool>{false, false};
 #else
 #error Unknown HOSQ_MATCH_CASE
 #endif

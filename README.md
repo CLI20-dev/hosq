@@ -592,11 +592,38 @@ validation step (for example `validate::match<1>`) for a required value that
 must report a validation error, and Try for candidate selection. Field
 presence alone does not enable candidate selection.
 
-`decode::each` preserves matching results through array/object traversal;
-`decode::collect` accepts data values, including bool, but rejects matching
-results. A bool returned by `decode::custom` is data; use `match::predicate`
-when that bool is intended to control candidate selection. Elem decoder
-terminals must be void (ordinary decoding) or MatchResult (candidate decoding).
+`decode::each` and `decode::collect` preserve matching through array/object
+traversal. If a collect operand returns `MatchResult<T>`, the collected values
+contain `T`, and collect returns a `MatchResult` wrapping the whole collection.
+For object collection, either the key or value pipeline can introduce matching;
+fixed-size collections propagate it too. A mismatch rejects the whole candidate
+so the surrounding Try can retry from its checkpoint. Recorded Reader errors,
+including fixed-size length errors, terminate decoding without rollback.
+
+```cpp
+using Ones = Elem<
+    scan::array
+    | decode::collect<scan::scalar | decode::integer<int> | match::literal<1>>
+    | store::assign,
+    encode::value>;
+using Integers = Elem<
+    scan::array | decode::collect<scan::scalar | decode::integer<int>>
+    | store::assign,
+    encode::value>;
+struct Choices {
+  Try<Ones> ones;
+  Try<Integers> fallback;
+};
+Choices choices;
+auto error = decode_document_into<json::SimpleReader>(choices, "[[1,1],[1,2]]");
+// choices.ones.value() == std::vector<int>{1,1}
+// choices.fallback.value() == std::vector<int>{1,2}
+```
+
+Ordinary collect operands retain their data types, including bool. A bool
+returned by `decode::custom` is data; use `match::predicate` when that bool is
+intended to control candidate selection. Elem decoder terminals must be void
+(ordinary decoding) or MatchResult (candidate decoding).
 
 `encode::value` is a terminal encoder for semantic storage values. It uses
 `ext::EncodeValue<W>` and writer-specific scalar operations, while `Encoder`

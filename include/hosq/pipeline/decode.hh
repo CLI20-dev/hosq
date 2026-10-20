@@ -175,6 +175,8 @@ template <ReaderConcept R>
 struct DecodeStringView;
 template <ReaderConcept R, class Pipeline, std::size_t N>
 struct DecodeCollect;
+template <ReaderConcept R, class Pipeline, std::size_t N>
+struct DecodeCollectDefault;
 
 }  // namespace hosq::ext
 
@@ -772,6 +774,55 @@ struct EachImpl<KeyPipeline, ValuePipeline, N> {
   }
 };
 
+template <class T>
+struct CollectPayload {
+  using type = T;
+};
+template <class T>
+struct CollectPayload<MatchResult<T>> {
+  using type = T;
+};
+template <class T>
+using collect_payload_t = typename CollectPayload<T>::type;
+
+template <class T, bool Matching>
+struct CollectCompletion {
+  using type = std::conditional_t<Matching, MatchResult<T>, T>;
+
+ private:
+  template <auto...>
+  friend struct CollectImpl;
+  template <ReaderConcept R, class Pipeline, std::size_t N>
+  friend struct hosq::ext::DecodeCollectDefault;
+
+  static auto finish(T value) -> type {
+    if constexpr (Matching)
+      return type{true, std::move(value)};
+    else
+      return value;
+  }
+  static auto reject() -> type
+    requires Matching
+  {
+    return type{std::nullopt};
+  }
+};
+
+template <class T>
+auto collect_matched(const T& value) -> bool {
+  if constexpr (hosq::detail::MatchResultT<T>)
+    return value.matched();
+  else
+    return true;
+}
+template <class T>
+decltype(auto) collect_value(T&& value) {
+  if constexpr (hosq::detail::MatchResultT<T>)
+    return std::move(value).value();
+  else
+    return std::forward<T>(value);
+}
+
 template <auto... Pipelines>
 struct CollectImpl {
   static_assert(
@@ -793,16 +844,18 @@ struct CollectImpl<Pipeline> {
       ::hosq::detail::PipelineDecodeAnalysisContext, void, pipeline_type>;
 
   using terminal_type = ::hosq::detail::pipeline_terminal_t<info>;
-  static_assert(!hosq::detail::MatchResultT<terminal_type>,
-                "decode::collect cannot store matching results; use Try "
-                "candidate dispatch");
 
   static_assert(!std::same_as<terminal_type, void>,
                 "decode::collect<P> requires P to return a value");
 
+  using container_type = std::vector<collect_payload_t<terminal_type>>;
+  using completion =
+      CollectCompletion<container_type,
+                        hosq::detail::MatchResultT<terminal_type>>;
+
   template <ReaderConcept R, TryPhase Phase, class Storage>
   auto operator()(const ArrayView&, DecodeContext<Storage, R, Phase>& ctx) const
-      -> std::vector<terminal_type> {
+      -> typename completion::type {
     using actual_decoder_info = ::hosq::detail::pipeline_analysis_t<
         ::hosq::detail::PipelineVerificationMode::no_storage,
         DecodeContext<void, R, TryPhase::first>, void, pipeline_type>;
@@ -821,21 +874,26 @@ struct CollectImpl<Pipeline> {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
 
-    auto ret = std::vector<terminal_type>{};
+    auto ret = container_type{};
 
     while (true) {
       if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
           [[unlikely]] {
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       const auto& tok = reader.current_token(state);
       if (tok.type == TokenType::ArrayEnd) {
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       DecodeContext<void, R, TryPhase::first> elem_ctx{reader, state};
-      ret.push_back(pipeline_type::invoke(elem_ctx));
+      auto value = pipeline_type::invoke(elem_ctx);
+      if constexpr (hosq::detail::MatchResultT<terminal_type>) {
+        if (reader.error(state) || !collect_matched(value))
+          return completion::reject();
+      }
+      ret.push_back(collect_value(std::move(value)));
     }
   }
 };
@@ -854,26 +912,26 @@ struct CollectImpl<Pipeline, N> {
       ::hosq::detail::PipelineDecodeAnalysisContext, void, pipeline_type>;
 
   using terminal_type = ::hosq::detail::pipeline_terminal_t<info>;
-  static_assert(!hosq::detail::MatchResultT<terminal_type>,
-                "decode::collect cannot store matching results; use Try "
-                "candidate dispatch");
 
   static_assert(!std::same_as<terminal_type, void>,
                 "decode::collect<P, N> requires P to return a value");
 
+  template <class R>
+  using extension = ext::DecodeCollect<R, pipeline_type, N>;
+
   template <class Context>
   using input_type = hosq::detail::extension_input_t<
-      ext::DecodeCollect<typename std::remove_cvref_t<Context>::reader_type,
-                         pipeline_type, N>,
-      ArrayView>;
+      extension<typename std::remove_cvref_t<Context>::reader_type>, ArrayView>;
 
   template <ReaderConcept R, TryPhase Phase, class Storage, class View>
     requires requires(const View& input, DecodeContext<Storage, R, Phase>& ctx) {
-      ext::DecodeCollect<R, pipeline_type, N>{}(input, ctx);
+      extension<R>{}(input, ctx);
     }
   auto operator()(const View& input, DecodeContext<Storage, R, Phase>& ctx) const
-      -> std::array<terminal_type, N> {
-    return ext::DecodeCollect<R, pipeline_type, N>{}(input, ctx);
+      -> typename CollectCompletion<
+          std::array<collect_payload_t<terminal_type>, N>,
+          hosq::detail::MatchResultT<terminal_type>>::type {
+    return extension<R>{}(input, ctx);
   }
 };
 
@@ -896,13 +954,7 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
       ::hosq::detail::PipelineDecodeAnalysisContext, void, value_pipeline_type>;
 
   using key_terminal_type = ::hosq::detail::pipeline_terminal_t<key_info>;
-  static_assert(!hosq::detail::MatchResultT<key_terminal_type>,
-                "decode::collect cannot store matching results; use Try "
-                "candidate dispatch");
   using value_terminal_type = ::hosq::detail::pipeline_terminal_t<value_info>;
-  static_assert(!hosq::detail::MatchResultT<value_terminal_type>,
-                "decode::collect cannot store matching results; use Try "
-                "candidate dispatch");
 
   static_assert(
       !std::same_as<key_terminal_type, void>,
@@ -912,8 +964,15 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
       !std::same_as<value_terminal_type, void>,
       "decode::collect<KeyP, ValueP> value pipeline must return a value");
 
-  using output_type = ::hosq::Map<std::vector<key_terminal_type>,
-                                  std::vector<value_terminal_type>>;
+  using container_type =
+      ::hosq::Map<std::vector<collect_payload_t<key_terminal_type>>,
+                  std::vector<collect_payload_t<value_terminal_type>>>;
+
+  using completion =
+      CollectCompletion<container_type,
+                        hosq::detail::MatchResultT<key_terminal_type> ||
+                            hosq::detail::MatchResultT<value_terminal_type>>;
+  using output_type = typename completion::type;
 
   template <ReaderConcept R, TryPhase Phase, class Storage>
   auto operator()(const ObjectView&, DecodeContext<Storage, R, Phase>& ctx) const
@@ -952,28 +1011,40 @@ struct CollectImpl<KeyPipeline, ValuePipeline> {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
 
-    auto ret = output_type{};
+    auto ret = container_type{};
 
     while (true) {
       if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
           [[unlikely]] {
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       const auto& tok = reader.current_token(state);
       if (tok.type == TokenType::ObjectEnd) {
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       DecodeContext<void, R, TryPhase::first> key_ctx{reader, state};
-      ret.keys().push_back(key_pipeline_type::invoke(key_ctx));
+      auto key = key_pipeline_type::invoke(key_ctx);
+      if constexpr (hosq::detail::MatchResultT<key_terminal_type> ||
+                    hosq::detail::MatchResultT<value_terminal_type>) {
+        if (reader.error(state) || !collect_matched(key))
+          return completion::reject();
+      }
+      ret.keys().push_back(collect_value(std::move(key)));
 
       if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       DecodeContext<void, R, TryPhase::first> value_ctx{reader, state};
-      ret.values().push_back(value_pipeline_type::invoke(value_ctx));
+      auto value = value_pipeline_type::invoke(value_ctx);
+      if constexpr (hosq::detail::MatchResultT<key_terminal_type> ||
+                    hosq::detail::MatchResultT<value_terminal_type>) {
+        if (reader.error(state) || !collect_matched(value))
+          return completion::reject();
+      }
+      ret.values().push_back(collect_value(std::move(value)));
     }
   }
 };
@@ -999,13 +1070,7 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
       ::hosq::detail::PipelineDecodeAnalysisContext, void, value_pipeline_type>;
 
   using key_terminal_type = ::hosq::detail::pipeline_terminal_t<key_info>;
-  static_assert(!hosq::detail::MatchResultT<key_terminal_type>,
-                "decode::collect cannot store matching results; use Try "
-                "candidate dispatch");
   using value_terminal_type = ::hosq::detail::pipeline_terminal_t<value_info>;
-  static_assert(!hosq::detail::MatchResultT<value_terminal_type>,
-                "decode::collect cannot store matching results; use Try "
-                "candidate dispatch");
 
   static_assert(
       !std::same_as<key_terminal_type, void>,
@@ -1015,8 +1080,15 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
       !std::same_as<value_terminal_type, void>,
       "decode::collect<KeyP, ValueP, N> value pipeline must return a value");
 
-  using output_type = ::hosq::Map<std::array<key_terminal_type, N>,
-                                  std::array<value_terminal_type, N>>;
+  using container_type =
+      ::hosq::Map<std::array<collect_payload_t<key_terminal_type>, N>,
+                  std::array<collect_payload_t<value_terminal_type>, N>>;
+
+  using completion =
+      CollectCompletion<container_type,
+                        hosq::detail::MatchResultT<key_terminal_type> ||
+                            hosq::detail::MatchResultT<value_terminal_type>>;
+  using output_type = typename completion::type;
 
   template <ReaderConcept R, TryPhase Phase, class Storage>
   auto operator()(const ObjectView&, DecodeContext<Storage, R, Phase>& ctx) const
@@ -1055,13 +1127,13 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
 
-    auto ret = output_type{};
+    auto ret = container_type{};
     std::size_t index = 0;
 
     while (index < N) {
       if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
           [[unlikely]] {
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       const auto& tok = reader.current_token(state);
@@ -1072,30 +1144,42 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
                        .offset = tok.offset,
                        .detail = "fixed-size decode::collect object ended early",
                    });
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       DecodeContext<void, R, TryPhase::first> key_ctx{reader, state};
-      ret.keys()[index] = key_pipeline_type::invoke(key_ctx);
+      auto key = key_pipeline_type::invoke(key_ctx);
+      if constexpr (hosq::detail::MatchResultT<key_terminal_type> ||
+                    hosq::detail::MatchResultT<value_terminal_type>) {
+        if (reader.error(state) || !collect_matched(key))
+          return completion::reject();
+      }
+      ret.keys()[index] = collect_value(std::move(key));
 
       if (!hosq::next_token<Expect::member_value>(reader, state)) [[unlikely]] {
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       DecodeContext<void, R, TryPhase::first> value_ctx{reader, state};
-      ret.values()[index] = value_pipeline_type::invoke(value_ctx);
+      auto value = value_pipeline_type::invoke(value_ctx);
+      if constexpr (hosq::detail::MatchResultT<key_terminal_type> ||
+                    hosq::detail::MatchResultT<value_terminal_type>) {
+        if (reader.error(state) || !collect_matched(value))
+          return completion::reject();
+      }
+      ret.values()[index] = collect_value(std::move(value));
 
       ++index;
     }
 
     if (!hosq::next_token<Expect::next_member_or_end>(reader, state))
         [[unlikely]] {
-      return ret;
+      return completion::finish(std::move(ret));
     }
 
     const auto& tok = reader.current_token(state);
     if (tok.type == TokenType::ObjectEnd) {
-      return ret;
+      return completion::finish(std::move(ret));
     }
 
     reader.report_error(
@@ -1105,7 +1189,7 @@ struct CollectImpl<KeyPipeline, ValuePipeline, N> {
             .offset = tok.offset,
             .detail = "fixed-size decode::collect object has extra member",
         });
-    return ret;
+    return completion::finish(std::move(ret));
   }
 };
 
@@ -1268,9 +1352,14 @@ struct DecodeCollectDefault {
                                   detail::PipelineDecodeAnalysisContext, void,
                                   pipeline_type>;
   using terminal_type = detail::pipeline_terminal_t<info>;
+  using container_type =
+      std::array<decode::detail::collect_payload_t<terminal_type>, N>;
+  using completion =
+      decode::detail::CollectCompletion<container_type,
+                                        detail::MatchResultT<terminal_type>>;
   template <TryPhase Phase, class Storage>
   auto operator()(const ArrayView&, DecodeContext<Storage, R, Phase>& ctx) const
-      -> std::array<terminal_type, N> {
+      -> typename completion::type {
     using actual_decoder_info = ::hosq::detail::pipeline_analysis_t<
         ::hosq::detail::PipelineVerificationMode::no_storage,
         DecodeContext<void, R, TryPhase::first>, void, pipeline_type>;
@@ -1289,14 +1378,14 @@ struct DecodeCollectDefault {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
 
-    std::array<terminal_type, N> ret{};
+    container_type ret{};
 
     std::size_t index = 0;
 
     while (index < N) {
       if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
           [[unlikely]] {
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       const auto& tok = reader.current_token(state);
@@ -1307,22 +1396,27 @@ struct DecodeCollectDefault {
                        .offset = tok.offset,
                        .detail = "fixed-size decode::collect array ended early",
                    });
-        return ret;
+        return completion::finish(std::move(ret));
       }
 
       DecodeContext<void, R, TryPhase::first> elem_ctx{reader, state};
-      ret[index] = pipeline_type::invoke(elem_ctx);
+      auto value = pipeline_type::invoke(elem_ctx);
+      if constexpr (detail::MatchResultT<terminal_type>) {
+        if (reader.error(state) || !decode::detail::collect_matched(value))
+          return completion::reject();
+      }
+      ret[index] = decode::detail::collect_value(std::move(value));
       ++index;
     }
 
     if (!hosq::next_token<Expect::next_element_or_end>(reader, state))
         [[unlikely]] {
-      return ret;
+      return completion::finish(std::move(ret));
     }
 
     const auto& tok = reader.current_token(state);
     if (tok.type == TokenType::ArrayEnd) {
-      return ret;
+      return completion::finish(std::move(ret));
     }
 
     reader.report_error(
@@ -1332,7 +1426,7 @@ struct DecodeCollectDefault {
             .offset = tok.offset,
             .detail = "fixed-size decode::collect array has extra element",
         });
-    return ret;
+    return completion::finish(std::move(ret));
   }
 };
 template <ReaderConcept R, class Pipeline, std::size_t N>

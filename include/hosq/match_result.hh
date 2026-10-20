@@ -12,6 +12,8 @@ template <auto>
 struct PredicateImpl;
 }  // namespace match::detail
 namespace decode::detail {
+template <class, bool>
+struct CollectCompletion;
 template <auto...>
 struct EachImpl;
 }  // namespace decode::detail
@@ -55,6 +57,9 @@ struct MatchResult {
   friend struct match::detail::PredicateImpl;
   template <auto...>
   friend struct decode::detail::EachImpl;
+
+  template <class, bool>
+  friend struct decode::detail::CollectCompletion;
 
   std::optional<value_type> value_;
 };

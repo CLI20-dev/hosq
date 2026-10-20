@@ -15,10 +15,10 @@ REJECTED = {
     5: "Decoder::decode_nested", 6: "fixed tuple element",
     7: "fixed constant-key value", 8: "fixed dynamic key",
     9: "typed Array", 10: "typed Mapping key", 11: "typed Mapping value",
-    13: "typed Optional", 14: "collect array",
-    15: "fixed collect array", 16: "collect object key",
-    17: "collect object value", 18: "fixed collect object key",
-    19: "fixed collect object value", 20: "construct MatchResult<int>",
+    13: "typed Optional", 14: "root matching collect array",
+    15: "root fixed matching collect array", 16: "root collect matching object key",
+    17: "root collect matching object value", 18: "root fixed collect matching object key",
+    19: "root fixed collect matching object value", 20: "construct MatchResult<int>",
     21: "construct MatchResult<void>", 22: "implicit MatchResult bool conversion",
     23: "default construct MatchResult", 24: "raw bool Elem terminal",
     25: "root matching each", 26: "root fixed matching each",
@@ -52,6 +52,12 @@ ACCEPTED = {
     110: "Entry aggregate containing real Try dispatch",
     111: "Entry array aggregate",
     112: "Entry aggregate with reader-specific ordinary pipeline",
+    113: "Try matching collect array",
+    114: "Try fixed matching collect array",
+    115: "Try collect matching object key",
+    116: "Try fixed collect matching object key and value",
+    117: "Try nested matching collect",
+    118: "Try collect matched false bool payload",
 }
 
 
