@@ -1864,6 +1864,11 @@ struct EntryInput<json::FastReader<Depth, Padding, Mode>> {
           use_const ? Pipe::template callable_with_const_context<Ctx, Tag>()
                     : Pipe::template callable_with_mutable_context<Ctx, Tag>();
       if constexpr (accepts_tag) {
+        using ActiveContext = std::conditional_t<use_const, const Ctx, Ctx>;
+        using Result =
+            typename Pipe::template final_output_type<Tag, ActiveContext>;
+        // A matching effect may not disappear through this void fast path.
+        if constexpr (!std::same_as<Result, void>) return false;
         if constexpr (Matched) {
           if (!reader.begin_matched_scalar_member(state)) return false;
         } else {

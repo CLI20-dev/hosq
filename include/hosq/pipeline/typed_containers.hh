@@ -10,8 +10,8 @@
 #include <utility>
 #include <vector>
 
-#include "hosq/element.hh"
 #include "hosq/decode_outcome.hh"
+#include "hosq/element.hh"
 #include "hosq/entry.hh"
 #include "hosq/map.hh"
 #include "hosq/mapping_value.hh"
@@ -72,6 +72,15 @@ struct RecordInfo {
     return true;
   }(std::make_index_sequence<size>{});
   static_assert(unique, "Record schema has duplicate constant keys");
+  static constexpr bool required_values =
+      []<std::size_t... I>(std::index_sequence<I...>) {
+        return (RequiredElemT<typename record_entry_t<
+                    std::tuple_element_t<I, tuple_type>>::value_type> &&
+                ...);
+      }(std::make_index_sequence<size>{});
+  static_assert(
+      required_values,
+      "Record fields cannot be matching pipelines; use Try candidate dispatch");
 };
 
 template <class T, class Context>
@@ -89,8 +98,7 @@ auto decode_container_into(E& element, R& reader, typename R::state_type& state)
     -> void {
   DecodeContext<typename E::storage_type, R, TryPhase::first> ctx{
       element.storage(), reader, state};
-  const auto outcome = invoke_decode(element, ctx);
-  (void)require_decode_match(outcome, reader, state);
+  (void)invoke_required_decode(element, ctx);
 }
 
 template <ElemT E, ReaderConcept R>
@@ -201,6 +209,9 @@ namespace hosq::decode::detail {
 
 template <hosq::detail::ElemT E>
 struct TypedArrayImpl {
+  static_assert(
+      hosq::detail::RequiredElemT<E>,
+      "typed Array elements cannot be matching pipelines; use Try dispatch");
   template <class Context>
     requires(!std::is_const_v<Context>)
   auto operator()(Context& ctx) const -> std::vector<typename E::storage_type> {
@@ -224,6 +235,8 @@ struct TypedArrayImpl {
 
 template <hosq::detail::ElemT K, hosq::detail::ElemT V>
 struct TypedMappingImpl {
+  static_assert(hosq::detail::RequiredElemT<K> && hosq::detail::RequiredElemT<V>,
+                "typed Mapping keys/values cannot be matching pipelines");
   using result_type =
       MappingValue<typename K::storage_type, typename V::storage_type>;
   template <class Context>
@@ -275,9 +288,10 @@ struct TypedRecordImpl {
       if (reader.current_token(state).type == TokenType::ObjectEnd) {
         bool missing = false;
         [&]<std::size_t... I>(std::index_sequence<I...>) {
-          ((missing |=
-            !seen[I] && !hosq::detail::RecordFieldPresence<
-                            std::remove_cvref_t<std::tuple_element_t<I, typename info::tuple_type>>>::allows_missing),
+          ((missing |= !seen[I] &&
+                       !hosq::detail::RecordFieldPresence<std::remove_cvref_t<
+                           std::tuple_element_t<I, typename info::tuple_type>>>::
+                           allows_missing),
            ...);
         }(std::make_index_sequence<info::size>{});
         if (missing)
@@ -325,6 +339,8 @@ struct TypedRecordImpl {
 
 template <hosq::detail::ElemT E>
 struct TypedOptionalImpl {
+  static_assert(hosq::detail::RequiredElemT<E>,
+                "optional values cannot be matching pipelines");
   template <class Context>
     requires(!std::is_const_v<Context>)
   auto operator()(Context& ctx) const
@@ -408,7 +424,8 @@ struct TypedRecordImpl {
                 using Entry = hosq::detail::record_entry_t<Field>;
                 using E = typename Entry::value_type;
                 if (!ok) return;
-                if (hosq::detail::RecordFieldPresence<Field>::omit(field)) return;
+                if (hosq::detail::RecordFieldPresence<Field>::omit(field))
+                  return;
                 ok = hosq::ext::EncodeValue<
                          std::remove_cvref_t<decltype(writer)>>{}(
                          hosq::detail::record_key<Entry>.view(), writer) &&
@@ -429,10 +446,10 @@ struct TypedOptionalImpl {
   auto operator()(const std::optional<typename E::storage_type>& value,
                   Context& ctx) const -> void {
     if (!value) {
-      (void)hosq::detail::encode_error(ctx.writer(),
-                                       ErrorCode::invalid_object_state,
-                                       "empty optional is missing, not null; "
-                                       "omit a Try record member or use Null");
+      (void)hosq::detail::encode_error(
+          ctx.writer(), ErrorCode::invalid_object_state,
+          "empty optional is missing, not null; "
+          "omit an optional-presence record member or use Null");
       return;
     }
     (void)hosq::detail::encode_container_element<E>(*value, ctx.writer());

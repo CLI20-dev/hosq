@@ -30,6 +30,7 @@
             clangTools
             pkgs.cmake
             pkgs.ninja
+            pkgs.python3
             gtest
           ];
           tomlCorpus = pkgs.fetchFromGitHub {
@@ -110,6 +111,7 @@
               clangTools
               pkgs.cmake
               pkgs.ninja
+              pkgs.python3
             ];
             buildInputs = [ gtest ];
             cmakeFlags = [

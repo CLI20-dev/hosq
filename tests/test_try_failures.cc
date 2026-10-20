@@ -142,28 +142,28 @@ TEST(TryFailures, NamedTypedMismatchDoesNotTryAnotherValueSchemaForTheKey) {
 }
 
 struct RejectValue {
-  auto operator()(int value) const -> MatchResult<int> { return {false, value}; }
+  auto operator()(int) const -> bool { return false; }
 };
 struct RejectWithError {
   template <class C>
     requires(!std::is_const_v<C>)
-  auto operator()(int value, C& ctx) const -> MatchResult<int> {
+  auto operator()(int, C& ctx) const -> bool {
     ctx.reader().report_error(ctx.reader_state(),
                               {EC::validation_failed, 0, "rejected Try value"});
-    return {false, value};
+    return false;
   }
 };
 struct ObserveAccepted {
   static inline int calls = 0;
-  auto operator()(int value) const -> MatchResult<int> {
+  auto operator()(int) const -> bool {
     ++calls;
-    return {true, value};
+    return true;
   }
 };
 template <class Predicate>
-using CheckedNumber =
-    Elem<scan::scalar | decode::number<int> | step<Predicate> | store::assign,
-         encode::value>;
+using CheckedNumber = Elem<scan::scalar | decode::number<int> |
+                               match::predicate<Predicate{}> | store::assign,
+                           encode::value>;
 template <class Predicate>
 struct CheckedArray {
   Try<CheckedNumber<Predicate>> rejected;

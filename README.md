@@ -57,7 +57,7 @@ The outer `.value()` accesses the record, then the entry, then its stored value.
 
 Named aliases take the key first; their element arguments come from `v`.
 Compose them for nested records, arrays, and dynamic maps.
-`t::Optional<"nickname", v::Text>` combines a missing-member marker with
+`t::Optional<"nickname", v::Text>` combines an explicit field-presence policy with
 optional storage so absence can be observed.
 
 ```cpp
@@ -87,7 +87,8 @@ int main() {
   assert(profile.value().address.value().value().city.value().value() == "Kyoto");
   assert(profile.value().tags.value().value().at(0) == "cpp");
   const auto& scores = profile.value().scores.value().value();
-  assert(scores.keys().at(0) == "tests" && scores.values().at(0) == 3);
+  assert(scores.entries().at(0).first == "tests" &&
+         scores.entries().at(0).second == 3);
   assert(!profile.value().nickname.value().value());
 }
 ```
@@ -117,7 +118,7 @@ representation and rejects values that its format cannot represent.
 | `RawText` | Borrowed `RawTextValue`, with the source representation tagged |
 | `Bytes` | Owned `BytesValue` payload and BSON binary subtype |
 | `Array<E>` | `std::vector<E::storage_type>` |
-| `Mapping<K, V>` | `hosq::Map` of parallel key/value vectors |
+| `Mapping<K, V>` | `hosq::MappingValue<K::storage_type, V::storage_type>` with paired entries |
 | `Record<S>`, `Object<S>` | A fixed object schema `S` of constant-key entries |
 | `Optional<E>` | `std::optional<E::storage_type>`, for observable absence |
 | `Instant` | `InstantValue`: Unix seconds and a nonnegative nanosecond remainder |
@@ -140,7 +141,7 @@ as their unkeyed counterparts.
 | `t::Array<"ids", v::Uint64>` | A named array |
 | `t::Mapping<"scores", v::Text, v::Int64>` | A named dynamic map |
 | `t::Record<"user", User>`, `t::Object<"user", User>` | Synonyms for a named fixed object |
-| `t::Optional<"nickname", v::Text>` | `t::Try<t::Field<"nickname", v::Optional<v::Text>>>` |
+| `t::Optional<"nickname", v::Text>` | `t::Field<"nickname", v::Optional<v::Text>, t::presence::Optional>` |
 | `t::Field<"n", E>` | Exactly `hosq::Entry<hosq::Key<"n">, E>` |
 
 `t::Try` is a using declaration for the existing `hosq::Try` dispatch marker;
@@ -171,14 +172,26 @@ the encoder resolves that representation before writing the destination
 format. Copying the wrapper does not extend the input lifetime. Use `Text`
 for ownership.
 
-`Mapping` rejects duplicate decoded keys. `Record`/`Object` reject duplicate
-and unknown members and require ordinary `Entry` fields. A `Try<Entry<...>>`
-may be absent and keeps its fresh schema default; use optional storage when
-absence must be observable. Explicit `Null`, a missing member, and an empty
-optional are separate states. Within
-`Record`/`Object`, an empty optional in a `Try<Entry<...>>` is omitted during
-encoding. An empty optional elsewhere is an encoding error;
-it is never implicitly encoded as null.
+`Mapping` rejects duplicate decoded keys. Its `MappingValue` storage owns an
+ordered `std::vector<std::pair<K, V>>`: use `entries()` to inspect, erase or
+reorder pairs and `emplace_back(key, value)` to append. These operations preserve
+key/value correspondence. The legacy parallel-vector `Map` remains available
+for low-level pipeline scratch storage.
+
+`Record`/`Object` reject duplicate and unknown members. Fields use
+`presence::Required` by default. `t::Optional<K, E>` selects
+`presence::Optional` with optional storage, allowing a missing member and
+omitting an empty field during Record encoding. A field with optional storage
+but required presence still requires its member. The value codec alone decides
+whether a present value accepts `null`; presence never converts null to absence.
+
+Existing `Try<Entry<...>>` schemas retain their missing/default behavior through
+a compatibility adapter. Within Record, a legacy Try field with empty optional
+storage is omitted. Low-level aggregate traversal preserves existing stored
+values when a member is missing; it does not apply Record's omission policy
+when encoding. An empty optional value there, or at the root/in an array, is an
+encoding error. Explicit `Null`, a missing member, and an empty optional remain
+separate states.
 
 Mapping key comparisons resolve raw text, compare nested object members
 independent of input order, and otherwise use value equality. Floating keys
@@ -447,6 +460,7 @@ The legacy `String` copies raw string bytes without resolving escapes.
 #include <string>
 #include <hosq/hosq.hh>
 #include <hosq/json/fast_reader.hh>
+#include <hosq/json/simple_reader.hh>
 #include <hosq/msgpack/writer.hh>
 
 using namespace hosq;
@@ -488,9 +502,9 @@ a pipeline explicitly handles them. Duplicate handling depends on the
 pipelines: for example, `store::assign` overwrites while `store::once` can reject
 a repeat. This differs from the closed, duplicate-rejecting `v::Record<S>`.
 
-All-`Try` element tuples dispatch array elements. Boolean-returning candidates
-are tried left to right; `false` without a reader error permits the next
-candidate. A reported reader error stops dispatch and is returned with its
+All-`Try` element tuples dispatch array elements. Matching candidates
+are tried left to right; an unmatched `MatchResult` without a reader error
+permits the next candidate. A reported reader error stops dispatch and is returned with its
 original code, offset, and detail. A void-returning
 typed decoder claims the element and reports failures through the reader's
 sticky error, so it does not provide semantic-alternative fallback. A failed
@@ -503,7 +517,42 @@ Encoding a legacy all-`Try` aggregate writes every field, including fields
 missing during decoding; `Try` does not track presence or choose an alternative
 to emit. Empty optionals in this aggregate are errors. The omission described
 in [Basic schemas](#basic-schemas) belongs specifically to `v::Record`/`v::Object`
-and their optional `Try` members.
+and their optional-presence members (including the legacy `Try` adapter).
+
+Matching is a distinct pipeline effect. `match::literal<V>` and
+`match::predicate<F>` produce library-controlled `MatchResult<T>` values;
+users cannot construct these results directly or implicitly convert them to
+bool. `if (result)` and `result.matched()` inspect the status. A predicate must
+return exactly bool; value/context and context-only signatures are supported.
+The input payload continues after a successful match, and the final pipeline
+result retains the matching type even after `store::assign`.
+
+```cpp
+using Odd = Elem<scan::scalar | decode::integer<int> |
+                     match::predicate<[](int n) { return n % 2 != 0; }> |
+                     store::assign,
+                 encode::value>;
+struct Choices {
+  Try<Odd> odd;
+  Try<types::value::Int64> fallback;
+};
+Choices choices;
+auto error = decode_into<json::SimpleReader>(choices, "[1,2]");
+// choices.odd.value() == 1; choices.fallback.value() == 2
+```
+
+A matching Elem is rejected at compile time as a direct root, an ordinary
+fixed tuple/member, or a typed Array/Mapping/Record/Optional value. Both
+`decode_into` and `decode_document_into` enforce this restriction. Use a
+validation step (for example `validate::match<1>`) for a required value that
+must report a validation error, and Try for candidate selection. Field
+presence alone does not enable candidate selection.
+
+`decode::each` preserves matching results through array/object traversal;
+`decode::collect` accepts data values, including bool, but rejects matching
+results. A bool returned by `decode::custom` is data; use `match::predicate`
+when that bool is intended to control candidate selection. Elem decoder
+terminals must be void (ordinary decoding) or MatchResult (candidate decoding).
 
 `encode::value` is a terminal encoder for semantic storage values. It uses
 `ext::EncodeValue<W>` and writer-specific scalar operations, while `Encoder`
@@ -608,3 +657,18 @@ The maintained HOSQ/Glaze/yyjson comparisons are in
 [`bench/comparison`](bench/comparison/README.md). Each case has its own source
 file and Google Benchmark executable; the HOSQ schema is visible in that case
 file.
+
+### Scalar codec boundary
+
+Common typed decoders request semantic values through
+`hosq::ext::DecodeSemanticScalar<R>`. A reader may implement
+`read_semantic(state, output)` or specialize the adapter without exposing its
+state layout. Numeric codecs produce `SemanticNumber` (signed/unsigned 64-bit
+integer or binary64); common pipelines then enforce the requested category,
+range and precision. Text, raw text, bool, null and bytes use the same boundary.
+A codec conversion failure must record a Reader error. Existing dedicated
+string/raw-text/binary hooks remain supported.
+
+JSON and TOML own their string-literal parsing helpers. Common encoders resolve
+borrowed RawText through those lightweight helpers without including a complete
+TOML reader. Decoding does not change ownership or extend borrowed input life.

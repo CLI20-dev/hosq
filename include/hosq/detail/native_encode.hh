@@ -19,6 +19,7 @@
 #include "hosq/extended_value_types.hh"
 #include "hosq/fwd.hh"
 #include "hosq/map.hh"
+#include "hosq/mapping_value.hh"
 #include "hosq/writer_base.hh"
 
 namespace hosq::detail {
@@ -206,6 +207,13 @@ auto encode_native_value(const T& value, W& writer) -> bool {
   } else if constexpr (std::same_as<V, BytesView>) {
     if constexpr (requires { writer.write_binary(value); })
       return writer.write_binary(value);
+  } else if constexpr (IsMappingValue<V>::value) {
+    if (!encode_token(writer, TokenType::ObjectBegin)) return false;
+    for (const auto& [key, item] : value.entries())
+      if (!encode_native_value(key, writer) ||
+          !encode_native_value(item, writer))
+        return false;
+    return encode_token(writer, TokenType::ObjectEnd);
   } else if constexpr (IsEncodeMap<V>::value) {
     if constexpr (std::ranges::sized_range<decltype(value.keys())> &&
                   std::ranges::sized_range<decltype(value.values())>) {

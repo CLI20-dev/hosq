@@ -10,9 +10,10 @@ template <hosq::detail::ElemT E>
 using Array = Elem<decode::array<E> | store::assign,
                    step<encode::detail::TypedArrayImpl<E>>>;
 
-/// A strict object/map with paired vectors. Decoding and encoding reject
-/// semantically equal duplicate keys; keys and values always remain paired.
-/// The concrete codec still controls representable key kinds and root shapes.
+/// A strict object/map stored as MappingValue key/value pairs. Both directions
+/// reject semantically equal duplicate keys; keys and values always remain
+/// paired. The concrete codec still controls representable key kinds and root
+/// shapes.
 template <hosq::detail::ElemT KeyElem, hosq::detail::ElemT ValueElem>
 using Mapping = Elem<decode::mapping<KeyElem, ValueElem> | store::assign,
                      step<encode::detail::TypedMappingImpl<KeyElem, ValueElem>>>;
@@ -32,7 +33,8 @@ using Object = Record<Schema>;
 
 /// Presence storage, not a nullable conversion: a present value must decode as
 /// E (including Null only when E accepts it). Empty optionals mean missing and
-/// fail encoding except in optional-presence members of Record/Object (and legacy Try<Entry>).
+/// fail encoding except in optional-presence members of Record/Object (and
+/// legacy Try<Entry>).
 template <hosq::detail::ElemT E>
 using Optional = Elem<decode::optional<E> | store::assign,
                       step<encode::detail::TypedOptionalImpl<E>>>;

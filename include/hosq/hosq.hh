@@ -2,8 +2,8 @@
 
 #include "hosq/bytes_view.hh"
 #include "hosq/context.hh"
-#include "hosq/decoder.hh"
 #include "hosq/decode_outcome.hh"
+#include "hosq/decoder.hh"
 #include "hosq/element.hh"
 #include "hosq/encoder.hh"
 #include "hosq/entry.hh"

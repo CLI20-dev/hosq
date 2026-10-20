@@ -62,7 +62,8 @@ struct User {
 };
 static_assert(std::same_as<t::Object<"user", User>, t::Record<"user", User>>);
 static_assert(std::same_as<t::Optional<"nickname", v::Text>,
-                           t::Field<"nickname", v::Optional<v::Text>, t::presence::Optional>>);
+                           t::Field<"nickname", v::Optional<v::Text>,
+                                    t::presence::Optional>>);
 
 static_assert(!hosq::detail::TryT<t::Optional<"nickname", v::Text>>);
 static_assert(hosq::detail::EntryT<t::Optional<"nickname", v::Text>>);
@@ -166,14 +167,18 @@ TEST(FieldPresence, RequiredOptionalStorageStillRequiresMember) {
     t::Field<"name", v::Optional<v::Text>> name;
   };
   v::Record<Schema> value;
-  EXPECT_EQ(hosq::decode_document_into<hosq::json::FastReader<>>(value, "{}").code,
-            hosq::ErrorCode::missing_required);
+  EXPECT_EQ(
+      hosq::decode_document_into<hosq::json::FastReader<>>(value, "{}").code,
+      hosq::ErrorCode::missing_required);
   ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
-      value, R"({"name":""})").is_ok());
+                  value, R"({"name":""})")
+                  .is_ok());
   ASSERT_TRUE(value.value().name.value().value());
   EXPECT_TRUE(value.value().name.value().value()->empty());
   EXPECT_EQ(hosq::decode_document_into<hosq::json::FastReader<>>(
-      value, R"({"name":null})").code, hosq::ErrorCode::type_mismatch);
+                value, R"({"name":null})")
+                .code,
+            hosq::ErrorCode::type_mismatch);
 }
 
 TEST(FieldPresence, OptionalPolicyDoesNotMakeNullImplicit) {
@@ -181,9 +186,35 @@ TEST(FieldPresence, OptionalPolicyDoesNotMakeNullImplicit) {
     t::Field<"nil", v::Optional<v::Null>, t::presence::Optional> nil;
   };
   v::Record<Schema> value;
-  ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(value, "{}").is_ok());
+  ASSERT_TRUE(
+      hosq::decode_document_into<hosq::json::FastReader<>>(value, "{}").is_ok());
   EXPECT_EQ(encode<hosq::json::CompactWriter<>>(value), "{}");
   ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
-      value, R"({"nil":null})").is_ok());
+                  value, R"({"nil":null})")
+                  .is_ok());
   EXPECT_EQ(encode<hosq::json::CompactWriter<>>(value), R"({"nil":null})");
 }
+
+namespace {
+struct NonOptionalStorage {
+  auto has_value() const -> bool { return false; }
+};
+struct ProduceNonOptional {
+  template <class Context>
+  auto operator()(const Context&) const -> NonOptionalStorage {
+    return {};
+  }
+};
+struct EncodeNonOptional {
+  auto operator()(const NonOptionalStorage&) const -> int { return 42; }
+};
+TEST(FieldPresence, LegacyTryDoesNotOmitNonOptionalCustomStorage) {
+  using Custom = hosq::Elem<hosq::step<ProduceNonOptional> | hosq::store::assign,
+                            hosq::step<EncodeNonOptional> | hosq::encode::value>;
+  struct Schema {
+    hosq::Try<t::Field<"custom", Custom>> custom;
+  };
+  v::Record<Schema> value;
+  EXPECT_EQ(encode<hosq::json::CompactWriter<>>(value), R"({"custom":42})");
+}
+}  // namespace

@@ -11,8 +11,9 @@ namespace hosq {
 ///
 /// Each key and value is stored in one pair, so insertion, removal, and
 /// reordering cannot leave unequal key/value counts. Keys need not be hashable
-/// or comparable. Duplicate keys are retained; codecs validate them using
-/// their key semantics. Unlike Map, this is a high-level value container.
+/// or comparable. Duplicate keys are retained; typed mapping pipelines validate
+/// them using semantic key equality. Unlike Map, this is a high-level value
+/// container.
 template <class K, class V>
 class MappingValue {
  public:

@@ -308,24 +308,34 @@ TEST(TypeContainers, ReaderOnlyNestedElementsCannotDisappearDuringEncoding) {
   (void)write<msgpack::Writer<>>(record, &error);
   EXPECT_EQ(error.code, EC::unsupported_type);
 }
-TEST(TypeContainers, RejectedCandidatesCannotBecomeDefaultValues) {
-  using One = Elem<scan::scalar | decode::integer<int> | match::literal<1> |
+TEST(TypeContainers, ValidationFailuresCannotBecomeDefaultValues) {
+  using One = Elem<scan::scalar | decode::integer<int> | validate::match<1> |
                        store::assign,
                    encode::value>;
   t::Array<One> array;
   EXPECT_TRUE(read<json::SimpleReader>(array, "[1,1]").is_ok());
   EXPECT_EQ(array.value(), (std::vector<int>{1, 1}));
-  EXPECT_EQ(read<json::SimpleReader>(array, "[1,2]").code,
-            EC::candidate_rejected);
+  EXPECT_EQ(read<json::SimpleReader>(array, "[1,2]").code, EC::invalid_choice);
   t::Mapping<t::Text, One> map;
   EXPECT_EQ(read<json::SimpleReader>(map, R"({"x":2})").code,
-            EC::candidate_rejected);
+            EC::invalid_choice);
   struct S {
     Try<Entry<Key<"x">, One>> x;
   };
   t::Record<S> record;
   EXPECT_TRUE(read<json::SimpleReader>(record, "{}").is_ok());
   EXPECT_EQ(read<json::SimpleReader>(record, R"({"x":2})").code,
-            EC::candidate_rejected);
+            EC::invalid_choice);
 }
+TEST(TypeContainers, MappingStorageSupportsValueEncoderAcrossFormats) {
+  using Custom =
+      Elem<decode::mapping<t::Text, t::Int64> | store::assign, encode::value>;
+  Custom root;
+  ASSERT_TRUE(read<json::SimpleReader>(root, R"({"x":42,"y":43})").is_ok());
+  Custom round;
+  ASSERT_TRUE(
+      read<msgpack::Reader<>>(round, write<msgpack::Writer<>>(root)).is_ok());
+  EXPECT_EQ(write<json::CompactWriter<>>(round), R"({"x":42,"y":43})");
+}
+
 }  // namespace

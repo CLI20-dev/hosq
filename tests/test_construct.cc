@@ -16,24 +16,29 @@ struct DispatchContext {
   auto value() const -> int& { return output; }
 };
 struct PriorityInput {
-  auto operator()(int input, DispatchContext& ctx) const
-      -> hosq::MatchResult<int> {
+  auto operator()(int input, DispatchContext& ctx) const -> bool {
     ++ctx.calls;
-    return {input > 0, input + 1};
+    return input > 0;
   }
-  auto operator()(int input, const DispatchContext& ctx) const
-      -> hosq::MatchResult<int> {
+  auto operator()(int input, const DispatchContext& ctx) const -> bool {
     ++ctx.calls;
-    return {input > 0, input + 2};
+    return input > 0;
+  }
+  auto operator()(int) const -> bool { return false; }
+};
+struct PriorityAdjust {
+  auto operator()(int input, DispatchContext&) const -> int { return input + 1; }
+  auto operator()(int input, const DispatchContext&) const -> int {
+    return input + 2;
   }
   auto operator()(int) const -> int { return -10; }
 };
 struct PrioritySource {
-  auto operator()(const DispatchContext& ctx) const -> hosq::MatchResult<int> {
+  auto operator()(const DispatchContext& ctx) const -> bool {
     ++ctx.calls;
-    return {true, 10};
+    return true;
   }
-  auto operator()() const -> int { return -20; }
+  auto operator()() const -> bool { return false; }
 };
 inline unsigned adaptations = 0;
 struct OrdinaryConstruct {
@@ -199,35 +204,43 @@ TEST(Construct, JsonStringsRetainRawEscapeSemanticsAndOwnedStorage) {
   }
 }
 TEST(Pipeline, SharedContinuationKeepsContextPriorityAndMismatchShortCircuit) {
-  constexpr auto input = step<construct_test::PriorityInput> | store::assign;
+  constexpr auto input = match::predicate<construct_test::PriorityInput{}> |
+                         step<construct_test::PriorityAdjust> | store::assign;
   construct_test::DispatchContext ctx;
-  EXPECT_FALSE(input.invoke(0, ctx));
+  static_assert(std::same_as<decltype(input.invoke(0, ctx)), MatchResult<void>>);
+  EXPECT_FALSE(input.invoke(0, ctx).matched());
   EXPECT_EQ(ctx.output, -1);
   EXPECT_EQ(ctx.calls, 1);
-  EXPECT_TRUE(input.invoke(3, ctx));
+  EXPECT_TRUE(input.invoke(3, ctx).matched());
   EXPECT_EQ(ctx.output, 4);
-  EXPECT_TRUE(input.invoke(3, std::as_const(ctx)));
+  EXPECT_TRUE(input.invoke(3, std::as_const(ctx)).matched());
   EXPECT_EQ(ctx.output, 5);
   EXPECT_EQ(ctx.calls, 3);
 
-  constexpr auto source = step<construct_test::PrioritySource> | store::assign;
-  EXPECT_TRUE(source.invoke(std::as_const(ctx)));
+  constexpr auto source = match::predicate<construct_test::PrioritySource{}> |
+                          step<decltype([] { return 10; })> | store::assign;
+  EXPECT_TRUE(source.invoke(std::as_const(ctx)).matched());
   EXPECT_EQ(ctx.output, 10);
   EXPECT_EQ(ctx.calls, 4);
   constexpr auto reset =
       step<decltype([](const construct_test::DispatchContext& c) {
         c.output = -1;
       })>;
-  EXPECT_TRUE((reset | source).invoke(ctx));
+  EXPECT_TRUE((reset | source).invoke(ctx).matched());
   EXPECT_EQ(ctx.output, 10);
   EXPECT_EQ(ctx.calls, 5);
 
   // No-context MatchResult and plain/void terminals use the same continuation.
-  constexpr auto match = step<decltype([](int value) {
-    return MatchResult<int>{value > 0, value};
-  })>;
-  EXPECT_FALSE(match.invoke(0, ctx));
-  EXPECT_TRUE((match | store::assign).invoke(7, ctx));
+  constexpr auto candidate =
+      match::predicate<[](int value) { return value > 0; }>;
+  static_assert(
+      std::same_as<decltype(candidate.invoke(0, ctx)), MatchResult<int>>);
+  const auto rejected = candidate.invoke(0, ctx);
+  EXPECT_FALSE(rejected.matched());
+  const auto accepted = candidate.invoke(7, ctx);
+  ASSERT_TRUE(accepted.matched());
+  EXPECT_EQ(accepted.value(), 7);
+  EXPECT_TRUE((candidate | store::assign).invoke(7, ctx).matched());
   EXPECT_EQ(ctx.output, 7);
   constexpr auto number = step<decltype([] { return 42; })>;
   EXPECT_EQ(number.invoke(ctx), 42);

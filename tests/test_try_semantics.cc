@@ -22,22 +22,18 @@ namespace v = hosq::types::value;
 using EC = ErrorCode;
 
 struct Odd {
-  auto operator()(int value) const -> MatchResult<int> {
-    return {value % 2 != 0, value};
-  }
+  auto operator()(int value) const -> bool { return value % 2 != 0; }
 };
 struct Even {
-  auto operator()(int value) const -> MatchResult<int> {
-    return {value % 2 == 0, value};
-  }
+  auto operator()(int value) const -> bool { return value % 2 == 0; }
 };
 struct Accept {
-  auto operator()(int value) const -> MatchResult<int> { return {true, value}; }
+  auto operator()(int) const -> bool { return true; }
 };
 template <class Predicate>
-using Candidate =
-    Elem<scan::scalar | decode::number<int> | step<Predicate> | store::assign,
-         encode::value>;
+using Candidate = Elem<scan::scalar | decode::number<int> |
+                           match::predicate<Predicate{}> | store::assign,
+                       encode::value>;
 
 template <class W = json::CompactWriter<>, class T>
 auto write_try(const T& value) -> std::string {
@@ -149,7 +145,7 @@ struct RejectAfterStore {
 };
 template <bool Hard, bool Consume = true>
 using Rejecting = Elem<scan::scalar | decode::number<int> | store::assign |
-                           step<RejectAfterStore<Hard, Consume>>,
+                           match::predicate<RejectAfterStore<Hard, Consume>{}>,
                        encode::value>;
 
 TEST(TrySemantics, FailedMutableBoolCandidatePreservesStorageButRestoresCursor) {
@@ -313,9 +309,9 @@ struct LaterTerminal {
   }
 };
 template <class Terminal>
-using ObservedNumber =
-    Elem<scan::scalar | decode::number<int> | store::assign | step<Terminal>,
-         encode::value>;
+using ObservedNumber = Elem<scan::scalar | decode::number<int> | store::assign |
+                                match::predicate<Terminal{}>,
+                            encode::value>;
 using LaterNumber = ObservedNumber<LaterTerminal>;
 
 void expect_original_terminal_error(const Error& error) {
@@ -351,7 +347,8 @@ TEST(TrySemantics, ArrayHardFalseAndTrueStopAllLaterCandidates) {
 
 template <class R, bool Matched>
 void check_const_array_hard_terminal() {
-  using ConstCandidate = Elem<step<ConstHardTerminal<Matched>>, noop_encoder>;
+  using ConstCandidate =
+      Elem<match::predicate<ConstHardTerminal<Matched>{}>, noop_encoder>;
   static_assert(ConstCandidate::template decoder_const_invokable<DecodeContext<
                     typename ConstCandidate::storage_type, R, TryPhase::first>>);
   struct Values {
@@ -397,7 +394,7 @@ TEST(TrySemantics, NamedHardFalseAndTrueStopCatchall) {
 template <class R, bool Matched, bool KeyError>
 void check_dynamic_hard_terminal() {
   using HardKey = Elem<scan::scalar | decode::string_view | store::assign |
-                           step<HardTerminal<Matched>>,
+                           match::predicate<HardTerminal<Matched>{}>,
                        encode::value>;
   using FirstKey = std::conditional_t<KeyError, HardKey, DynamicKey>;
   using FirstValue = std::conditional_t<KeyError, LaterNumber,
@@ -480,7 +477,7 @@ struct SoftRejectTerminal {
 template <class R, bool RejectKey>
 void check_dynamic_soft_fallback() {
   using SoftKey = Elem<scan::scalar | decode::string_view | store::assign |
-                           step<SoftRejectTerminal>,
+                           match::predicate<SoftRejectTerminal{}>,
                        encode::value>;
   using FirstKey = std::conditional_t<RejectKey, SoftKey, DynamicKey>;
   using FirstValue =
@@ -508,7 +505,7 @@ TEST(TrySemantics, DynamicSoftKeyAndValueRejectionRestoreKeyForFallback) {
 template <class R>
 void check_string_soft_fallback() {
   using RejectedText = Elem<scan::scalar | decode::text | store::assign |
-                                step<SoftRejectTerminal>,
+                                match::predicate<SoftRejectTerminal{}>,
                             encode::value>;
   using AcceptedText =
       Elem<scan::scalar | decode::text | store::assign, encode::value>;

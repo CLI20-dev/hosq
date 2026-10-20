@@ -2,12 +2,13 @@
 
 #include <concepts>
 
+#include "hosq/detail/type_traits.hh"
 #include "hosq/error.hh"
 
 namespace hosq {
 
 /// Candidate rejection is distinct from a malformed/unrepresentable value.
-/// Reader errors take precedence over a pipeline's bool terminal.
+/// Reader errors take precedence over a candidate's MatchResult terminal.
 enum class DecodeStatus { matched, no_match, error };
 
 struct DecodeOutcome {
@@ -29,28 +30,26 @@ auto invoke_decode(Element& element, Context& ctx) -> DecodeOutcome {
   auto& state = ctx.reader_state();
   if (const auto error = reader.error(state); error)
     return {DecodeStatus::error, error};
+  static_assert(std::same_as<decltype(element.decode(ctx)), void> ||
+                    MatchResultT<decltype(element.decode(ctx))>,
+                "decoder terminals must be void or MatchResult; bool is data");
   bool matched = true;
-  if constexpr (std::same_as<decltype(element.decode(ctx)), bool>)
-    matched = element.decode(ctx);
+  if constexpr (MatchResultT<decltype(element.decode(ctx))>)
+    matched = element.decode(ctx).matched();
   else
     element.decode(ctx);
   if (const auto error = reader.error(state); error)
     return {DecodeStatus::error, error};
-  return {matched ? DecodeStatus::matched : DecodeStatus::no_match,
-          Error::ok()};
+  return {matched ? DecodeStatus::matched : DecodeStatus::no_match, Error::ok()};
 }
 
-/// At a position requiring one value, an exhausted candidate is an error.
-/// Candidate dispatch itself consumes no_match and tries the next candidate.
-template <class Reader, class State>
-auto require_decode_match(const DecodeOutcome& outcome, Reader& reader,
-                          State& state) -> Error {
-  if (outcome.status == DecodeStatus::no_match)
-    reader.report_error(
-        state, Error{ErrorCode::candidate_rejected,
-                     reader.current_token(state).offset,
-                     "no decoder candidate accepted value"});
-  return reader.error(state);
+/// Ordinary execution cannot erase the matching effect, even when a concrete
+/// reader/context changes a pipeline's terminal from its analysis result.
+template <class Element, class Context>
+auto invoke_required_decode(Element& element, Context& ctx) -> DecodeOutcome {
+  static_assert(std::same_as<decltype(element.decode(ctx)), void>,
+                "matching pipelines require Try candidate dispatch");
+  return invoke_decode(element, ctx);
 }
 
 }  // namespace detail
