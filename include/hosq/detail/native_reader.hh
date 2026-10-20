@@ -130,6 +130,19 @@ struct NativeReaderAccess {
     report_error(s, {ErrorCode::type_mismatch, s.token.offset, "expected null"});
     return false;
   }
+  auto read_string_source(const state_type& s, std::string_view& output) const
+      -> bool {
+    output = {};
+    if (s.failure) return false;
+    if (s.token.type != TokenType::Scalar ||
+        s.token.context != static_cast<std::uint8_t>(NativeContext::string)) {
+      report_error(
+          s, {ErrorCode::type_mismatch, s.token.offset, "expected string"});
+      return false;
+    }
+    output = s.input.substr(s.token.offset, s.token.length);
+    return true;
+  }
   auto read_string(const state_type& s, std::string& output) const -> bool {
     output.clear();
     if (s.failure) return false;

@@ -84,7 +84,14 @@ class OpaqueReader {
   auto read_semantic(const state_type&, std::nullptr_t&) const -> bool {
     return true;
   }
-  auto read_semantic(const state_type& state, std::string& value) const -> bool {
+  auto read_string_source(const state_type& state, std::string_view& value) const
+      -> bool {
+    if (state.cursor_.type != TokenType::Scalar ||
+        state.cursor_.context != 217) {
+      report_error(state, {ErrorCode::type_mismatch, state.cursor_.offset,
+                           "opaque reader expected a string source"});
+      return false;
+    }
     value = state.payload_;
     return true;
   }
@@ -104,7 +111,7 @@ TEST(ScalarCodecBoundary, PrivateReaderStateProvidesAllCommonScalars) {
   EXPECT_TRUE(boolean.value());
   types::value::Null null;
   EXPECT_TRUE(decode_into<OpaqueReader>(null, "nothing").is_ok());
-  types::value::Text text;
+  types::value::String text;
   const std::string source = "opaque\n日";
   ASSERT_TRUE(decode_into<OpaqueReader>(text, source).is_ok());
   EXPECT_EQ(text.value(), source);
@@ -159,19 +166,19 @@ struct TextDocument {
 
 template <class SourceReader, class SourceWriter>
 void check_text_round_trips() {
-  TextDocument<types::value::Text> original;
+  TextDocument<types::value::String> original;
   original.value.value().value() = "a\n日\\z";
   std::string source;
   SourceWriter source_writer(source);
   ASSERT_TRUE(encode_into(original, source_writer));
-  TextDocument<types::value::Text> text;
+  TextDocument<types::value::String> text;
   ASSERT_TRUE(decode_into<SourceReader>(text, source).is_ok());
   EXPECT_EQ(text.value.value().value(), original.value.value().value());
   auto destination = [&]<class Reader, class Writer>() {
     std::string output;
     Writer writer(output);
     ASSERT_TRUE(encode_into(text, writer)) << writer.error().detail;
-    TextDocument<types::value::Text> decoded;
+    TextDocument<types::value::String> decoded;
     ASSERT_TRUE(decode_into<Reader>(decoded, output).is_ok());
     EXPECT_EQ(decoded.value.value().value(), original.value.value().value());
   };

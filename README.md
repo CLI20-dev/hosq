@@ -36,7 +36,7 @@ namespace v = hosq::types::value;
 
 struct User {
   t::Uint64<"id"> id;
-  t::Text<"name"> name;
+  t::String<"name"> name;
 };
 
 int main() {
@@ -49,7 +49,7 @@ int main() {
 }
 ```
 
-`Text` owns the decoded string and resolves escapes. `Uint64` checks the
+`String` owns the decoded string and resolves escapes. `Uint64` checks the
 integer category and range; it does not accept `42.0` or `"42"` as an integer.
 The outer `.value()` accesses the record, then the entry, then its stored value.
 
@@ -57,7 +57,7 @@ The outer `.value()` accesses the record, then the entry, then its stored value.
 
 Named aliases take the key first; their element arguments come from `v`.
 Compose them for nested records, arrays, and dynamic maps.
-`t::Optional<"nickname", v::Text>` combines an explicit field-presence policy with
+`t::Optional<"nickname", v::String>` combines an explicit field-presence policy with
 optional storage so absence can be observed.
 
 ```cpp
@@ -69,13 +69,13 @@ namespace t = hosq::types;
 namespace v = hosq::types::value;
 
 struct Address {
-  t::Text<"city"> city;
+  t::String<"city"> city;
 };
 struct Profile {
   t::Record<"address", Address> address;
-  t::Array<"tags", v::Text> tags;
-  t::Mapping<"scores", v::Text, v::Int64> scores;
-  t::Optional<"nickname", v::Text> nickname;
+  t::Array<"tags", v::String> tags;
+  t::Mapping<"scores", v::String, v::Int64> scores;
+  t::Optional<"nickname", v::String> nickname;
 };
 
 int main() {
@@ -114,7 +114,7 @@ representation and rejects values that its format cannot represent.
 | `Int8/16/32/64`, `Uint8/16/32/64` | Fixed-width signed and unsigned integers |
 | `Float<T = double>`, `Float32`, `Float64` | Floating-point input, with checked range and narrowing |
 | `Bool`, `Null` | `bool`, `std::nullptr_t`; strict scalar categories |
-| `Text` | Owned `std::string`, with escapes resolved |
+| `String` | Owned `std::string`, with escapes resolved |
 | `Bytes` | Owned `BytesValue` payload and BSON binary subtype |
 | `Array<E>` | `std::vector<E::storage_type>` |
 | `Mapping<K, V>` | `hosq::MappingValue<K::storage_type, V::storage_type>` with paired entries |
@@ -130,7 +130,7 @@ representation and rejects values that its format cannot represent.
 
 Use `v::Record<User>` or `v::Array<v::Uint64>` for root values. Named fields
 are in `t = hosq::types`; every scalar and extended alias above has a
-key-first counterpart, such as `t::Uint64<"id">`, `t::Text<"name">`, and
+key-first counterpart, such as `t::Uint64<"id">`, `t::String<"name">`, and
 `t::Instant<"created_at">`. Generic numeric fields are `t::Int<"n", T>`,
 `t::Uint<"n", T>`, and `t::Float<"n", T>`, with the same default storage types
 as their unkeyed counterparts.
@@ -138,9 +138,9 @@ as their unkeyed counterparts.
 | Named alias | Meaning |
 | --- | --- |
 | `t::Array<"ids", v::Uint64>` | A named array |
-| `t::Mapping<"scores", v::Text, v::Int64>` | A named dynamic map |
+| `t::Mapping<"scores", v::String, v::Int64>` | A named dynamic map |
 | `t::Record<"user", User>`, `t::Object<"user", User>` | Synonyms for a named fixed object |
-| `t::Optional<"nickname", v::Text>` | `t::Field<"nickname", v::Optional<v::Text>, t::presence::Optional>` |
+| `t::Optional<"nickname", v::String>` | `t::Field<"nickname", v::Optional<v::String>, t::presence::Optional>` |
 | `t::Field<"n", E>` | Exactly `hosq::Entry<hosq::Key<"n">, E>` |
 
 `t::Try` is a using declaration for the existing `hosq::Try` dispatch marker;
@@ -162,8 +162,36 @@ silently rounding it. NaN payload bits are not preserved. Decimal text is
 rounded to binary64 during parsing, so this is not an arbitrary precision
 decimal codec.
 
-`Text` resolves JSON Unicode escapes and surrogate pairs and TOML string
-escapes before storage; encoding escapes the semantic text once.
+`String` is an alias for an ordinary `Elem` pipeline with `std::string`
+storage. Its convenience behavior comes from independently composable steps:
+
+```cpp
+using String = hosq::Elem<
+    hosq::scan::scalar
+    | hosq::decode::string_source
+    | hosq::construct<std::string>
+    | hosq::decode::json_unescape
+    | hosq::decode::toml_unescape
+    | hosq::validate::utf8
+    | hosq::store::assign,
+    hosq::encode::value>;
+```
+
+`decode::string_source` checks the string category and returns a borrowed
+`std::string_view`: a JSON string body, a complete quoted TOML literal (or a
+bare key), or a BSON/MessagePack string payload. The input must remain alive and
+unchanged while that view is used. `construct<std::string>` makes an owned copy;
+it performs no unescaping or character encoding conversion.
+
+`decode::json_unescape` resolves JSON escapes and UTF-16 surrogate pairs only
+for JSON Readers; it passes strings through unchanged for other Readers.
+`decode::toml_unescape` independently handles TOML quotation, escapes, multiline
+newlines and continuations, and is a no-op for other Readers. Each conversion
+processes its pipeline input. `validate::utf8` is a separate validation step.
+To retain source bytes, omit those conversions and validation; to borrow them,
+also omit `construct<std::string>`. Storage types themselves do not perform
+these transformations. `encode::value` escapes stored string content once for
+the destination format.
 
 `Mapping` rejects duplicate decoded keys. Its `MappingValue` storage owns an
 ordered `std::vector<std::pair<K, V>>`: use `entries()` to inspect, erase or
@@ -283,7 +311,7 @@ namespace v = hosq::types::value;
 
 struct User {
   t::Uint64<"id"> id;
-  t::Text<"name"> name;
+  t::String<"name"> name;
 };
 
 int main() {
@@ -382,11 +410,11 @@ API as the JSON readers:
 For example, replace `json::FastReader<>` in `decode_document_into` with
 `msgpack::Reader<>` to decode a MessagePack object into the same schema.
 The optional template argument limits container depth (default: 64).
-`v::Text` and `v::Bytes` own their data. Borrowed `string_view` values require
+`v::String` and `v::Bytes` own their data. Borrowed `string_view` values require
 the input to stay alive and unchanged.
 `construct<std::string>` also provides owned string storage. As with the existing
 JSON readers, the legacy `decode::string_view` exposes raw input without
-resolving escapes; use `v::Text` for owned semantic text.
+resolving escapes; use `v::String` for owned semantic text.
 
 MessagePack supports all integer widths, IEEE floats, booleans, nil, strings,
 arrays, maps (including non-string and container keys), binary payloads, and
@@ -658,7 +686,10 @@ Common typed decoders request semantic values through
 `read_semantic(state, output)` or specialize the adapter without exposing its
 state layout. Numeric codecs produce `SemanticNumber` (signed/unsigned 64-bit
 integer or binary64); common pipelines then enforce the requested category,
-range and precision. Text, bool, null and bytes use the same boundary.
+range and precision. Bool, null and bytes use the same boundary. String source
+extraction uses `ext::DecodeStringSource<R>` (or the Reader hook
+`read_string_source(state, std::string_view&)`); explicit string conversions use
+format-owned adapters independently of scalar interpretation.
 A codec conversion failure must record a Reader error. Existing dedicated
 string/binary hooks remain supported.
 

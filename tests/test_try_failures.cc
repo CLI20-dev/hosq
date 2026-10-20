@@ -119,12 +119,12 @@ TEST(TryFailures, LossyFloatNarrowingDoesNotFallThroughToFloat64) {
 template <class R, class W>
 void check_text_is_not_numeric_fallback() {
   struct Input {
-    types::Text<"n"> text;
+    types::String<"n"> text;
   } input;
   input.text.value().value() = "42";
   struct Value {
     Try<types::Int8<"n">> integer;
-    Try<Entry<AnyKey, v::Text>> text;
+    Try<Entry<AnyKey, v::String>> text;
   } value;
   value.text.value().value() = "unchanged";
   const auto error = decode_into<R>(value, wire<W>(input));

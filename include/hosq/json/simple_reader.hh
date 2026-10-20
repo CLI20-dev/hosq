@@ -646,3 +646,12 @@ template <>
 struct DecodeSemanticScalar<json::SimpleReader>
     : json::detail::SemanticScalarCodec {};
 }  // namespace hosq::ext
+
+namespace hosq::ext {
+template <>
+struct DecodeStringSource<json::SimpleReader> : json::detail::StringSourceCodec {
+};
+template <>
+struct UnescapeString<json::SimpleReader, Format::json>
+    : json::detail::UnescapeStringCodec {};
+}  // namespace hosq::ext

@@ -89,7 +89,7 @@ TEST(TomlSemantic, NativeCategoriesDoNotImplicitlyConvert) {
     EXPECT_EQ(decode_temporal(offset, forms[i]).is_ok(), i == 3);
     TemporalDocument<types::value::Instant> instant;
     EXPECT_EQ(decode_temporal(instant, forms[i]).is_ok(), i == 3);
-    TemporalDocument<types::value::Text> text;
+    TemporalDocument<types::value::String> text;
     EXPECT_EQ(decode_temporal(text, forms[i]).code, ErrorCode::type_mismatch);
   }
 }
@@ -109,7 +109,7 @@ TEST(TomlSemantic, QuotedDateTimesRemainText) {
             ErrorCode::type_mismatch);
   EXPECT_EQ(decode_temporal(instant, "\"1979-05-27T07:32:00Z\"").code,
             ErrorCode::type_mismatch);
-  TemporalDocument<types::value::Text> text;
+  TemporalDocument<types::value::String> text;
   ASSERT_TRUE(decode_temporal(text, "\"1979-05-27T07:32:00Z\"").is_ok());
   EXPECT_EQ(text.value.value().value(), "1979-05-27T07:32:00Z");
 }

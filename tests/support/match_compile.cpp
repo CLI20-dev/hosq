@@ -39,7 +39,8 @@ using ReaderSpecificValue = Elem<scan::scalar | decode::integer<int> |
 inline constexpr auto integer_match =
     scan::scalar | decode::integer<int> | match::literal<1>;
 inline constexpr auto text_match =
-    scan::scalar | decode::text |
+    scan::scalar | decode::string_source | construct<std::string> |
+    decode::json_unescape | decode::toml_unescape | validate::utf8 |
     match::predicate<[](const std::string& s) { return s == "n"; }>;
 using Candidate = Elem<integer_match | store::assign, encode::value>;
 using KeyCandidate = Elem<text_match | store::assign, encode::value>;
@@ -91,7 +92,7 @@ int main() {
   v::Mapping<KeyCandidate, v::Int64> value;
   (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 11
-  v::Mapping<v::Text, Candidate> value;
+  v::Mapping<v::String, Candidate> value;
   (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 12
   struct Schema {
@@ -121,11 +122,14 @@ int main() {
   E value;
   (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 17
-  using E =
-      Elem<scan::object |
-               decode::collect<scan::scalar | decode::text, integer_match> |
-               store::assign,
-           noop_encoder>;
+  using E = Elem<
+      scan::object |
+          decode::collect<scan::scalar | decode::string_source |
+                              construct<std::string> | decode::json_unescape |
+                              decode::toml_unescape | validate::utf8,
+                          integer_match> |
+          store::assign,
+      noop_encoder>;
   E value;
   (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 18
@@ -137,11 +141,14 @@ int main() {
   E value;
   (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 19
-  using E =
-      Elem<scan::object |
-               decode::collect<scan::scalar | decode::text, integer_match, 1> |
-               store::assign,
-           noop_encoder>;
+  using E = Elem<
+      scan::object |
+          decode::collect<scan::scalar | decode::string_source |
+                              construct<std::string> | decode::json_unescape |
+                              decode::toml_unescape | validate::utf8,
+                          integer_match, 1> |
+          store::assign,
+      noop_encoder>;
   E value;
   (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 20
@@ -205,10 +212,14 @@ int main() {
   E value;
   (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 32
-  using E = Elem<scan::object |
-                     decode::each<scan::scalar | decode::text | store::assign,
-                                  integer_match | store::assign>,
-                 noop_encoder>;
+  using E =
+      Elem<scan::object |
+               decode::each<scan::scalar | decode::string_source |
+                                construct<std::string> | decode::json_unescape |
+                                decode::toml_unescape | validate::utf8 |
+                                store::assign,
+                            integer_match | store::assign>,
+           noop_encoder>;
   E value;
   (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 33

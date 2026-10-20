@@ -7,6 +7,7 @@
 #include "hosq/detail/native_reader.hh"
 #include "hosq/detail/temporal.hh"
 #include "hosq/meta_match.hh"
+#include "hosq/pipeline/string.hh"
 #include "hosq/toml/string_codec.hh"
 
 namespace hosq::toml {
@@ -125,6 +126,33 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     s.token = node.token;
     if (e.type == TokenType::ObjectEnd || e.type == TokenType::ArrayEnd)
       s.token = {node.end, 0, e.type, 0};
+    return true;
+  }
+  // Preserve the quote kind and multiline syntax for an explicit conversion.
+  auto read_string_source(const state_type& s, std::string_view& output) const
+      -> bool {
+    output = {};
+    if (s.failure) return false;
+    if (s.current == absent || s.token.type != TokenType::Scalar ||
+        s.token.context !=
+            static_cast<std::uint8_t>(detail::NativeContext::string)) {
+      report_error(
+          s, {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
+      return false;
+    }
+    const auto& node = s.nodes[s.current];
+    const auto start = node.source;
+    if (!node.children.empty() && s.input[start] != '"' &&
+        s.input[start] != '\'') {
+      output = s.input.substr(s.token.offset, s.token.length);
+      return true;
+    }
+    string_codec::Cursor cursor{s.input, start};
+    if (!string_codec::parse(cursor)) {
+      report_error(s, cursor.failure);
+      return false;
+    }
+    output = s.input.substr(start, cursor.pos - start);
     return true;
   }
   // Owned semantic strings resolve escapes and multiline continuations. The
@@ -717,3 +745,27 @@ struct DecodeStringView<toml::Reader<N>> : detail::NativeDecodeStringView {};
 }  // namespace ext
 static_assert(ReaderConcept<toml::Reader<>>);
 }  // namespace hosq
+
+namespace hosq::ext {
+template <std::size_t Depth>
+struct UnescapeString<toml::Reader<Depth>, Format::toml> {
+  template <class Context>
+  auto operator()(std::string input, const Context& ctx) const -> std::string {
+    // Bare keys already consist of their semantic bytes.
+    if (input.empty() || (input.front() != '"' && input.front() != '\''))
+      return input;
+    std::string output;
+    toml::string_codec::Cursor cursor{input};
+    if (!toml::string_codec::parse(cursor, &output) ||
+        cursor.pos != input.size()) {
+      ctx.reader().report_error(
+          ctx.reader_state(),
+          {ErrorCode::invalid_escape,
+           ctx.reader().current_token(ctx.reader_state()).offset,
+           "invalid TOML string representation"});
+      return {};
+    }
+    return output;
+  }
+};
+}  // namespace hosq::ext

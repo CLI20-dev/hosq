@@ -27,7 +27,7 @@ auto wire(const T& value) -> std::string {
 
 struct LegacyPresence {
   t::Try<t::Uint64<"id">> id;
-  t::Optional<"nickname", v::Text> nickname;
+  t::Optional<"nickname", v::String> nickname;
   t::Try<t::Null<"nil">> nil;
 };
 
@@ -48,7 +48,7 @@ void check_legacy_presence() {
   EXPECT_EQ(invalid_writer.error().code, ErrorCode::invalid_object_state);
 
   struct Present {
-    t::Text<"nickname"> nickname;
+    t::String<"nickname"> nickname;
   } present;
   present.nickname.value().value() = "a\nb";
   auto present_wire = wire<W>(present);
@@ -107,7 +107,7 @@ TEST(TryPresence, LegacyMissingStorageAndExplicitNullRemainDifferent) {
 
 struct Row {
   t::Uint8<"id"> id;
-  t::Optional<"nickname", v::Text> nickname;
+  t::Optional<"nickname", v::String> nickname;
   t::Null<"nil"> nil;
 };
 struct NestedRows {

@@ -2,6 +2,7 @@
 #include <cstddef>
 
 #include "hosq/detail/native_encode.hh"
+#include "hosq/pipeline/string.hh"
 #include "hosq/pipeline/typed_decode.hh"
 #include "hosq/value_types.hh"
 

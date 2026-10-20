@@ -77,7 +77,7 @@ template <class R>
 void check_typed_int_claims() {
   struct Values {
     types::Try<v::Int64> number;
-    types::Try<v::Text> text;
+    types::Try<v::String> text;
   } value;
   value.text.value() = "unchanged";
   ASSERT_TRUE(decode_into<R>(value, "[1,2]").is_ok());
@@ -101,7 +101,7 @@ TEST(TrySemantics, TypedVoidIntegerClaimsElementAndStopsOnFailure) {
 template <class R>
 void check_typed_text_claims() {
   struct Values {
-    types::Try<v::Text> text;
+    types::Try<v::String> text;
     types::Try<v::Int64> number;
   } value;
   value.number.value() = 17;
@@ -119,7 +119,7 @@ TEST(TrySemantics, TypedVoidTextClaimsElementAndStopsOnFailure) {
 TEST(TrySemantics, TypedContainerClaimsNestedArrayAndRetainsItsError) {
   struct Values {
     types::Try<v::Array<v::Int64>> numbers;
-    types::Try<v::Array<v::Text>> fallback;
+    types::Try<v::Array<v::String>> fallback;
   } value;
   value.fallback.value() = {"unchanged"};
   ASSERT_TRUE(decode_into<json::SimpleReader>(value, "[[1,2],[3]]").is_ok());
@@ -180,7 +180,7 @@ TEST(TrySemantics, FailedMutableBoolCandidatePreservesStickyReaderError) {
 
 struct NamedValues {
   types::Try<types::Int64<"id">> id;
-  types::Try<types::Text<"name">> name;
+  types::Try<types::String<"name">> name;
 };
 
 template <class W, class R>
@@ -196,7 +196,7 @@ void check_named_try() {
   EXPECT_EQ(decoded.name.value().value(), "value");
 
   struct WrongType {
-    types::Text<"id"> id;
+    types::String<"id"> id;
   } wrong;
   wrong.id.value().value() = "wrong";
   const auto invalid = write_try<W>(wrong);
@@ -504,11 +504,16 @@ TEST(TrySemantics, DynamicSoftKeyAndValueRejectionRestoreKeyForFallback) {
 
 template <class R>
 void check_string_soft_fallback() {
-  using RejectedText = Elem<scan::scalar | decode::text | store::assign |
-                                match::predicate<SoftRejectTerminal{}>,
-                            encode::value>;
+  using RejectedText =
+      Elem<scan::scalar | decode::string_source | construct<std::string> |
+               decode::json_unescape | decode::toml_unescape | validate::utf8 |
+               store::assign | match::predicate<SoftRejectTerminal{}>,
+           encode::value>;
   using AcceptedText =
-      Elem<scan::scalar | decode::text | store::assign, encode::value>;
+      Elem<scan::scalar | decode::string_source | construct<std::string> |
+               decode::json_unescape | decode::toml_unescape | validate::utf8 |
+               store::assign,
+           encode::value>;
   struct Values {
     types::Try<Entry<Key<"n">, RejectedText>> rejected;
     types::Try<Entry<DynamicKey, AcceptedText>> fallback;

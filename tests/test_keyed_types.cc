@@ -24,14 +24,14 @@ using Named =
     std::tuple<t::Int8<"k">, t::Int16<"k">, t::Int32<"k">, t::Int64<"k">,
                t::Uint8<"k">, t::Uint16<"k">, t::Uint32<"k">, t::Uint64<"k">,
                t::Float32<"k">, t::Float64<"k">, t::Bool<"k">, t::Null<"k">,
-               t::Text<"k">, t::Bytes<"k">, t::Instant<"k">,
+               t::String<"k">, t::Bytes<"k">, t::Instant<"k">,
                t::OffsetDateTime<"k">, t::LocalDateTime<"k">, t::LocalDate<"k">,
                t::LocalTime<"k">, t::Decimal128<"k">, t::ObjectId<"k">,
                t::BsonTimestamp<"k">, t::Extension<"k">>;
 using Values =
     std::tuple<v::Int8, v::Int16, v::Int32, v::Int64, v::Uint8, v::Uint16,
                v::Uint32, v::Uint64, v::Float32, v::Float64, v::Bool, v::Null,
-               v::Text, v::Bytes, v::Instant, v::OffsetDateTime,
+               v::String, v::Bytes, v::Instant, v::OffsetDateTime,
                v::LocalDateTime, v::LocalDate, v::LocalTime, v::Decimal128,
                v::ObjectId, v::BsonTimestamp, v::Extension>;
 static_assert([]<std::size_t... I>(std::index_sequence<I...>) {
@@ -51,26 +51,26 @@ static_assert(std::same_as<t::Try<t::Uint64<"id">>,
 static_assert(!hosq::detail::ElemT<t::Try<v::Uint64>>);
 
 struct Address {
-  t::Text<"city"> city;
+  t::String<"city"> city;
 };
 struct User {
   hosq::types::Uint64<"id"> id;
   t::Array<"ids", v::Uint64> ids;
   t::Record<"address", Address> address;
-  t::Mapping<"scores", v::Text, v::Int64> scores;
-  t::Optional<"nickname", v::Text> nickname;
+  t::Mapping<"scores", v::String, v::Int64> scores;
+  t::Optional<"nickname", v::String> nickname;
 };
 static_assert(std::same_as<t::Object<"user", User>, t::Record<"user", User>>);
-static_assert(std::same_as<t::Optional<"nickname", v::Text>,
-                           t::Field<"nickname", v::Optional<v::Text>,
+static_assert(std::same_as<t::Optional<"nickname", v::String>,
+                           t::Field<"nickname", v::Optional<v::String>,
                                     t::presence::Optional>>);
 
-static_assert(!hosq::detail::TryT<t::Optional<"nickname", v::Text>>);
-static_assert(hosq::detail::EntryT<t::Optional<"nickname", v::Text>>);
+static_assert(!hosq::detail::TryT<t::Optional<"nickname", v::String>>);
+static_assert(hosq::detail::EntryT<t::Optional<"nickname", v::String>>);
 static_assert(hosq::detail::RecordFieldPresence<
-              t::Optional<"nickname", v::Text>>::allows_missing);
+              t::Optional<"nickname", v::String>>::allows_missing);
 static_assert(!hosq::detail::RecordFieldPresence<
-              t::Field<"nickname", v::Optional<v::Text>>>::allows_missing);
+              t::Field<"nickname", v::Optional<v::String>>>::allows_missing);
 
 template <class Writer, class E>
 std::string encode(const E& value) {
@@ -106,7 +106,7 @@ TEST(KeyedTypes, NestedSchemaCrossesJsonMessagePackAndBson) {
 TEST(KeyedTypes, OptionalMissingEmptyAndNullKeepDifferentMeanings) {
   struct Schema {
     t::Null<"null"> null;
-    t::Optional<"nickname", v::Text> nickname;
+    t::Optional<"nickname", v::String> nickname;
   };
   v::Record<Schema> root;
   auto read = [&](std::string_view input) {
@@ -164,7 +164,7 @@ TEST(KeyedTypes, FieldKeepsCustomPipelineAndTryIdentity) {
 
 TEST(FieldPresence, RequiredOptionalStorageStillRequiresMember) {
   struct Schema {
-    t::Field<"name", v::Optional<v::Text>> name;
+    t::Field<"name", v::Optional<v::String>> name;
   };
   v::Record<Schema> value;
   EXPECT_EQ(

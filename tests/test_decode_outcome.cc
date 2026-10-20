@@ -99,7 +99,10 @@ using ConsumingCandidate =
              match::predicate<ConsumeAndFail{}>,
          encode::value>;
 using DynamicKey =
-    Elem<scan::scalar | decode::text | store::assign, encode::value>;
+    Elem<scan::scalar | decode::string_source | construct<std::string> |
+             decode::json_unescape | decode::toml_unescape | validate::utf8 |
+             store::assign,
+         encode::value>;
 
 template <class Schema>
 void check_consumed_error(Schema& schema, std::string_view input,

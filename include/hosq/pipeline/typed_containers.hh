@@ -17,7 +17,9 @@
 #include "hosq/mapping_value.hh"
 #include "hosq/pipeline/encode.hh"
 #include "hosq/pipeline/store.hh"
+#include "hosq/pipeline/string.hh"
 #include "hosq/pipeline/typed_decode.hh"
+#include "hosq/pipeline/validate.hh"
 #include "hosq/pipeline_util.hh"
 #include "hosq/try.hh"
 #include "hosq/types_field.hh"
@@ -299,7 +301,10 @@ struct TypedRecordImpl {
       // Resolve escapes before matching names, including TOML quoted keys.
       DecodeContext<void, typename Context::reader_type, TryPhase::first>
           key_ctx{reader, state};
-      const auto name = (scan::scalar | decode::text).invoke(key_ctx);
+      const auto name =
+          (scan::scalar | decode::string_source | construct<std::string> |
+           decode::json_unescape | decode::toml_unescape | validate::utf8)
+              .invoke(key_ctx);
       if (reader.error(state)) return result;
       bool matched = false;
       [&]<std::size_t... I>(std::index_sequence<I...>) {

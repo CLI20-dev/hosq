@@ -101,7 +101,6 @@ struct ScalarCodecImpl {
     return output;
   }
 };
-using TextImpl = ScalarCodecImpl<std::string>;
 using NullImpl = ScalarCodecImpl<std::nullptr_t>;
 using BytesImpl = ScalarCodecImpl<BytesValue>;
 using TypedBooleanImpl = ScalarCodecImpl<bool>;
@@ -117,7 +116,6 @@ inline constexpr auto unsigned_integer = step<detail::TypedNumberImpl<T, false>>
 /// binary value and signed zero. NaN payload bits are not preserved.
 template <std::floating_point T = double>
 inline constexpr auto floating = step<detail::TypedNumberImpl<T, true>>;
-inline constexpr auto text = step<detail::TextImpl>;
 inline constexpr auto null = step<detail::NullImpl>;
 inline constexpr auto bytes = step<detail::BytesImpl>;
 inline constexpr auto typed_boolean = step<detail::TypedBooleanImpl>;

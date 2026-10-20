@@ -8,6 +8,7 @@
 
 #include "hosq/detail/number_parse.hh"
 #include "hosq/json/string_codec.hh"
+#include "hosq/pipeline/string.hh"
 #include "hosq/scalar_codec.hh"
 
 namespace hosq::json::detail {
@@ -39,6 +40,42 @@ inline auto valid_number(std::string_view raw) -> bool {
   }
   return pos == raw.size();
 }
+
+struct StringSourceCodec {
+  template <class Context>
+  auto operator()(const ScalarView&, const Context& ctx,
+                  std::string_view& output) const -> bool {
+    output = {};
+    const auto& reader = ctx.reader();
+    const auto& state = ctx.reader_state();
+    if (reader.error(state)) return false;
+    const auto& token = reader.current_token(state);
+    if (token.type != TokenType::Scalar ||
+        token.context != static_cast<std::uint8_t>(JsonTokenContext::string)) {
+      reader.report_error(
+          state, {ErrorCode::type_mismatch, token.offset, "expected string"});
+      return false;
+    }
+    output =
+        reader.input(state).as_string_view().substr(token.offset, token.length);
+    return true;
+  }
+};
+struct UnescapeStringCodec {
+  template <class Context>
+  auto operator()(std::string input, const Context& ctx) const -> std::string {
+    std::string output;
+    if (!string_codec::unescape_json_string(input, output)) {
+      ctx.reader().report_error(
+          ctx.reader_state(),
+          {ErrorCode::invalid_escape,
+           ctx.reader().current_token(ctx.reader_state()).offset,
+           "invalid JSON string body"});
+      return {};
+    }
+    return output;
+  }
+};
 
 // JSON owns its literal grammar, escapes, token context and string syntax.
 struct SemanticScalarCodec {

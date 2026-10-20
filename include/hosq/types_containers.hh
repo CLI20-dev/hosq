@@ -27,7 +27,7 @@ using Record = Elem<decode::record<Schema> | store::assign,
                     step<encode::detail::TypedRecordImpl<Schema>>>;
 
 /// Object and Record name the same fixed schema wrapper. Dynamic objects use
-/// Mapping<Text, ValueElem> (or another explicitly selected key Elem).
+/// Mapping<String, ValueElem> (or another explicitly selected key Elem).
 template <class Schema>
 using Object = Record<Schema>;
 

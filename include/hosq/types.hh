@@ -5,7 +5,10 @@
 #include "hosq/element.hh"
 #include "hosq/pipeline/encode.hh"
 #include "hosq/pipeline/store.hh"
+#include "hosq/pipeline/string.hh"
 #include "hosq/pipeline/typed_decode.hh"
+#include "hosq/pipeline/validate.hh"
+#include "hosq/pipeline_util.hh"
 #include "hosq/types_field.hh"
 
 namespace hosq::types::value {
@@ -32,7 +35,10 @@ using Float64 = Float<double>;
 using Bool =
     Elem<scan::scalar | decode::typed_boolean | store::assign, encode::value>;
 using Null = Elem<scan::scalar | decode::null | store::assign, encode::value>;
-using Text = Elem<scan::scalar | decode::text | store::assign, encode::value>;
+using String = Elem<scan::scalar | decode::string_source |
+                        construct<std::string> | decode::json_unescape |
+                        decode::toml_unescape | validate::utf8 | store::assign,
+                    encode::value>;
 using Bytes = Elem<scan::scalar | decode::bytes | store::assign, encode::value>;
 }  // namespace hosq::types::value
 
@@ -69,7 +75,7 @@ using Bool = Field<K, value::Bool>;
 template <StringLiteral K>
 using Null = Field<K, value::Null>;
 template <StringLiteral K>
-using Text = Field<K, value::Text>;
+using String = Field<K, value::String>;
 template <StringLiteral K>
 using Bytes = Field<K, value::Bytes>;
 }  // namespace hosq::types

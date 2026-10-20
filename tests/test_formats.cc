@@ -591,7 +591,7 @@ TEST(Toml, OwnedDynamicKeysResolveEscapesAndSurviveReaderState) {
 
 TEST(Toml, TypedMappingOwnsResolvedKeysAndKeepsEntriesPaired) {
   using Mapping =
-      types::value::Mapping<types::value::Text, types::value::Int<int>>;
+      types::value::Mapping<types::value::String, types::value::Int<int>>;
   Mapping value;
   std::string input = "\"\\u006e\"=42\n'raw\\n'=7";
   ASSERT_TRUE(decode_into<toml::Reader<>>(value, input).is_ok());

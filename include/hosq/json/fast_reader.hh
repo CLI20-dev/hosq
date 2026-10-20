@@ -1921,3 +1921,14 @@ template <std::size_t Depth, json::InputPadding Padding,
 struct DecodeSemanticScalar<json::FastReader<Depth, Padding, Mode>>
     : json::detail::SemanticScalarCodec {};
 }  // namespace hosq::ext
+
+namespace hosq::ext {
+template <std::size_t Depth, json::InputPadding Padding,
+          json::WhitespaceMode Mode>
+struct DecodeStringSource<json::FastReader<Depth, Padding, Mode>>
+    : json::detail::StringSourceCodec {};
+template <std::size_t Depth, json::InputPadding Padding,
+          json::WhitespaceMode Mode>
+struct UnescapeString<json::FastReader<Depth, Padding, Mode>, Format::json>
+    : json::detail::UnescapeStringCodec {};
+}  // namespace hosq::ext

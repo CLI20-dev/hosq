@@ -41,17 +41,17 @@ struct Child {
   Entry<Key<"n">, t::Int<int>> n;
 };
 struct Schema {
-  Entry<Key<"title">, t::Text> title;
+  Entry<Key<"title">, t::String> title;
   Entry<Key<"matrix">, t::Array<t::Array<t::Int<int>>>> matrix;
   Entry<Key<"child">, t::Object<Child>> child;
-  Try<Entry<Key<"note">, t::Optional<t::Text>>> note;
+  Try<Entry<Key<"note">, t::Optional<t::String>>> note;
 };
 using Record = t::Record<Schema>;
 static_assert(detail::ElemT<t::Array<t::Int<int>>>);
 static_assert(std::same_as<typename t::Array<t::Int<int>>::storage_type,
                            std::vector<int>>);
 static_assert(
-    std::same_as<typename t::Mapping<t::Text, t::Int<int>>::storage_type,
+    std::same_as<typename t::Mapping<t::String, t::Int<int>>::storage_type,
                  MappingValue<std::string, int>>);
 static_assert(std::same_as<t::Object<Schema>, Record>);
 
@@ -63,7 +63,7 @@ TEST(TypeContainers, NestedArrayStrictShapeAndReset) {
   EXPECT_TRUE(value.value().empty());
   for (auto input : {"{}", "null", "1", "\"text\"", "[1]"})
     EXPECT_EQ(read<json::SimpleReader>(value, input).code, EC::type_mismatch);
-  t::Mapping<t::Text, t::Int<int>> map;
+  t::Mapping<t::String, t::Int<int>> map;
   EXPECT_EQ(read<json::SimpleReader>(map, "[]").code, EC::type_mismatch);
 }
 TEST(TypeContainers, RecordUnorderedRequiredUnknownAndDuplicate) {
@@ -97,7 +97,7 @@ TEST(TypeContainers, RecordUnorderedRequiredUnknownAndDuplicate) {
 TEST(TypeContainers, MissingNullAndEmptyOptionalAreDifferent) {
   struct S {
     Entry<Key<"null">, t::Null> null;
-    Try<Entry<Key<"optional">, t::Optional<t::Text>>> optional;
+    Try<Entry<Key<"optional">, t::Optional<t::String>>> optional;
   };
   t::Record<S> value;
   ASSERT_TRUE(read<json::SimpleReader>(value, R"({"null":null})").is_ok());
@@ -113,7 +113,7 @@ TEST(TypeContainers, MissingNullAndEmptyOptionalAreDifferent) {
   EXPECT_EQ(*value.value().optional.value().value(), "");
   EXPECT_EQ(write<json::CompactWriter<>>(value),
             R"({"null":null,"optional":""})");
-  t::Optional<t::Text> absent;
+  t::Optional<t::String> absent;
   Error error;
   (void)write<msgpack::Writer<>>(absent, &error);
   EXPECT_EQ(error.code, EC::invalid_object_state);
@@ -124,7 +124,7 @@ TEST(TypeContainers, MissingNullAndEmptyOptionalAreDifferent) {
   ASSERT_TRUE(read<json::SimpleReader>(value, R"({"null":null})").is_ok());
   EXPECT_FALSE(value.value().optional.value().value());
   struct RequiredOptional {
-    Entry<Key<"x">, t::Optional<t::Text>> x;
+    Entry<Key<"x">, t::Optional<t::String>> x;
   };
   t::Record<RequiredOptional> required;
   EXPECT_EQ(read<json::SimpleReader>(required, "{}").code, EC::missing_required);
@@ -132,7 +132,7 @@ TEST(TypeContainers, MissingNullAndEmptyOptionalAreDifferent) {
   EXPECT_EQ(error.code, EC::invalid_object_state);
 }
 TEST(TypeContainers, MappingDuplicatesAndPairedMutations) {
-  t::Mapping<t::Text, t::Int<int>> value;
+  t::Mapping<t::String, t::Int<int>> value;
   ASSERT_TRUE(read<json::SimpleReader>(value, R"({"x":1,"y":2})").is_ok());
   EXPECT_EQ(value.value().entries(),
             (std::vector<std::pair<std::string, int>>{{"x", 1}, {"y", 2}}));
@@ -161,11 +161,11 @@ TEST(TypeContainers, MappingDuplicatesAndPairedMutations) {
             EC::duplicate_member);
 }
 TEST(TypeContainers, MessagePackComplexKeysCompareSemanticValues) {
-  t::Mapping<t::Array<t::Int<int>>, t::Text> arrays;
+  t::Mapping<t::Array<t::Int<int>>, t::String> arrays;
   auto input = std::string("\x82\x91\x01\xa1", 4) + "a" +
                std::string("\x91\xcc\x01\xa1", 4) + "b";
   EXPECT_EQ(read<msgpack::Reader<>>(arrays, input).code, EC::duplicate_member);
-  t::Mapping<t::Mapping<t::Text, t::Int<int>>, t::Int<int>> objects;
+  t::Mapping<t::Mapping<t::String, t::Int<int>>, t::Int<int>> objects;
   input = std::string("\x82\x82\xa1", 3) + "a" + std::string("\x01\xa1", 2) +
           "b" + std::string("\x02\x03\x82\xa1", 4) + "b" +
           std::string("\x02\xa1", 2) + "a" + std::string("\x01\x04", 2);
@@ -176,7 +176,7 @@ TEST(TypeContainers, MessagePackComplexKeysCompareSemanticValues) {
   EXPECT_EQ(read<msgpack::Reader<>>(records, input).code, EC::duplicate_member);
 }
 TEST(TypeContainers, MappingKeysEncodeWithSemanticEquality) {
-  t::Mapping<t::Mapping<t::Text, t::Int<int>>, t::Int<int>> objects;
+  t::Mapping<t::Mapping<t::String, t::Int<int>>, t::Int<int>> objects;
   MappingValue<std::string, int> key;
   key.entries() = {{"a", 1}, {"b", 2}};
   objects.value().emplace_back(key, 3);
@@ -226,7 +226,7 @@ TEST(TypeContainers, SameAndCrossFormatNestedRoundTrips) {
 }
 TEST(TypeContainers, TupleEmptySchemasAndEscapedTomlKeys) {
   using S = std::tuple<Entry<Key<"x">, t::Int<int>>,
-                       Try<Entry<Key<"y">, t::Optional<t::Text>>>>;
+                       Try<Entry<Key<"y">, t::Optional<t::String>>>>;
   t::Record<S> tuple;
   ASSERT_TRUE(read<toml::Reader<>>(tuple, "\"\\u0078\"=42").is_ok());
   EXPECT_EQ(std::get<0>(tuple.value()).value().value(), 42);
@@ -246,7 +246,7 @@ TEST(TypeContainers, CodecRootAndKeyRestrictionsApply) {
   EXPECT_FALSE(error.is_ok());
   (void)write<toml::Writer<>>(array, &error);
   EXPECT_FALSE(error.is_ok());
-  t::Mapping<t::Int<int>, t::Text> map;
+  t::Mapping<t::Int<int>, t::String> map;
   map.value().entries() = {{1, "x"}};
   (void)write<json::CompactWriter<>>(map, &error);
   EXPECT_FALSE(error.is_ok());
@@ -289,7 +289,7 @@ TEST(TypeContainers, ReaderOnlyNestedElementsCannotDisappearDuringEncoding) {
   Error error;
   (void)write<msgpack::Writer<>>(array, &error);
   EXPECT_EQ(error.code, EC::unsupported_type);
-  t::Mapping<t::Text, ReaderOnly> map;
+  t::Mapping<t::String, ReaderOnly> map;
   map.value().entries() = {{"x", 42}};
   (void)write<msgpack::Writer<>>(map, &error);
   EXPECT_EQ(error.code, EC::unsupported_type);
@@ -309,7 +309,7 @@ TEST(TypeContainers, ValidationFailuresCannotBecomeDefaultValues) {
   EXPECT_TRUE(read<json::SimpleReader>(array, "[1,1]").is_ok());
   EXPECT_EQ(array.value(), (std::vector<int>{1, 1}));
   EXPECT_EQ(read<json::SimpleReader>(array, "[1,2]").code, EC::invalid_choice);
-  t::Mapping<t::Text, One> map;
+  t::Mapping<t::String, One> map;
   EXPECT_EQ(read<json::SimpleReader>(map, R"({"x":2})").code,
             EC::invalid_choice);
   struct S {
@@ -322,7 +322,7 @@ TEST(TypeContainers, ValidationFailuresCannotBecomeDefaultValues) {
 }
 TEST(TypeContainers, MappingStorageSupportsValueEncoderAcrossFormats) {
   using Custom =
-      Elem<decode::mapping<t::Text, t::Int64> | store::assign, encode::value>;
+      Elem<decode::mapping<t::String, t::Int64> | store::assign, encode::value>;
   Custom root;
   ASSERT_TRUE(read<json::SimpleReader>(root, R"({"x":42,"y":43})").is_ok());
   Custom round;

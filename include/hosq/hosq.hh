@@ -18,6 +18,7 @@
 #include "hosq/pipeline/match.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/pipeline/store.hh"
+#include "hosq/pipeline/string.hh"
 #include "hosq/pipeline/unknown.hh"
 #include "hosq/pipeline/validate.hh"
 #include "hosq/pipeline_util.hh"
