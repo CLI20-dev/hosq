@@ -234,11 +234,13 @@ TEST(TomlSemantic, TemporalValuesRespectRootKeyAndOutputLimits) {
 }
 
 TEST(TomlSemantic, TemporalArraysAndInlineTablesKeepWriterStructure) {
+  using Nested =
+      Elem<scan::object | decode::to<TemporalDocument<types::value::LocalTime>> |
+               store::assign,
+           encode::value>;
   struct Document {
     Entry<Key<"dates">, types::value::Array<types::value::LocalDate>> dates;
-    Entry<Key<"nested">,
-          types::value::Record<TemporalDocument<types::value::LocalTime>>>
-        nested;
+    Entry<Key<"nested">, Nested> nested;
   } document;
   ASSERT_TRUE(
       decode_document_into<toml::Reader<>>(document,

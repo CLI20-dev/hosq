@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include <string>
-#include <tuple>
 
 #include "hosq/bson/reader.hh"
 #include "hosq/bson/writer.hh"
@@ -35,13 +34,13 @@ template <class R, class W>
 void check_legacy_presence() {
   Decoder<R> decoder;
   LegacyPresence value;
-  v::Record<std::tuple<>> empty;
+  v::Mapping<v::String, v::String> empty;
   const auto missing = wire<W>(empty);
   ASSERT_TRUE(decoder.decode_document(value, missing).is_ok());
   EXPECT_FALSE(value.nickname.value().value());
 
   // Missing optional storage cannot be silently encoded as null by a legacy
-  // aggregate. Omission belongs to the typed Record encoder, not Try itself.
+  // aggregate. Try itself does not omit members with missing storage.
   std::string invalid_output;
   msgpack::Writer invalid_writer(invalid_output);
   EXPECT_FALSE(encode_into(value, invalid_writer));
@@ -72,14 +71,6 @@ void check_legacy_presence() {
   EXPECT_EQ(roundtrip.nickname.value().value(), value.nickname.value().value());
   EXPECT_EQ(roundtrip.nil.value().value(), nullptr);
 
-  // The same declaration inside typed Record uses a new schema per decode.
-  v::Record<LegacyPresence> record;
-  ASSERT_TRUE(decoder.decode_document(record, present_wire).is_ok());
-  ASSERT_TRUE(record.value().nickname.value().value());
-  ASSERT_TRUE(decoder.decode_document(record, missing).is_ok());
-  EXPECT_FALSE(record.value().nickname.value().value());
-  EXPECT_EQ(wire<json::CompactWriter<>>(record), R"({"id":0,"nil":null})");
-
   struct NullNickname {
     t::Null<"nickname"> nickname;
   } null_nickname;
@@ -107,18 +98,20 @@ TEST(TryPresence, LegacyMissingStorageAndExplicitNullRemainDifferent) {
 
 struct Row {
   t::Uint8<"id"> id;
-  t::Optional<"nickname", v::String> nickname;
+  t::String<"nickname"> nickname;
   t::Null<"nil"> nil;
 };
+using RowValue =
+    Elem<scan::object | decode::to<Row> | store::assign, encode::value>;
 struct NestedRows {
-  t::Try<t::Array<"rows", v::Record<Row>>> rows;
+  t::Try<t::Array<"rows", RowValue>> rows;
 };
 
 TEST(TryPresence, NestedArrayEncodesAfterMissingAndRecoversAfterRangeFailure) {
   Decoder<json::FastReader<>> decoder;
   NestedRows value;
   const auto input =
-      R"({"rows":[{"id":1,"nickname":"a\nb","nil":null},{"id":2,"nil":null}]})";
+      R"({"rows":[{"id":1,"nickname":"a\nb","nil":null},{"id":2,"nickname":"","nil":null}]})";
   ASSERT_TRUE(decoder.decode_document(value, input).is_ok());
   ASSERT_TRUE(decoder.decode_document(value, "{}").is_ok());
   ASSERT_EQ(value.rows.value().value().size(), 2U);
@@ -135,7 +128,8 @@ TEST(TryPresence, NestedArrayEncodesAfterMissingAndRecoversAfterRangeFailure) {
   EXPECT_EQ(
       decoder
           .decode_document(
-              value, R"({"rows":[{"id":3,"nil":null},{"id":256,"nil":null}]})")
+              value,
+              R"({"rows":[{"id":3,"nickname":"","nil":null},{"id":256,"nickname":"","nil":null}]})")
           .code,
       ErrorCode::out_of_range);
   // Failed storage is intentionally not asserted: no transaction is promised.

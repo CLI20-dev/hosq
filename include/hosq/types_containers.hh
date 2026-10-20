@@ -18,23 +18,9 @@ template <hosq::detail::ElemT KeyElem, hosq::detail::ElemT ValueElem>
 using Mapping = Elem<decode::mapping<KeyElem, ValueElem> | store::assign,
                      step<encode::detail::TypedMappingImpl<KeyElem, ValueElem>>>;
 
-/// An unordered, closed object schema. Schema is an aggregate or std::tuple of
-/// constant-key fields. Field presence controls missing members independently
-/// of the value codec. Unknown and duplicate members are errors. Legacy
-/// Try<Entry> schemas retain their original missing/default behavior.
-template <class Schema>
-using Record = Elem<decode::record<Schema> | store::assign,
-                    step<encode::detail::TypedRecordImpl<Schema>>>;
-
-/// Object and Record name the same fixed schema wrapper. Dynamic objects use
-/// Mapping<String, ValueElem> (or another explicitly selected key Elem).
-template <class Schema>
-using Object = Record<Schema>;
-
 /// Presence storage, not a nullable conversion: a present value must decode as
-/// E (including Null only when E accepts it). Empty optionals mean missing and
-/// fail encoding except in optional-presence members of Record/Object (and
-/// legacy Try<Entry>).
+/// E (including Null only when E accepts it). Empty optionals represent absence
+/// and cannot be encoded as values.
 template <hosq::detail::ElemT E>
 using Optional = Elem<decode::optional<E> | store::assign,
                       step<encode::detail::TypedOptionalImpl<E>>>;
@@ -50,14 +36,8 @@ template <StringLiteral K, hosq::detail::ElemT KeyElem,
           hosq::detail::ElemT ValueElem>
 using Mapping = Field<K, value::Mapping<KeyElem, ValueElem>>;
 
-template <StringLiteral K, class Schema>
-using Record = Field<K, value::Record<Schema>>;
-
-template <StringLiteral K, class Schema>
-using Object = Record<K, Schema>;
-
-/// A field that may be absent. In value::Record/Object an empty optional is
-/// omitted on encode; a present value must match E, with no implicit null.
+/// A field that may be absent while decoding. A present value must match E,
+/// with no implicit null conversion.
 template <StringLiteral K, hosq::detail::ElemT E>
 using Optional = Field<K, value::Optional<E>, presence::Optional>;
 

@@ -22,7 +22,7 @@ struct Document {
 
 template <class Field, class W>
 void unsupported_encoding() {
-  types::value::Record<Document<Field>> value;
+  Document<Field> value;
   std::string output;
   W writer(output);
   EXPECT_FALSE(encode_into(value, writer));
@@ -64,7 +64,7 @@ TEST(SemanticFormats, UnsupportedBinaryAndTomlTypesFailExplicitly) {
                            types::value::BsonTimestamp>*>(nullptr));
   unsupported_encoding<types::value::Extension, bson::Writer<>>();
   unsupported_encoding<types::value::Extension, toml::Writer<>>();
-  types::value::Record<Document<types::value::Decimal128>> decimal;
+  Document<types::value::Decimal128> decimal;
   EXPECT_EQ(decode_document_into<toml::Reader<>>(decimal, "v = 1.0").code,
             ErrorCode::unsupported_type);
   types::value::ObjectId object_id;
@@ -76,14 +76,14 @@ TEST(SemanticFormats, UnsupportedBinaryAndTomlTypesFailExplicitly) {
 
 template <class W, class R>
 auto instant_roundtrip(const InstantValue& value) -> InstantValue {
-  types::value::Record<Document<types::value::Instant>> source;
-  source.value().v.value().value() = value;
+  Document<types::value::Instant> source;
+  source.v.value().value() = value;
   std::string output;
   W writer(output);
   EXPECT_TRUE(encode_into(source, writer)) << writer.error().detail;
-  types::value::Record<Document<types::value::Instant>> decoded;
+  Document<types::value::Instant> decoded;
   EXPECT_TRUE(decode_document_into<R>(decoded, output).is_ok());
-  return decoded.value().v.value().value();
+  return decoded.v.value().value();
 }
 
 TEST(SemanticFormats, InstantCrossesBsonMessagePackAndTomlWithoutLoss) {
@@ -100,19 +100,19 @@ TEST(SemanticFormats, InstantCrossesBsonMessagePackAndTomlWithoutLoss) {
 }
 
 TEST(SemanticFormats, ExplicitOffsetTargetConversionNeverUsesLocalTimezone) {
-  types::value::Record<Document<types::value::Instant>> instant;
+  Document<types::value::Instant> instant;
   ASSERT_TRUE(decode_document_into<toml::Reader<>>(instant,
                                                    "v=1970-01-01T01:00:00+01:00")
                   .is_ok());
-  EXPECT_EQ(instant.value().v.value().value(), (InstantValue{0, 0}));
+  EXPECT_EQ(instant.v.value().value(), (InstantValue{0, 0}));
   EXPECT_FALSE(
       decode_document_into<toml::Reader<>>(instant, "v=1970-01-01T01:00:00")
           .is_ok());
-  types::value::Record<Document<types::value::OffsetDateTime>> offset;
+  Document<types::value::OffsetDateTime> offset;
   ASSERT_TRUE(
       decode_document_into<toml::Reader<>>(offset, "v=1970-01-01T01:00:00+01:00")
           .is_ok());
-  EXPECT_EQ(offset.value().v.value().value().offset_minutes, 60);
+  EXPECT_EQ(offset.v.value().value().offset_minutes, 60);
 }
 
 static_assert(std::same_as<types::value::Instant::storage_type, InstantValue>);

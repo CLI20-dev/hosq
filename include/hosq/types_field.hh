@@ -1,28 +1,18 @@
 #pragma once
 
-#include <optional>
-
 #include "hosq/entry.hh"
 #include "hosq/try.hh"
 
 namespace hosq::types::presence {
 
-/// A present value and a missing member are separate concerns. These policies
-/// apply to Record/Object fields; the Elem still determines accepted values.
+/// Member presence is independent of accepted values. The Elem determines
+/// which values a present field can decode.
 struct Required {
   static constexpr bool allows_missing = false;
-  template <class E>
-  static auto omit(const E&) -> bool {
-    return false;
-  }
 };
 
 struct Optional {
   static constexpr bool allows_missing = true;
-  template <class E>
-  static auto omit(const E& element) -> bool {
-    return !element.value().has_value();
-  }
 };
 
 }  // namespace hosq::types::presence
@@ -58,33 +48,6 @@ struct ApplyFieldPresence {
 template <class Entry>
 struct ApplyFieldPresence<Entry, types::presence::Required> {
   using type = Entry;
-};
-
-template <class T>
-struct IsPresenceOptionalStorage : std::false_type {};
-template <class T>
-struct IsPresenceOptionalStorage<std::optional<T>> : std::true_type {};
-
-/// Compatibility for existing Try<Entry> schemas is confined to this adapter.
-/// Try without optional storage permits absence but encodes its default value.
-template <class Field>
-struct RecordFieldPresence : types::presence::Required {};
-template <class E, class P>
-struct RecordFieldPresence<PolicyField<E, P>> : P {
-  static auto omit(const PolicyField<E, P>& field) -> bool {
-    return P::omit(field.value());
-  }
-};
-template <class E>
-struct RecordFieldPresence<Try<E>> {
-  static constexpr bool allows_missing = true;
-  static auto omit(const Try<E>& field) -> bool {
-    if constexpr (IsPresenceOptionalStorage<
-                      typename E::value_type::storage_type>::value)
-      return !field.value().value().has_value();
-    else
-      return false;
-  }
 };
 
 }  // namespace hosq::detail

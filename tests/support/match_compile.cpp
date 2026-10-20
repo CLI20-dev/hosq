@@ -94,12 +94,6 @@ int main() {
 #elif HOSQ_MATCH_CASE == 11
   v::Mapping<v::String, Candidate> value;
   (void)decode_into<Reader>(value, R"({"n":1})");
-#elif HOSQ_MATCH_CASE == 12
-  struct Schema {
-    Entry<Key<"n">, Candidate> value;
-  };
-  v::Record<Schema> value;
-  (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 13
   v::Optional<Candidate> value;
   (void)decode_into<Reader>(value, "1");
@@ -178,12 +172,6 @@ int main() {
                  noop_encoder>;
   E value;
   (void)decode_document_into<Reader>(value, "[1]");
-#elif HOSQ_MATCH_CASE == 27
-  struct Schema {
-    Try<Entry<Key<"n">, Candidate>> value;
-  };
-  v::Record<Schema> value;
-  (void)decode_into<Reader>(value, R"({"n":1})");
 #elif HOSQ_MATCH_CASE == 28
   using BadPredicate =
       Elem<scan::scalar | decode::integer<int> |
@@ -337,6 +325,12 @@ int main() {
   const auto error =
       decode_document_into<json::FastReader<>>(value, R"({"n":2})");
   return !error.is_ok() || value.value.value().value() != 2;
+#elif HOSQ_MATCH_CASE == 108
+  struct Schema {
+    Try<Entry<Key<"n">, Candidate>> value;
+  } value;
+  const auto error = decode_document_into<Reader>(value, R"({"n":1})");
+  return !error.is_ok() || value.value.value().value() != 1;
 #else
 #error Unknown HOSQ_MATCH_CASE
 #endif

@@ -15,14 +15,14 @@ REJECTED = {
     5: "Decoder::decode_nested", 6: "fixed tuple element",
     7: "fixed constant-key value", 8: "fixed dynamic key",
     9: "typed Array", 10: "typed Mapping key", 11: "typed Mapping value",
-    12: "typed Record", 13: "typed Optional", 14: "collect array",
+    13: "typed Optional", 14: "collect array",
     15: "fixed collect array", 16: "collect object key",
     17: "collect object value", 18: "fixed collect object key",
     19: "fixed collect object value", 20: "construct MatchResult<int>",
     21: "construct MatchResult<void>", 22: "implicit MatchResult bool conversion",
     23: "default construct MatchResult", 24: "raw bool Elem terminal",
     25: "root matching each", 26: "root fixed matching each",
-    27: "typed Record with legacy Try field", 28: "non-bool predicate result",
+    28: "non-bool predicate result",
     29: "collect bool payload after matching", 30: "fixed tuple matching each",
     31: "root object each matching key", 32: "root object each matching value",
     33: "reader-specific root matching result",
@@ -41,6 +41,7 @@ ACCEPTED = {
     104: "ordinary reader-specific pipeline and FastReader EntryInput",
     105: "matched false bool payload", 106: "stored ordinary bool",
     107: "presence Optional field without matching",
+    108: "Try constant-key matching field",
 }
 
 

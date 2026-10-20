@@ -231,12 +231,6 @@ TYPED_TEST(PrefailedDecode, AllTryObjectPreservesErrorAndStorage) {
     return item.n.value().value();
   });
 }
-TYPED_TEST(PrefailedDecode, TypedRecordPreservesErrorAndStorage) {
-  v::Record<ObjectFields> value;
-  check_prefailed<TypeParam>(value, Shape::object, [](auto& item) -> auto& {
-    return item.value().n.value().value();
-  });
-}
 TYPED_TEST(PrefailedDecode, TypedArrayPreservesErrorAndStorage) {
   v::Array<Observed> value;
   check_prefailed<TypeParam>(value, Shape::array,

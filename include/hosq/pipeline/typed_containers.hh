@@ -1,10 +1,9 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <optional>
 #include <ranges>
-#include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -17,12 +16,9 @@
 #include "hosq/mapping_value.hh"
 #include "hosq/pipeline/encode.hh"
 #include "hosq/pipeline/store.hh"
-#include "hosq/pipeline/string.hh"
 #include "hosq/pipeline/typed_decode.hh"
-#include "hosq/pipeline/validate.hh"
 #include "hosq/pipeline_util.hh"
 #include "hosq/try.hh"
-#include "hosq/types_field.hh"
 
 namespace hosq::detail {
 
@@ -32,58 +28,12 @@ template <class... T>
 struct IsContainerTuple<std::tuple<T...>> : std::true_type {};
 
 template <class T>
-auto record_tuple(T& value) {
+auto container_tuple(T& value) {
   if constexpr (IsContainerTuple<std::remove_cvref_t<T>>::value)
     return std::apply([](auto&... field) { return std::tie(field...); }, value);
   else
     return as_tuple(value);
 }
-
-template <class T>
-struct RecordEntry {
-  using type = std::remove_cvref_t<T>;
-};
-template <class T>
-struct RecordEntry<Try<T>> {
-  using type = T;
-};
-template <class T>
-using record_entry_t = typename RecordEntry<std::remove_cvref_t<T>>::type;
-
-template <class Entry>
-inline constexpr auto record_key = Entry::key();
-
-template <class Schema>
-struct RecordInfo {
-  using tuple_type = decltype(record_tuple(std::declval<Schema&>()));
-  static constexpr auto size = std::tuple_size_v<tuple_type>;
-  static constexpr bool valid = []<std::size_t... I>(std::index_sequence<I...>) {
-    return (
-        ConstKeyEntryT<record_entry_t<std::tuple_element_t<I, tuple_type>>> &&
-        ...);
-  }(std::make_index_sequence<size>{});
-  static_assert(
-      valid, "Record schema requires constant-key Entry or Try<Entry> fields");
-  static constexpr bool unique = []<std::size_t... I>(
-                                     std::index_sequence<I...>) {
-    constexpr auto names = std::array<std::string_view, size>{
-        record_key<record_entry_t<std::tuple_element_t<I, tuple_type>>>.view()...};
-    for (std::size_t a = 0; a < size; ++a)
-      for (std::size_t b = a + 1; b < size; ++b)
-        if (names[a] == names[b]) return false;
-    return true;
-  }(std::make_index_sequence<size>{});
-  static_assert(unique, "Record schema has duplicate constant keys");
-  static constexpr bool required_values =
-      []<std::size_t... I>(std::index_sequence<I...>) {
-        return (RequiredElemT<typename record_entry_t<
-                    std::tuple_element_t<I, tuple_type>>::value_type> &&
-                ...);
-      }(std::make_index_sequence<size>{});
-  static_assert(
-      required_values,
-      "Record fields cannot be matching pipelines; use Try candidate dispatch");
-};
 
 template <class T, class Context>
 auto container_error(Context& ctx, ErrorCode code, std::string_view detail)
@@ -135,7 +85,8 @@ auto encode_container_element(const Value& value, W& writer) -> bool {
 }
 
 // Semantic equality for typed mapping keys. Objects compare by member rather
-// than input order; nested arrays and schemas need no user-defined operator==.
+// than input order; nested arrays and aggregates need no user-defined
+// operator==.
 template <class T>
 auto container_equal(const T& a, const T& b) -> bool {
   using U = std::remove_cvref_t<T>;
@@ -185,8 +136,8 @@ auto container_equal(const T& a, const T& b) -> bool {
                        }) {
     return a == b;
   } else {
-    const auto at = record_tuple(a);
-    const auto bt = record_tuple(b);
+    const auto at = container_tuple(a);
+    const auto bt = container_tuple(b);
     return [&]<std::size_t... I>(std::index_sequence<I...>) {
       return (container_equal(std::get<I>(at), std::get<I>(bt)) && ...);
     }(std::make_index_sequence<std::tuple_size_v<decltype(at)>>{});
@@ -266,78 +217,6 @@ struct TypedMappingImpl {
   }
 };
 
-template <class Schema>
-struct TypedRecordImpl {
-  using info = hosq::detail::RecordInfo<Schema>;
-  static_assert(info::valid && info::unique);
-  template <class Context>
-    requires(!std::is_const_v<Context>)
-  auto operator()(Context& ctx) const -> Schema {
-    auto& reader = ctx.reader();
-    auto& state = ctx.reader_state();
-    Schema result{};
-    if (reader.error(state)) return result;
-    if (reader.current_token(state).type != TokenType::ObjectBegin)
-      return hosq::detail::container_error<Schema>(
-          ctx, ErrorCode::type_mismatch, "typed record expected object");
-    auto fields = hosq::detail::record_tuple(result);
-    std::array<bool, info::size> seen{};
-    while (hosq::next_token<Expect::next_member_or_end>(reader, state)) {
-      if (reader.current_token(state).type == TokenType::ObjectEnd) {
-        bool missing = false;
-        [&]<std::size_t... I>(std::index_sequence<I...>) {
-          ((missing |= !seen[I] &&
-                       !hosq::detail::RecordFieldPresence<std::remove_cvref_t<
-                           std::tuple_element_t<I, typename info::tuple_type>>>::
-                           allows_missing),
-           ...);
-        }(std::make_index_sequence<info::size>{});
-        if (missing)
-          return hosq::detail::container_error<Schema>(
-              ctx, ErrorCode::missing_required,
-              "typed record required member missing");
-        return result;
-      }
-      // Resolve escapes before matching names, including TOML quoted keys.
-      DecodeContext<void, typename Context::reader_type, TryPhase::first>
-          key_ctx{reader, state};
-      const auto name =
-          (scan::scalar | decode::string_source | construct<std::string> |
-           decode::json_unescape | decode::toml_unescape | validate::utf8)
-              .invoke(key_ctx);
-      if (reader.error(state)) return result;
-      bool matched = false;
-      [&]<std::size_t... I>(std::index_sequence<I...>) {
-        (
-            [&] {
-              using Entry = hosq::detail::record_entry_t<
-                  std::tuple_element_t<I, typename info::tuple_type>>;
-              if (matched || name != hosq::detail::record_key<Entry>.view())
-                return;
-              matched = true;
-              if (seen[I]) {
-                reader.report_error(state,
-                                    Error{ErrorCode::duplicate_member,
-                                          reader.current_token(state).offset,
-                                          "typed record has duplicate member"});
-                return;
-              }
-              seen[I] = true;
-              if (!hosq::next_token<Expect::member_value>(reader, state)) return;
-              auto& field = std::get<I>(fields).value();
-              hosq::detail::decode_container_into(field, reader, state);
-            }(),
-            ...);
-      }(std::make_index_sequence<info::size>{});
-      if (!matched)
-        return hosq::detail::container_error<Schema>(
-            ctx, ErrorCode::unknown_member, "typed record unknown member");
-      if (reader.error(state)) return result;
-    }
-    return result;
-  }
-};
-
 template <hosq::detail::ElemT E>
 struct TypedOptionalImpl {
   static_assert(hosq::detail::RequiredElemT<E>,
@@ -362,8 +241,6 @@ template <hosq::detail::ElemT E>
 inline constexpr auto array = step<detail::TypedArrayImpl<E>>;
 template <hosq::detail::ElemT K, hosq::detail::ElemT V>
 inline constexpr auto mapping = step<detail::TypedMappingImpl<K, V>>;
-template <class Schema>
-inline constexpr auto record = step<detail::TypedRecordImpl<Schema>>;
 template <hosq::detail::ElemT E>
 inline constexpr auto optional = step<detail::TypedOptionalImpl<E>>;
 }  // namespace hosq::decode
@@ -407,39 +284,6 @@ struct TypedMappingImpl {
   }
 };
 
-template <class Schema>
-struct TypedRecordImpl {
-  using info = hosq::detail::RecordInfo<Schema>;
-  static_assert(info::valid && info::unique);
-  template <class Context>
-    requires(!std::is_const_v<Context>)
-  auto operator()(const Schema& value, Context& ctx) const -> void {
-    auto& writer = ctx.writer();
-    if (!hosq::detail::encode_token(writer, TokenType::ObjectBegin)) return;
-    bool ok = true;
-    std::apply(
-        [&](const auto&... field) {
-          (
-              [&] {
-                using Field = std::remove_cvref_t<decltype(field)>;
-                using Entry = hosq::detail::record_entry_t<Field>;
-                using E = typename Entry::value_type;
-                if (!ok) return;
-                if (hosq::detail::RecordFieldPresence<Field>::omit(field))
-                  return;
-                ok = hosq::ext::EncodeValue<
-                         std::remove_cvref_t<decltype(writer)>>{}(
-                         hosq::detail::record_key<Entry>.view(), writer) &&
-                     hosq::detail::encode_container_element<E>(
-                         field.value().value(), writer);
-              }(),
-              ...);
-        },
-        hosq::detail::record_tuple(value));
-    if (ok) (void)hosq::detail::encode_token(writer, TokenType::ObjectEnd);
-  }
-};
-
 template <hosq::detail::ElemT E>
 struct TypedOptionalImpl {
   template <class Context>
@@ -449,8 +293,7 @@ struct TypedOptionalImpl {
     if (!value) {
       (void)hosq::detail::encode_error(
           ctx.writer(), ErrorCode::invalid_object_state,
-          "empty optional is missing, not null; "
-          "omit an optional-presence record member or use Null");
+          "empty optional is missing and has no value to encode");
       return;
     }
     (void)hosq::detail::encode_container_element<E>(*value, ctx.writer());

@@ -50,27 +50,30 @@ static_assert(std::same_as<t::Try<t::Uint64<"id">>,
                            hosq::Try<hosq::Entry<hosq::Key<"id">, v::Uint64>>>);
 static_assert(!hosq::detail::ElemT<t::Try<v::Uint64>>);
 
+template <class S>
+using ObjectValue =
+    hosq::Elem<hosq::scan::object | hosq::decode::to<S> | hosq::store::assign,
+               hosq::encode::value>;
+
 struct Address {
   t::String<"city"> city;
 };
 struct User {
   hosq::types::Uint64<"id"> id;
   t::Array<"ids", v::Uint64> ids;
-  t::Record<"address", Address> address;
+  t::Field<"address", ObjectValue<Address>> address;
   t::Mapping<"scores", v::String, v::Int64> scores;
-  t::Optional<"nickname", v::String> nickname;
 };
-static_assert(std::same_as<t::Object<"user", User>, t::Record<"user", User>>);
 static_assert(std::same_as<t::Optional<"nickname", v::String>,
                            t::Field<"nickname", v::Optional<v::String>,
                                     t::presence::Optional>>);
 
 static_assert(!hosq::detail::TryT<t::Optional<"nickname", v::String>>);
 static_assert(hosq::detail::EntryT<t::Optional<"nickname", v::String>>);
-static_assert(hosq::detail::RecordFieldPresence<
-              t::Optional<"nickname", v::String>>::allows_missing);
-static_assert(!hosq::detail::RecordFieldPresence<
-              t::Field<"nickname", v::Optional<v::String>>>::allows_missing);
+static_assert(
+    hosq::detail::IsOptionalField<t::Optional<"nickname", v::String>>::value);
+static_assert(!hosq::detail::IsOptionalField<
+              t::Field<"nickname", v::Optional<v::String>>>::value);
 
 template <class Writer, class E>
 std::string encode(const E& value) {
@@ -81,21 +84,20 @@ std::string encode(const E& value) {
 }
 
 TEST(KeyedTypes, NestedSchemaCrossesJsonMessagePackAndBson) {
-  v::Record<User> user;
+  ObjectValue<User> user;
   ASSERT_TRUE(
       hosq::decode_document_into<hosq::json::FastReader<>>(
           user,
-          R"({"scores":{"n":-7},"address":{"city":"a\nb"},"ids":[1,2],"id":42})")
+          R"({"id":42,"ids":[1,2],"address":{"city":"a\nb"},"scores":{"n":-7}})")
           .is_ok());
   EXPECT_EQ(user.value().address.value().value().city.value().value(), "a\nb");
-  EXPECT_FALSE(user.value().nickname.value().value());
   const auto msgpack = encode<hosq::msgpack::Writer<>>(user);
-  v::Record<User> from_msgpack;
+  ObjectValue<User> from_msgpack;
   ASSERT_TRUE(
       hosq::decode_document_into<hosq::msgpack::Reader<>>(from_msgpack, msgpack)
           .is_ok());
   const auto bson = encode<hosq::bson::Writer<>>(from_msgpack);
-  v::Record<User> from_bson;
+  ObjectValue<User> from_bson;
   ASSERT_TRUE(
       hosq::decode_document_into<hosq::bson::Reader<>>(from_bson, bson).is_ok());
   EXPECT_EQ(
@@ -103,32 +105,11 @@ TEST(KeyedTypes, NestedSchemaCrossesJsonMessagePackAndBson) {
       R"({"id":42,"ids":[1,2],"address":{"city":"a\nb"},"scores":{"n":-7}})");
 }
 
-TEST(KeyedTypes, OptionalMissingEmptyAndNullKeepDifferentMeanings) {
-  struct Schema {
-    t::Null<"null"> null;
-    t::Optional<"nickname", v::String> nickname;
-  };
-  v::Record<Schema> root;
-  auto read = [&](std::string_view input) {
-    return hosq::decode_document_into<hosq::json::FastReader<>>(root, input);
-  };
-  ASSERT_TRUE(read(R"({"null":null,"nickname":""})").is_ok());
-  ASSERT_TRUE(root.value().nickname.value().value().has_value());
-  EXPECT_EQ(encode<hosq::json::CompactWriter<>>(root),
-            R"({"null":null,"nickname":""})");
-  ASSERT_TRUE(read(R"({"null":null})").is_ok());
-  EXPECT_FALSE(root.value().nickname.value().value());
-  EXPECT_EQ(encode<hosq::json::CompactWriter<>>(root), R"({"null":null})");
-  EXPECT_EQ(read(R"({"null":null,"nickname":null})").code,
-            hosq::ErrorCode::type_mismatch);
-  EXPECT_EQ(read("{}").code, hosq::ErrorCode::missing_required);
-}
-
 TEST(KeyedTypes, EmptyKeyIsNamedAndRootArrayUsesValueTypes) {
   struct Schema {
     t::Uint64<""> empty;
   };
-  v::Array<v::Record<Schema>> root;
+  v::Array<ObjectValue<Schema>> root;
   ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
                   root, R"([{"":7},{"":9}])")
                   .is_ok());
@@ -162,33 +143,14 @@ TEST(KeyedTypes, FieldKeepsCustomPipelineAndTryIdentity) {
 }
 }  // namespace
 
-TEST(FieldPresence, RequiredOptionalStorageStillRequiresMember) {
-  struct Schema {
-    t::Field<"name", v::Optional<v::String>> name;
-  };
-  v::Record<Schema> value;
-  EXPECT_EQ(
-      hosq::decode_document_into<hosq::json::FastReader<>>(value, "{}").code,
-      hosq::ErrorCode::missing_required);
-  ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
-                  value, R"({"name":""})")
-                  .is_ok());
-  ASSERT_TRUE(value.value().name.value().value());
-  EXPECT_TRUE(value.value().name.value().value()->empty());
-  EXPECT_EQ(hosq::decode_document_into<hosq::json::FastReader<>>(
-                value, R"({"name":null})")
-                .code,
-            hosq::ErrorCode::type_mismatch);
-}
-
-TEST(FieldPresence, OptionalPolicyDoesNotMakeNullImplicit) {
+TEST(FieldPresence, OptionalPolicyLeavesNullAcceptanceToValueCodec) {
   struct Schema {
     t::Field<"nil", v::Optional<v::Null>, t::presence::Optional> nil;
   };
-  v::Record<Schema> value;
+  Schema value;
   ASSERT_TRUE(
       hosq::decode_document_into<hosq::json::FastReader<>>(value, "{}").is_ok());
-  EXPECT_EQ(encode<hosq::json::CompactWriter<>>(value), "{}");
+  EXPECT_FALSE(value.nil.value().value().has_value());
   ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
                   value, R"({"nil":null})")
                   .is_ok());
@@ -214,7 +176,7 @@ TEST(FieldPresence, LegacyTryDoesNotOmitNonOptionalCustomStorage) {
   struct Schema {
     hosq::Try<t::Field<"custom", Custom>> custom;
   };
-  v::Record<Schema> value;
+  Schema value;
   EXPECT_EQ(encode<hosq::json::CompactWriter<>>(value), R"({"custom":42})");
 }
 }  // namespace

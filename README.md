@@ -2,7 +2,7 @@
 
 HOSQ is a C++20 header-only library for decoding structured input into typed
 schemas without first constructing a general-purpose DOM. Common
-`hosq::types` describe integers, text, arrays, maps, and records once; JSON,
+`hosq::types` describe integers, strings, arrays, and maps once; JSON,
 BSON, MessagePack, and TOML readers and writers handle their wire formats.
 Custom scanning, decoding, validation, and storage pipelines remain available
 when an application needs more control.
@@ -23,8 +23,9 @@ compiler's header search path; the examples below use C++20.
 ## Quick start
 
 Use `hosq::types` for named fields and `hosq::types::value` for unkeyed
-values, including the root `Record<Schema>`. Members may arrive in any order.
-Ordinary entries are required; unknown or duplicate members are errors.
+values. A structure of ordinary entries can be decoded directly. This traversal
+reads members in declaration order; see [Advanced: custom pipelines](#advanced-custom-pipelines)
+for key-based Try dispatch and its missing-member behavior.
 
 ```cpp
 #include <cassert>
@@ -32,7 +33,6 @@ Ordinary entries are required; unknown or duplicate members are errors.
 #include <hosq/json/fast_reader.hh>
 
 namespace t = hosq::types;
-namespace v = hosq::types::value;
 
 struct User {
   t::Uint64<"id"> id;
@@ -40,25 +40,25 @@ struct User {
 };
 
 int main() {
-  v::Record<User> user;
+  User user;
   const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
-      user, R"({"name":"a\nb","id":42})");
+      user, R"({"id":42,"name":"a\nb"})");
   if (error) return 1;  // error.code, error.offset, and error.detail explain it.
-  assert(user.value().id.value().value() == 42);
-  assert(user.value().name.value().value() == "a\nb");
+  assert(user.id.value().value() == 42);
+  assert(user.name.value().value() == "a\nb");
 }
 ```
 
-`String` owns the decoded string and resolves escapes. `Uint64` checks the
-integer category and range; it does not accept `42.0` or `"42"` as an integer.
-The outer `.value()` accesses the record, then the entry, then its stored value.
+`String` owns the decoded string and resolves escapes through its composed
+pipeline. `Uint64` checks the integer category and range; it does not accept
+`42.0` or `"42"` as an integer. An entry's first `.value()` accesses its Elem;
+the second accesses the stored C++ value.
 
 ## Basic schemas
 
 Named aliases take the key first; their element arguments come from `v`.
-Compose them for nested records, arrays, and dynamic maps.
-`t::Optional<"nickname", v::String>` combines an explicit field-presence policy with
-optional storage so absence can be observed.
+Use the existing `decode::to<S>` step to decode a nested structure. Its
+scanning, storage, and encoding remain explicit pipeline choices.
 
 ```cpp
 #include <cassert>
@@ -71,34 +71,42 @@ namespace v = hosq::types::value;
 struct Address {
   t::String<"city"> city;
 };
+using AddressValue = hosq::Elem<
+    hosq::scan::object | hosq::decode::to<Address> | hosq::store::assign,
+    hosq::encode::value>;
 struct Profile {
-  t::Record<"address", Address> address;
+  t::Field<"address", AddressValue> address;
   t::Array<"tags", v::String> tags;
   t::Mapping<"scores", v::String, v::Int64> scores;
-  t::Optional<"nickname", v::String> nickname;
 };
 
 int main() {
-  v::Record<Profile> profile;
+  Profile profile;
   const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
-      profile, R"({"tags":["cpp"],"scores":{"tests":3},
-                   "address":{"city":"Kyoto"}})");
+      profile, R"({"address":{"city":"Kyoto"},
+                   "tags":["cpp"],"scores":{"tests":3}})");
   if (error) return 1;
-  assert(profile.value().address.value().value().city.value().value() == "Kyoto");
-  assert(profile.value().tags.value().value().at(0) == "cpp");
-  const auto& scores = profile.value().scores.value().value();
+  assert(profile.address.value().value().city.value().value() == "Kyoto");
+  assert(profile.tags.value().value().at(0) == "cpp");
+  const auto& scores = profile.scores.value().value();
   assert(scores.entries().at(0).first == "tests" &&
          scores.entries().at(0).second == 3);
-  assert(!profile.value().nickname.value().value());
 }
 ```
 
-The optional nickname is omitted when this `Record` is encoded. A present
-nickname must be text: `null` does not mean missing. Use `v::Null` when an
-explicit null is part of the schema. Without optional storage, a missing
-`t::Try<t::Field<..., E>>` in this `Record` keeps the default value of `E`
-and encodes that value later. Each typed `Record` decode builds fresh schema
-storage; the legacy in-place dispatch described below preserves prior values.
+To collect an array of structures, compose the traversal directly:
+
+```cpp
+using Users = hosq::Elem<
+    hosq::scan::array
+    | hosq::decode::collect<hosq::scan::object | hosq::decode::to<User>>
+    | hosq::store::assign,
+    hosq::encode::value>;
+```
+
+Its storage is `std::vector<User>`. The nested `User` keeps the decoding and
+encoding rules of its existing schema; wrapping it does not select additional
+unknown-key, duplicate-key, missing-field, or omission policies.
 
 ## Common types
 
@@ -118,7 +126,6 @@ representation and rejects values that its format cannot represent.
 | `Bytes` | Owned `BytesValue` payload and BSON binary subtype |
 | `Array<E>` | `std::vector<E::storage_type>` |
 | `Mapping<K, V>` | `hosq::MappingValue<K::storage_type, V::storage_type>` with paired entries |
-| `Record<S>`, `Object<S>` | A fixed object schema `S` of constant-key entries |
 | `Optional<E>` | `std::optional<E::storage_type>`, for observable absence |
 | `Instant` | `InstantValue`: Unix seconds and a nonnegative nanosecond remainder |
 | `OffsetDateTime` | `OffsetDateTimeValue`: local date/time and offset in minutes |
@@ -128,7 +135,7 @@ representation and rejects values that its format cannot represent.
 | `BsonTimestamp` | `BsonTimestampValue`: logical timestamp seconds and increment, distinct from `Instant` |
 | `Extension` | `ExtensionValue`: signed MessagePack type tag and owned byte payload |
 
-Use `v::Record<User>` or `v::Array<v::Uint64>` for root values. Named fields
+Use a structure directly, or an Elem such as `v::Array<v::Uint64>`, at the root. Named fields
 are in `t = hosq::types`; every scalar and extended alias above has a
 key-first counterpart, such as `t::Uint64<"id">`, `t::String<"name">`, and
 `t::Instant<"created_at">`. Generic numeric fields are `t::Int<"n", T>`,
@@ -139,7 +146,6 @@ as their unkeyed counterparts.
 | --- | --- |
 | `t::Array<"ids", v::Uint64>` | A named array |
 | `t::Mapping<"scores", v::String, v::Int64>` | A named dynamic map |
-| `t::Record<"user", User>`, `t::Object<"user", User>` | Synonyms for a named fixed object |
 | `t::Optional<"nickname", v::String>` | `t::Field<"nickname", v::Optional<v::String>, t::presence::Optional>` |
 | `t::Field<"n", E>` | Exactly `hosq::Entry<hosq::Key<"n">, E>` |
 
@@ -199,22 +205,18 @@ reorder pairs and `emplace_back(key, value)` to append. These operations preserv
 key/value correspondence. The legacy parallel-vector `Map` remains available
 for low-level pipeline scratch storage.
 
-`Record`/`Object` reject duplicate and unknown members. Fields use
-`presence::Required` by default. `t::Optional<K, E>` selects
-`presence::Optional` with optional storage, allowing a missing member and
-omitting an empty field during Record encoding. A field with optional storage
-but required presence still requires its member. The value codec alone decides
-whether a present value accepts `null`; presence never converts null to absence.
+Fields use `presence::Required` by default. `t::Optional<K, E>` combines
+optional presence with `std::optional` storage. In the key-based aggregate
+traversal, every field must be a Try candidate or an optional-presence field;
+a missing member preserves its existing storage. A present member must decode
+as `E`: `null` does not become absence unless `E` explicitly accepts it.
 
-Existing `Try<Entry<...>>` schemas retain their missing/default behavior through
-a compatibility adapter. Within Record, a legacy Try field with empty optional
-storage is omitted. Low-level aggregate traversal preserves existing stored
-values when a member is missing; it does not apply Record's omission policy
-when encoding. An empty optional value there, or at the root/in an array, is an
-encoding error. Explicit `Null`, a missing member, and an empty optional remain
-separate states.
+Encoding writes the aggregate's fields. An empty optional has no encoded value
+and is an error; it is not automatically omitted or replaced with null.
+Explicit `Null`, a missing member, and an empty optional remain separate
+states. To control omission, supply an explicit encoder pipeline.
 
-Mapping key comparisons resolve raw text, compare nested object members
+Mapping key comparisons use decoded values, compare nested object members
 independent of input order, and otherwise use value equality. Floating keys
 follow C++ equality (`NaN` is not equal to itself). Duplicate detection is
 quadratic in the member count; this is intended for typed schema data rather
@@ -315,21 +317,21 @@ struct User {
 };
 
 int main() {
-  v::Record<User> user;
-  user.value().id.value().value() = 42;
-  user.value().name.value().value() = "Ada";
+  User user;
+  user.id.value().value() = 42;
+  user.name.value().value() = "Ada";
   std::string output;
   hosq::msgpack::Writer writer{output};
   if (!hosq::encode_into(user, writer)) {
     // Inspect writer.error(); discard partial output on failure.
     return 1;
   }
-  v::Record<User> decoded;
+  User decoded;
   const auto error = hosq::decode_document_into<hosq::msgpack::Reader<>>(
       decoded, output);
   if (error) return 1;
-  assert(decoded.value().name.value().value() == "Ada");
-  assert(decoded.value().id.value().value() == 42);
+  assert(decoded.name.value().value() == "Ada");
+  assert(decoded.id.value().value() == 42);
 }
 ```
 
@@ -349,11 +351,10 @@ strings, explicit `nullptr`, `BytesValue`/`BytesView`, populated `optional`,
 active `variant`, ranges (arrays), `Map` with equally sized key/value ranges,
 and nested schemas, subject to each format's restrictions. The extended
 values follow the [format support table](#extended-values-and-format-support).
-A missing optional outside an omittable `Try` record member, a valueless
-variant, an unsupported value, or `noop_encoder` produces an error. `Try`
-alone controls decoding dispatch; omission requires the optional record member
-described in [Basic schemas](#basic-schemas). Reader-only schemas must provide
-encoder pipelines before they can be encoded.
+An empty optional, a valueless variant, an unsupported value, or `noop_encoder`
+produces an error. `Try` controls decoding dispatch and does not provide an
+encoding omission policy. Reader-only schemas must provide encoder pipelines
+before they can be encoded.
 
 MessagePack chooses the smallest integer and length/count representation;
 float storage emits float32, double emits float64. Arrays/maps can be emitted
@@ -521,7 +522,7 @@ is a `Try` wrapper. All-`Try` entry tuples dispatch object members by key;
 missing members preserve their existing storage. Unknown members fail unless
 a pipeline explicitly handles them. Duplicate handling depends on the
 pipelines: for example, `store::assign` overwrites while `store::once` can reject
-a repeat. This differs from the closed, duplicate-rejecting `v::Record<S>`.
+a repeat.
 
 All-`Try` element tuples dispatch array elements. Matching candidates
 are tried left to right; an unmatched `MatchResult` without a reader error
@@ -547,11 +548,9 @@ state; invalid new input may produce a new error. `Decoder::decode` and
 `Decoder::decode_document` reset their internal Reader for each new input, as
 do the `decode_into` and `decode_document_into` convenience functions.
 
-Encoding a legacy all-`Try` aggregate writes every field, including fields
-missing during decoding; `Try` does not track presence or choose an alternative
-to emit. Empty optionals in this aggregate are errors. The omission described
-in [Basic schemas](#basic-schemas) belongs specifically to `v::Record`/`v::Object`
-and their optional-presence members (including the legacy `Try` adapter).
+Encoding an all-`Try` aggregate writes every field, including fields missing
+during decoding; `Try` does not track presence or choose an alternative to
+emit. Empty optionals in this aggregate are errors.
 
 Matching is a distinct pipeline effect. `match::literal<V>` and
 `match::predicate<F>` produce library-controlled `MatchResult<T>` values;
@@ -576,7 +575,7 @@ auto error = decode_into<json::SimpleReader>(choices, "[1,2]");
 ```
 
 A matching Elem is rejected at compile time as a direct root, an ordinary
-fixed tuple/member, or a typed Array/Mapping/Record/Optional value. Both
+fixed tuple/member, or a typed Array/Mapping/Optional value. Both
 `decode_into` and `decode_document_into` enforce this restriction. Use a
 validation step (for example `validate::match<1>`) for a required value that
 must report a validation error, and Try for candidate selection. Field
