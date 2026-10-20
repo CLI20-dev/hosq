@@ -14,6 +14,7 @@
 #include "hosq/decode_outcome.hh"
 #include "hosq/entry.hh"
 #include "hosq/map.hh"
+#include "hosq/mapping_value.hh"
 #include "hosq/pipeline/encode.hh"
 #include "hosq/pipeline/store.hh"
 #include "hosq/pipeline/typed_decode.hh"
@@ -138,6 +139,19 @@ auto container_equal(const T& a, const T& b) -> bool {
     std::string left, right;
     return resolve_raw_text(a, left) && resolve_raw_text(b, right) &&
            left == right;
+  } else if constexpr (IsMappingValue<U>::value) {
+    if (a.size() != b.size()) return false;
+    for (const auto& [key, value] : a) {
+      bool found = false;
+      for (const auto& [other_key, other_value] : b)
+        if (container_equal(key, other_key) &&
+            container_equal(value, other_value)) {
+          found = true;
+          break;
+        }
+      if (!found) return false;
+    }
+    return true;
   } else if constexpr (IsEncodeMap<U>::value) {
     if (a.keys().size() != a.values().size() ||
         b.keys().size() != b.values().size() ||
@@ -210,8 +224,8 @@ struct TypedArrayImpl {
 
 template <hosq::detail::ElemT K, hosq::detail::ElemT V>
 struct TypedMappingImpl {
-  using result_type = Map<std::vector<typename K::storage_type>,
-                          std::vector<typename V::storage_type>>;
+  using result_type =
+      MappingValue<typename K::storage_type, typename V::storage_type>;
   template <class Context>
     requires(!std::is_const_v<Context>)
   auto operator()(Context& ctx) const -> result_type {
@@ -226,9 +240,8 @@ struct TypedMappingImpl {
       if (reader.current_token(state).type == TokenType::ObjectEnd) break;
       auto key = hosq::detail::decode_container_element<K>(reader, state);
       if (reader.error(state)) break;
-      for (std::size_t i = 0; i < result.keys().size(); ++i) {
-        const typename K::storage_type& existing = result.keys()[i];
-        if (hosq::detail::container_equal(existing, key))
+      for (const auto& entry : result) {
+        if (hosq::detail::container_equal(entry.first, key))
           return hosq::detail::container_error<result_type>(
               ctx, ErrorCode::duplicate_member,
               "typed mapping has duplicate key");
@@ -236,8 +249,7 @@ struct TypedMappingImpl {
       if (!hosq::next_token<Expect::member_value>(reader, state)) break;
       auto value = hosq::detail::decode_container_element<V>(reader, state);
       if (reader.error(state)) break;
-      result.keys().push_back(std::move(key));
-      result.values().push_back(std::move(value));
+      result.emplace_back(std::move(key), std::move(value));
     }
     return result;
   }
@@ -357,26 +369,22 @@ struct TypedArrayImpl {
 
 template <hosq::detail::ElemT K, hosq::detail::ElemT V>
 struct TypedMappingImpl {
-  using value_type = Map<std::vector<typename K::storage_type>,
-                         std::vector<typename V::storage_type>>;
+  using value_type =
+      MappingValue<typename K::storage_type, typename V::storage_type>;
   template <class Context>
     requires(!std::is_const_v<Context>)
   auto operator()(const value_type& value, Context& ctx) const -> void {
     auto& writer = ctx.writer();
-    if (value.keys().size() != value.values().size()) {
-      (void)hosq::detail::encode_error(writer, ErrorCode::size_mismatch,
-                                       "typed mapping key/value lengths differ");
-      return;
-    }
-    if (hosq::detail::duplicate_container_keys(value.keys())) {
+    if (hosq::detail::duplicate_container_keys(value.entries() |
+                                               std::views::keys)) {
       (void)hosq::detail::encode_error(writer, ErrorCode::duplicate_member,
                                        "typed mapping has duplicate key");
       return;
     }
     if (!hosq::detail::encode_token(writer, TokenType::ObjectBegin)) return;
-    for (std::size_t i = 0; i < value.keys().size(); ++i)
-      if (!hosq::detail::encode_container_element<K>(value.keys()[i], writer) ||
-          !hosq::detail::encode_container_element<V>(value.values()[i], writer))
+    for (const auto& [key, item] : value)
+      if (!hosq::detail::encode_container_element<K>(key, writer) ||
+          !hosq::detail::encode_container_element<V>(item, writer))
         return;
     (void)hosq::detail::encode_token(writer, TokenType::ObjectEnd);
   }

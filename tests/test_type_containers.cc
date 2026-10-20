@@ -3,6 +3,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "hosq/bson/reader.hh"
@@ -51,7 +52,7 @@ static_assert(std::same_as<typename t::Array<t::Int<int>>::storage_type,
                            std::vector<int>>);
 static_assert(
     std::same_as<typename t::Mapping<t::Text, t::Int<int>>::storage_type,
-                 Map<std::vector<std::string>, std::vector<int>>>);
+                 MappingValue<std::string, int>>);
 static_assert(std::same_as<t::Object<Schema>, Record>);
 
 TEST(TypeContainers, NestedArrayStrictShapeAndReset) {
@@ -130,29 +131,34 @@ TEST(TypeContainers, MissingNullAndEmptyOptionalAreDifferent) {
   (void)write<msgpack::Writer<>>(required, &error);
   EXPECT_EQ(error.code, EC::invalid_object_state);
 }
-TEST(TypeContainers, MappingDuplicatesAndUnpairedStorage) {
+TEST(TypeContainers, MappingDuplicatesAndPairedMutations) {
   t::Mapping<t::Text, t::Int<int>> value;
   ASSERT_TRUE(read<json::SimpleReader>(value, R"({"x":1,"y":2})").is_ok());
-  EXPECT_EQ(value.value().keys(), (std::vector<std::string>{"x", "y"}));
+  EXPECT_EQ(value.value().entries(),
+            (std::vector<std::pair<std::string, int>>{{"x", 1}, {"y", 2}}));
   EXPECT_EQ(read<json::SimpleReader>(value, R"({"x":1,"\u0078":2})").code,
             EC::duplicate_member);
   t::Mapping<t::RawText, t::Int<int>> raw;
   EXPECT_EQ(read<json::SimpleReader>(raw, R"({"x":1,"\u0078":2})").code,
             EC::duplicate_member);
-  value.value().keys() = {"x", "x"};
-  value.value().values() = {1, 2};
+  value.value().entries() = {{"x", 1}, {"x", 2}};
   Error error;
   (void)write<msgpack::Writer<>>(value, &error);
   EXPECT_EQ(error.code, EC::duplicate_member);
-  value.value().keys() = {"x"};
-  (void)write<msgpack::Writer<>>(value, &error);
-  EXPECT_EQ(error.code, EC::size_mismatch);
   // The legacy JSON writer has no report_error and collapses semantic errors
   // to invalid_state through encode_error; failure still must be observable.
   (void)write<json::CompactWriter<>>(value, &error);
   EXPECT_FALSE(error.is_ok());
-  raw.value().keys() = {{"x", Format::json}, {"\\u0078", Format::json}};
-  raw.value().values() = {1, 2};
+  value.value().entries().erase(value.value().begin());
+  value.value().emplace_back("y", 3);
+  std::swap(value.value().entries()[0], value.value().entries()[1]);
+  EXPECT_EQ(write<json::CompactWriter<>>(value), R"({"y":3,"x":2})");
+  decltype(value) decoded;
+  ASSERT_TRUE(
+      read<msgpack::Reader<>>(decoded, write<msgpack::Writer<>>(value)).is_ok());
+  EXPECT_EQ(decoded.value().entries(), value.value().entries());
+  raw.value().entries() = {{{"x", Format::json}, 1},
+                           {{"\\u0078", Format::json}, 2}};
   (void)write<msgpack::Writer<>>(raw, &error);
   EXPECT_EQ(error.code, EC::duplicate_member);
   t::Mapping<t::Int<int>, t::Int<int>> numeric;
@@ -175,6 +181,27 @@ TEST(TypeContainers, MessagePackComplexKeysCompareSemanticValues) {
   input = std::string("\x82\x81\xa1", 3) + "n" +
           std::string("\x01\x02\x81\xa1", 4) + "n" + std::string("\x01\x03", 2);
   EXPECT_EQ(read<msgpack::Reader<>>(records, input).code, EC::duplicate_member);
+}
+TEST(TypeContainers, MappingKeysEncodeWithSemanticEquality) {
+  t::Mapping<t::Mapping<t::Text, t::Int<int>>, t::Int<int>> objects;
+  MappingValue<std::string, int> key;
+  key.entries() = {{"a", 1}, {"b", 2}};
+  objects.value().emplace_back(key, 3);
+  std::swap(key.entries()[0], key.entries()[1]);
+  objects.value().emplace_back(key, 4);
+  Error error;
+  (void)write<msgpack::Writer<>>(objects, &error);
+  EXPECT_EQ(error.code, EC::duplicate_member);
+
+  objects.value().entries()[1].first.entries()[0].second = 5;
+  const auto encoded = write<msgpack::Writer<>>(objects);
+  decltype(objects) decoded;
+  ASSERT_TRUE(read<msgpack::Reader<>>(decoded, encoded).is_ok());
+  ASSERT_EQ(decoded.value().size(), 2u);
+  EXPECT_EQ(decoded.value().entries()[0].first.entries(),
+            objects.value().entries()[0].first.entries());
+  EXPECT_EQ(decoded.value().entries()[1].first.entries(),
+            objects.value().entries()[1].first.entries());
 }
 template <class W, class R>
 void roundtrip(const Record& original) {
@@ -227,8 +254,7 @@ TEST(TypeContainers, CodecRootAndKeyRestrictionsApply) {
   (void)write<toml::Writer<>>(array, &error);
   EXPECT_FALSE(error.is_ok());
   t::Mapping<t::Int<int>, t::Text> map;
-  map.value().keys() = {1};
-  map.value().values() = {"x"};
+  map.value().entries() = {{1, "x"}};
   (void)write<json::CompactWriter<>>(map, &error);
   EXPECT_FALSE(error.is_ok());
   (void)write<bson::Writer<>>(map, &error);
@@ -238,8 +264,7 @@ TEST(TypeContainers, CodecRootAndKeyRestrictionsApply) {
   auto encoded = write<msgpack::Writer<>>(map);
   decltype(map) decoded;
   ASSERT_TRUE(read<msgpack::Reader<>>(decoded, encoded).is_ok());
-  EXPECT_EQ(decoded.value().keys(), map.value().keys());
-  EXPECT_EQ(decoded.value().values(), map.value().values());
+  EXPECT_EQ(decoded.value().entries(), map.value().entries());
 }
 TEST(TypeContainers, BoolVectorProxiesEncodeAndCompare) {
   t::Array<t::Bool> array;
@@ -250,17 +275,15 @@ TEST(TypeContainers, BoolVectorProxiesEncodeAndCompare) {
   ASSERT_TRUE(read<msgpack::Reader<>>(decoded, encoded).is_ok());
   EXPECT_EQ(decoded.value(), array.value());
   t::Mapping<t::Bool, t::Bool> map;
-  map.value().keys() = {true, false};
-  map.value().values() = {false, true};
+  map.value().entries() = {{true, false}, {false, true}};
   const auto mapping = write<msgpack::Writer<>>(map);
   decltype(map) decoded_map;
   ASSERT_TRUE(read<msgpack::Reader<>>(decoded_map, mapping).is_ok());
-  EXPECT_EQ(decoded_map.value().keys(), map.value().keys());
-  EXPECT_EQ(decoded_map.value().values(), map.value().values());
+  EXPECT_EQ(decoded_map.value().entries(), map.value().entries());
   const std::string duplicate("\x82\xc3\xc2\xc3\xc3", 5);
   EXPECT_EQ(read<msgpack::Reader<>>(decoded_map, duplicate).code,
             EC::duplicate_member);
-  map.value().keys() = {true, true};
+  map.value().entries()[1].first = true;
   Error error;
   (void)write<msgpack::Writer<>>(map, &error);
   EXPECT_EQ(error.code, EC::duplicate_member);
@@ -274,8 +297,7 @@ TEST(TypeContainers, ReaderOnlyNestedElementsCannotDisappearDuringEncoding) {
   (void)write<msgpack::Writer<>>(array, &error);
   EXPECT_EQ(error.code, EC::unsupported_type);
   t::Mapping<t::Text, ReaderOnly> map;
-  map.value().keys() = {"x"};
-  map.value().values() = {42};
+  map.value().entries() = {{"x", 42}};
   (void)write<msgpack::Writer<>>(map, &error);
   EXPECT_EQ(error.code, EC::unsupported_type);
   struct S {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -42,5 +43,12 @@ class MappingValue {
  private:
   storage_type entries_{};
 };
+
+namespace detail {
+template <class T>
+struct IsMappingValue : std::false_type {};
+template <class K, class V>
+struct IsMappingValue<MappingValue<K, V>> : std::true_type {};
+}  // namespace detail
 
 }  // namespace hosq

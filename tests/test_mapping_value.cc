@@ -14,6 +14,8 @@
 namespace {
 using hosq::MappingValue;
 using TextMapping = MappingValue<std::string, int>;
+static_assert(hosq::detail::IsMappingValue<TextMapping>::value);
+static_assert(!hosq::detail::IsMappingValue<std::vector<int>>::value);
 static_assert(
     std::same_as<TextMapping::entry_type, std::pair<std::string, int>>);
 static_assert(std::same_as<TextMapping::storage_type,
