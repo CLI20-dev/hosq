@@ -64,8 +64,7 @@ struct EntryTuple : std::false_type {};
 template <class T>
 struct IsConstKeyEntry : std::false_type {};
 
-template <StringLiteral K, detail::ElemT Value>
-
+template <StringLiteral K, class Value>
 struct IsConstKeyEntry<::hosq::Entry<::hosq::Key<K>, Value>> : std::true_type {};
 
 template <class T>

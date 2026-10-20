@@ -57,8 +57,9 @@ the second accesses the stored C++ value.
 ## Basic schemas
 
 Named aliases take the key first; their element arguments come from `v`.
-Use the existing `decode::to<S>` step to decode a nested structure. Its
-scanning, storage, and encoding remain explicit pipeline choices.
+An `Entry` also accepts an existing aggregate schema directly as its key or
+value. For nested objects, it connects that schema to the ordinary
+`scan::object | decode::to<S> | store::assign` and `encode::value` pipelines.
 
 ```cpp
 #include <cassert>
@@ -71,11 +72,8 @@ namespace v = hosq::types::value;
 struct Address {
   t::String<"city"> city;
 };
-using AddressValue = hosq::Elem<
-    hosq::scan::object | hosq::decode::to<Address> | hosq::store::assign,
-    hosq::encode::value>;
 struct Profile {
-  t::Field<"address", AddressValue> address;
+  hosq::Entry<hosq::Key<"address">, Address> address;
   t::Array<"tags", v::String> tags;
   t::Mapping<"scores", v::String, v::Int64> scores;
 };
@@ -93,6 +91,19 @@ int main() {
          scores.entries().at(0).second == 3);
 }
 ```
+
+The first `.value()` still returns the Elem used by the Entry; the second
+returns the stored `Address`. Existing Elem arguments retain their exact
+types. An array-shaped aggregate schema uses `scan::array` instead. Accepted
+schemas follow the existing Decoder contract: their fields must be Elems or
+Entries, or an aggregate with actual Try dispatch. Plain C++ data structures
+such as `struct { int n; }` do not acquire automatic parsing rules.
+
+For example, `Entry<Address, v::Int64>` uses an object as its key. MessagePack
+can represent such keys; JSON, BSON and TOML retain their string-key
+restrictions. All traversal, validation and matching behavior comes from the
+existing schema and pipeline steps. Entry adds no unknown-key, duplicate-key,
+missing-field or omission policy.
 
 To collect an array of structures, compose the traversal directly:
 

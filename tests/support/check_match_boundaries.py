@@ -34,6 +34,12 @@ REJECTED = {
     40: "presence Optional field mixed with Try field",
     41: "raw bool Elem terminal with storage",
     42: "reader-specific presence Optional field without Try",
+    43: "Entry aggregate value containing ordinary matching field",
+    44: "Entry aggregate key containing ordinary matching field",
+    45: "Entry array aggregate containing ordinary matching element",
+    46: "Entry aggregate with reader-specific matching field",
+    47: "Try Entry cannot enable matching inside ordinary nested fields",
+    48: "Entry aggregate outside the existing schema contract",
 }
 ACCEPTED = {
     100: "Try candidate dispatch", 101: "root validation",
@@ -42,6 +48,10 @@ ACCEPTED = {
     105: "matched false bool payload", 106: "stored ordinary bool",
     107: "presence Optional field without matching",
     108: "Try constant-key matching field",
+    109: "Entry aggregate value",
+    110: "Entry aggregate containing real Try dispatch",
+    111: "Entry array aggregate",
+    112: "Entry aggregate with reader-specific ordinary pipeline",
 }
 
 

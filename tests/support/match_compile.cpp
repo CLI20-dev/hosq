@@ -263,6 +263,54 @@ int main() {
     types::Field<"n", OptionalReaderSpecific, types::presence::Optional> value;
   } value;
   (void)decode_into<json::FastReader<>>(value, R"({"n":1})");
+#elif HOSQ_MATCH_CASE == 43
+  struct Nested {
+    Entry<Key<"n">, Candidate> n;
+  };
+  struct Schema {
+    Entry<Key<"nested">, Nested> nested;
+  } value;
+  (void)decode_into<Reader>(value, R"({"nested":{"n":1}})");
+#elif HOSQ_MATCH_CASE == 44
+  struct Nested {
+    Entry<Key<"n">, Candidate> n;
+  };
+  struct Schema {
+    Entry<Nested, v::Int64> entry;
+  } value;
+  (void)value;
+#elif HOSQ_MATCH_CASE == 45
+  struct Nested {
+    Candidate n;
+  };
+  struct Schema {
+    Entry<Key<"nested">, Nested> nested;
+  } value;
+  (void)decode_into<Reader>(value, R"({"nested":[1]})");
+#elif HOSQ_MATCH_CASE == 46
+  struct Nested {
+    Entry<Key<"n">, ReaderSpecificValue> n;
+  };
+  struct Schema {
+    Entry<Key<"nested">, Nested> nested;
+  } value;
+  (void)decode_into<json::FastReader<>>(value, R"({"nested":{"n":1}})");
+#elif HOSQ_MATCH_CASE == 47
+  struct Nested {
+    Entry<Key<"n">, Candidate> n;
+  };
+  struct Schema {
+    Try<Entry<Key<"nested">, Nested>> nested;
+  } value;
+  (void)decode_into<Reader>(value, R"({"nested":{"n":1}})");
+#elif HOSQ_MATCH_CASE == 48
+  struct NotSchema {
+    int n;
+  };
+  struct Schema {
+    Entry<Key<"nested">, NotSchema> nested;
+  } value;
+  (void)value;
 #elif HOSQ_MATCH_CASE == 100
   struct Choices {
     Try<Candidate> one;
@@ -331,6 +379,45 @@ int main() {
   } value;
   const auto error = decode_document_into<Reader>(value, R"({"n":1})");
   return !error.is_ok() || value.value.value().value() != 1;
+#elif HOSQ_MATCH_CASE == 109
+  struct Nested {
+    Entry<Key<"n">, v::Int64> n;
+  };
+  struct Schema {
+    Entry<Key<"nested">, Nested> nested;
+  } value;
+  const auto error =
+      decode_document_into<json::FastReader<>>(value, R"({"nested":{"n":2}})");
+  return !error.is_ok() || value.nested->n.value().value() != 2;
+#elif HOSQ_MATCH_CASE == 110
+  struct Nested {
+    Try<Entry<Key<"n">, Candidate>> n;
+  };
+  struct Schema {
+    Entry<Key<"nested">, Nested> nested;
+  } value;
+  const auto error =
+      decode_document_into<json::FastReader<>>(value, R"({"nested":{"n":1}})");
+  return !error.is_ok() || value.nested->n.value().value() != 1;
+#elif HOSQ_MATCH_CASE == 111
+  struct Nested {
+    v::Int64 n;
+  };
+  struct Schema {
+    Entry<Key<"nested">, Nested> nested;
+  } value;
+  const auto error = decode_document_into<Reader>(value, R"({"nested":[2]})");
+  return !error.is_ok() || value.nested->n.value() != 2;
+#elif HOSQ_MATCH_CASE == 112
+  struct Nested {
+    Entry<Key<"n">, ReaderSpecificValue> n;
+  };
+  struct Schema {
+    Entry<Key<"nested">, Nested> nested;
+  } value;
+  const auto error =
+      decode_document_into<Reader>(value, R"({"nested":{"n":2}})");
+  return !error.is_ok() || value.nested->n.value().value() != 2;
 #else
 #error Unknown HOSQ_MATCH_CASE
 #endif
