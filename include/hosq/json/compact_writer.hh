@@ -91,6 +91,9 @@ class CompactWriter {
   }
 
  private:
+  template <class>
+  friend struct ::hosq::detail::WriterErrorAccess;
+
   enum class FrameKind : std::uint8_t {
     object,
     array,
@@ -129,14 +132,16 @@ class CompactWriter {
   auto fail(ErrorCode code, std::string_view detail = "") noexcept
       -> buffer_type {
     if (!error_.has_error()) {
-      error_ = Error{.code = code, .offset = output_.size(), .detail = detail};
+      error_ = ::hosq::detail::ErrorInfo{
+          .code = code, .offset = output_.size(), .detail = detail};
     }
     return {};
   }
 
   auto fail_bool(ErrorCode code, std::string_view detail = "") noexcept -> bool {
     if (!error_.has_error()) {
-      error_ = Error{.code = code, .offset = output_.size(), .detail = detail};
+      error_ = ::hosq::detail::ErrorInfo{
+          .code = code, .offset = output_.size(), .detail = detail};
     }
     return false;
   }
@@ -301,12 +306,26 @@ class CompactWriter {
   bool finished_{false};
 
   Pending pending_{};
-  Error error_{Error::ok()};
+  ::hosq::detail::ErrorInfo error_{::hosq::detail::ErrorInfo::ok()};
 };
 
 static_assert(WriterConcept<CompactWriter<>>);
 
 }  // namespace json
+
+namespace detail {
+template <std::size_t MaxDepth>
+struct WriterErrorAccess<json::CompactWriter<MaxDepth>> {
+  static auto get(const json::CompactWriter<MaxDepth>& writer) noexcept
+      -> ErrorState {
+    return {writer.error_.code};
+  }
+  static void report(json::CompactWriter<MaxDepth>& writer,
+                     ErrorInfo error) noexcept {
+    if (!writer.error_) writer.error_ = error;
+  }
+};
+}  // namespace detail
 
 template <std::size_t MaxDepth>
 struct WriterTraits<json::CompactWriter<MaxDepth>> {

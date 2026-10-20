@@ -230,4 +230,60 @@ struct Error {
   }
 };
 
+namespace detail {
+
+// Internal propagation is exactly one code. Location/detail belong to the
+// Reader's diagnostic state; owned paths exist only in the public Error.
+struct ErrorState {
+  ErrorCode code{ErrorCode::unknown_error};
+  [[nodiscard]] static constexpr auto ok() noexcept -> ErrorState {
+    return {ErrorCode::ok};
+  }
+  [[nodiscard]] constexpr auto is_ok() const noexcept -> bool {
+    return code == ErrorCode::ok;
+  }
+  [[nodiscard]] constexpr auto has_error() const noexcept -> bool {
+    return !is_ok();
+  }
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return has_error();
+  }
+  [[nodiscard]] constexpr auto kind() const noexcept -> ErrorKind {
+    return kind_of(code);
+  }
+};
+static_assert(sizeof(ErrorState) == sizeof(ErrorCode));
+
+// Latched Reader/Writer diagnostics, never used as the propagated status.
+// No owned data or nontrivial lifecycle is introduced into a Reader state.
+struct ErrorInfo {
+  ErrorCode code{ErrorCode::unknown_error};
+  std::size_t offset{0};
+  std::string_view detail{};
+  [[nodiscard]] static constexpr auto ok() noexcept -> ErrorInfo {
+    return {ErrorCode::ok, 0, ""};
+  }
+  [[nodiscard]] constexpr auto is_ok() const noexcept -> bool {
+    return code == ErrorCode::ok;
+  }
+  [[nodiscard]] constexpr auto has_error() const noexcept -> bool {
+    return !is_ok();
+  }
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return has_error();
+  }
+  [[nodiscard]] constexpr auto kind() const noexcept -> ErrorKind {
+    return kind_of(code);
+  }
+  [[nodiscard]] operator hosq::Error() const { return {code, offset, detail}; }
+  auto operator=(const hosq::Error& error) noexcept -> ErrorInfo& {
+    code = error.code;
+    offset = error.offset;
+    detail = error.detail;
+    return *this;
+  }
+};
+
+}  // namespace detail
+
 }  // namespace hosq

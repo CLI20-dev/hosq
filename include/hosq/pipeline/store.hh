@@ -80,9 +80,9 @@ struct OnceImpl {
   template <class Input, class Context>
   auto operator()(Input&& value, Context& ctx) const -> void {
     if (ctx.value().has_value()) [[unlikely]] {
-      ctx.reader().report_error(
-          ctx.reader_state(),
-          Error{
+      ::hosq::detail::report_reader_error(
+          ctx.reader(), ctx.reader_state(),
+          ::hosq::detail::ErrorInfo{
               .code = ErrorCode::duplicate_member,
               .offset = ctx.reader().current_token(ctx.reader_state()).offset,
               .detail = "store::once already has a value",

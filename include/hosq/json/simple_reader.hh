@@ -7,6 +7,7 @@
 
 #include "hosq/bytes_view.hh"
 #include "hosq/error.hh"
+#include "hosq/json/scalar_codec.hh"
 #include "hosq/reader_base.hh"
 
 namespace hosq {
@@ -35,7 +36,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
     Token token{.offset = 0, .length = 0, .type = TokenType::End, .context = 0};
 
     mutable bool has_error = false;
-    mutable Error error;
+    mutable hosq::detail::ErrorInfo error;
 
     struct Checkpoint {
       size_t pos;
@@ -69,7 +70,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
                         .type = TokenType::End,
                         .context = static_cast<uint8_t>(JsonTokenContext::none)};
     state.has_error = false;
-    state.error = Error::ok();
+    state.error = hosq::detail::ErrorInfo::ok();
   }
 
   [[nodiscard]]
@@ -108,7 +109,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
     if (state.pos >= state.input.size()) {
       if (state.token.type == TokenType::End) {
         state.has_error = true;
-        state.error = Error{
+        state.error = hosq::detail::ErrorInfo{
             .code = ErrorCode::unexpected_eof,
             .offset = state.pos,
             .detail = "expected JSON value",
@@ -123,7 +124,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
         return true;
       }
       state.has_error = true;
-      state.error = Error{
+      state.error = hosq::detail::ErrorInfo{
           .code = ErrorCode::unexpected_eof,
           .offset = state.pos,
           .detail = "Unexpected end of input",
@@ -137,7 +138,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
           if (!state.context.empty() &&
               state.context.back() == Context::ObjectKey) [[unlikely]] {
             state.has_error = true;
-            state.error = Error{
+            state.error = hosq::detail::ErrorInfo{
                 .code = ErrorCode::unexpected_token,
                 .offset = state.pos,
                 .detail = "Unexpected token '{'",
@@ -154,7 +155,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
             state.pos++;
             if (state.pos >= state.input.size()) [[unlikely]] {
               state.has_error = true;
-              state.error = Error{
+              state.error = hosq::detail::ErrorInfo{
                   .code = ErrorCode::unexpected_eof,
                   .offset = state.pos,
                   .detail = "Unexpected end of input after '{'",
@@ -173,7 +174,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
           // we encounter '}' in parse_string or parse_literal, thus this is
           // unexpected token.
           state.has_error = true;
-          state.error = Error{
+          state.error = hosq::detail::ErrorInfo{
               .code = ErrorCode::unexpected_token,
               .offset = state.pos,
               .detail = "Unexpected token '}'",
@@ -183,7 +184,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
           if (!state.context.empty() &&
               state.context.back() == Context::ObjectKey) [[unlikely]] {
             state.has_error = true;
-            state.error = Error{
+            state.error = hosq::detail::ErrorInfo{
                 .code = ErrorCode::unexpected_token,
                 .offset = state.pos,
                 .detail = "Unexpected token '['",
@@ -200,7 +201,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
             state.pos++;
             if (state.pos >= state.input.size()) [[unlikely]] {
               state.has_error = true;
-              state.error = Error{
+              state.error = hosq::detail::ErrorInfo{
                   .code = ErrorCode::unexpected_eof,
                   .offset = state.pos,
                   .detail = "Unexpected end of input after '['",
@@ -219,7 +220,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
           // we encounter ']' in parse_string or parse_literal, thus this is
           // unexpected token.
           state.has_error = true;
-          state.error = Error{
+          state.error = hosq::detail::ErrorInfo{
               .code = ErrorCode::unexpected_token,
               .offset = state.pos,
               .detail = "Unexpected token ']'",
@@ -269,7 +270,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
       case ']':
       case '}':
         state.has_error = true;
-        state.error = Error{
+        state.error = hosq::detail::ErrorInfo{
             .code = ErrorCode::unexpected_token,
             .offset = state.pos,
             .detail = "Unexpected token while parsing value",
@@ -301,7 +302,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
                 return true;
               }
               state.has_error = true;
-              state.error = Error{
+              state.error = hosq::detail::ErrorInfo{
                   .code = ErrorCode::unexpected_eof,
                   .offset = state.pos,
                   .detail = "Unexpected end of input after string",
@@ -313,7 +314,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
             case ':':
               if (state.context.back() != Context::ObjectKey) [[unlikely]] {
                 state.has_error = true;
-                state.error = Error{
+                state.error = hosq::detail::ErrorInfo{
                     .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ':' after string",
@@ -329,7 +330,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
               if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0011) ==
                   0) [[unlikely]] {
                 state.has_error = true;
-                state.error = Error{
+                state.error = hosq::detail::ErrorInfo{
                     .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ',' after string",
@@ -345,7 +346,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
               if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) ==
                   0) [[unlikely]] {
                 state.has_error = true;
-                state.error = Error{
+                state.error = hosq::detail::ErrorInfo{
                     .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ']' after string",
@@ -359,7 +360,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
                   (static_cast<uint8_t>(state.context.back()) & 0b0000'0100) ==
                       0) [[unlikely]] {
                 state.has_error = true;
-                state.error = Error{
+                state.error = hosq::detail::ErrorInfo{
                     .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token '}' after string",
@@ -370,7 +371,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
               break;
             default:
               state.has_error = true;
-              state.error = Error{
+              state.error = hosq::detail::ErrorInfo{
                   .code = ErrorCode::unexpected_token,
                   .offset = state.pos,
                   .detail = "Invalid token after string",
@@ -387,7 +388,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
       }
     }
     state.has_error = true;
-    state.error = Error{
+    state.error = hosq::detail::ErrorInfo{
         .code = ErrorCode::unexpected_eof,
         .offset =
             state.pos > state.input.size() ? state.input.size() : state.pos,
@@ -416,7 +417,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
     if (state.context.empty()) {
       if (state.pos < state.input.size()) {
         state.has_error = true;
-        state.error = Error{
+        state.error = hosq::detail::ErrorInfo{
             .code = ErrorCode::trailing_data,
             .offset = state.pos,
             .detail = "non-whitespace data after root value",
@@ -427,7 +428,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
     }
     if (state.pos >= state.input.size()) [[unlikely]] {
       state.has_error = true;
-      state.error = Error{
+      state.error = hosq::detail::ErrorInfo{
           .code = ErrorCode::unexpected_eof,
           .offset = state.pos,
           .detail = "Unexpected end of input after container",
@@ -438,7 +439,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
       case ',':
         if (state.context.back() == Context::ObjectKey) [[unlikely]] {
           state.has_error = true;
-          state.error = Error{
+          state.error = hosq::detail::ErrorInfo{
               .code = ErrorCode::unexpected_token,
               .offset = state.pos,
               .detail = "Unexpected token ',' after container",
@@ -453,7 +454,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
         if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) == 0)
             [[unlikely]] {
           state.has_error = true;
-          state.error = Error{
+          state.error = hosq::detail::ErrorInfo{
               .code = ErrorCode::unexpected_token,
               .offset = state.pos,
               .detail = "Unexpected token ']' after container",
@@ -466,7 +467,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
         if (static_cast<uint8_t>(state.context.back()) & 0b0000'0010)
             [[unlikely]] {
           state.has_error = true;
-          state.error = Error{
+          state.error = hosq::detail::ErrorInfo{
               .code = ErrorCode::unexpected_token,
               .offset = state.pos,
               .detail = "Unexpected token '}' after container",
@@ -477,7 +478,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
         return true;
       default:
         state.has_error = true;
-        state.error = Error{
+        state.error = hosq::detail::ErrorInfo{
             .code = ErrorCode::unexpected_token,
             .offset = state.pos,
             .detail = "Invalid token after container",
@@ -493,7 +494,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
           if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) == 0)
               [[unlikely]] {
             state.has_error = true;
-            state.error = Error{
+            state.error = hosq::detail::ErrorInfo{
                 .code = ErrorCode::unexpected_token,
                 .offset = state.pos,
                 .detail = "Unexpected token ']' after literal",
@@ -507,7 +508,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
           if (static_cast<uint8_t>(state.context.back()) & 0b0000'0010)
               [[unlikely]] {
             state.has_error = true;
-            state.error = Error{
+            state.error = hosq::detail::ErrorInfo{
                 .code = ErrorCode::unexpected_token,
                 .offset = state.pos,
                 .detail = "Unexpected token '}' after literal",
@@ -520,7 +521,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
         case ',':
           if (state.context.back() == Context::ObjectKey) [[unlikely]] {
             state.has_error = true;
-            state.error = Error{
+            state.error = hosq::detail::ErrorInfo{
                 .code = ErrorCode::unexpected_token,
                 .offset = state.pos,
                 .detail = "Unexpected token ',' after literal",
@@ -549,7 +550,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
             state.pos++;
             if (state.pos >= state.input.size()) [[unlikely]] {
               state.has_error = true;
-              state.error = Error{
+              state.error = hosq::detail::ErrorInfo{
                   .code = ErrorCode::unexpected_eof,
                   .offset = state.pos,
                   .detail = "Unexpected end of input while parsing literal",
@@ -562,7 +563,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
               if ((static_cast<uint8_t>(state.context.back()) & 0b0000'0010) ==
                   0) [[unlikely]] {
                 state.has_error = true;
-                state.error = Error{
+                state.error = hosq::detail::ErrorInfo{
                     .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ']' after literal",
@@ -576,7 +577,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
               if (static_cast<uint8_t>(state.context.back()) & 0b0000'0010)
                   [[unlikely]] {
                 state.has_error = true;
-                state.error = Error{
+                state.error = hosq::detail::ErrorInfo{
                     .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token '}' after literal",
@@ -588,7 +589,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
             case ',':
               if (state.context.back() == Context::ObjectKey) [[unlikely]] {
                 state.has_error = true;
-                state.error = Error{
+                state.error = hosq::detail::ErrorInfo{
                     .code = ErrorCode::unexpected_token,
                     .offset = state.pos,
                     .detail = "Unexpected token ',' after literal",
@@ -602,7 +603,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
               return true;
             default:
               state.has_error = true;
-              state.error = Error{
+              state.error = hosq::detail::ErrorInfo{
                   .code = ErrorCode::unexpected_token,
                   .offset = state.pos,
                   .detail = "Invalid token after literal",
@@ -619,7 +620,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
       return true;
     }
     state.has_error = true;
-    state.error = Error{
+    state.error = hosq::detail::ErrorInfo{
         .code = ErrorCode::unexpected_eof,
         .offset = state.pos,
         .detail = "Unexpected end of input while parsing literal",
@@ -636,6 +637,37 @@ struct ReaderTraits<json::SimpleReader> {
   static constexpr bool is_binary_format = false;
 };
 
+namespace detail {
+template <>
+struct ReaderErrorAccess<json::SimpleReader> {
+  static auto get(const json::SimpleReader&,
+                  const json::SimpleReader::state_type& state) -> ErrorState {
+    return {state.error.code};
+  }
+  static void report(const json::SimpleReader&,
+                     const json::SimpleReader::state_type& state,
+                     ErrorInfo error) {
+    state.has_error = true;
+    state.error = error;
+  }
+};
+}  // namespace detail
+
 static_assert(ReaderConcept<json::SimpleReader>);
 
 }  // namespace hosq
+
+namespace hosq::ext {
+template <>
+struct DecodeSemanticScalar<json::SimpleReader>
+    : json::detail::SemanticScalarCodec {};
+}  // namespace hosq::ext
+
+namespace hosq::ext {
+template <>
+struct DecodeStringSource<json::SimpleReader> : json::detail::StringSourceCodec {
+};
+template <>
+struct UnescapeString<json::SimpleReader, Format::json>
+    : json::detail::UnescapeStringCodec {};
+}  // namespace hosq::ext

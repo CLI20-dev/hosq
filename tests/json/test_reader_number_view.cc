@@ -145,12 +145,13 @@ TEST(ReaderNumberView,
      SpecializedExecutionRetainsFollowingMismatchAndStorageSteps) {
   using Value =
       Elem<scan::scalar | decode::number<int> |
-               step<decltype([](int x) { return MatchResult<int>{true, x}; })> |
-               store::assign,
+               match::predicate<[](int) { return true; }> | store::assign,
            noop_encoder>;
-  Value value;
-  EXPECT_TRUE(decode_into<R>(value, "123").is_ok());
-  EXPECT_EQ(value.value(), 123);
+  struct Values {
+    Try<Value> number;
+  } value;
+  EXPECT_TRUE(decode_into<R>(value, "[123]").is_ok());
+  EXPECT_EQ(value.number.value(), 123);
 }
 
 const char* scalar_string_end(const char* p, const char* end) {
@@ -281,21 +282,21 @@ TEST(ReaderNumberView, ProvenPositionsRetainSyntaxErrors) {
 }
 
 TEST(ReaderNumberView, FollowingMismatchLeavesStorageUntouched) {
-  constexpr auto pipeline =
-      scan::scalar | decode::number<int> |
-      step<decltype([](int x) { return MatchResult<int>{x == 123, x}; })> |
-      store::assign;
+  constexpr auto pipeline = scan::scalar | decode::number<int> |
+                            match::predicate<[](int x) { return x == 123; }> |
+                            store::assign;
   R reader;
   R::state_type state;
   int value = 77;
   DecodeContext<int, R> ctx{value, reader, state};
   reader.reset(state, "124");
   ASSERT_TRUE(reader.next_token(state));
-  EXPECT_FALSE(pipeline.invoke(ctx));
+  static_assert(std::same_as<decltype(pipeline.invoke(ctx)), MatchResult<void>>);
+  EXPECT_FALSE(pipeline.invoke(ctx).matched());
   EXPECT_EQ(value, 77);
   reader.reset(state, "123");
   ASSERT_TRUE(reader.next_token(state));
-  EXPECT_TRUE(pipeline.invoke(ctx));
+  EXPECT_TRUE(pipeline.invoke(ctx).matched());
   EXPECT_EQ(value, 123);
 }
 TEST(ReaderNumberView, SkippedScalarCachesLengthForNextToken) {

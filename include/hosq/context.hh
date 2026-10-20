@@ -1,7 +1,6 @@
 #pragma once
 
 #include <functional>
-#include <utility>
 
 #include "hosq/reader_base.hh"
 #include "hosq/writer_base.hh"
@@ -10,72 +9,14 @@ namespace hosq {
 
 namespace detail {
 
-// Per-decode state. A first hard failure freezes the deepest active location.
-// This is passed explicitly and never stored in a Reader or global state.
-struct PathDiagnostics {
-  ErrorPath active;
-  ErrorPath failure;
-  bool captured = false;
-
-  void capture(const Error& error) {
-    if (error && !captured) {
-      failure = active;
-      failure.insert(failure.end(), error.path.begin(), error.path.end());
-      captured = true;
-    }
-  }
-  auto attach(Error error) -> Error {
-    capture(error);
-    if (error && captured) error.path = failure;
-    return error;
-  }
-};
-
-template <class R>
-class DecodePathScope {
- public:
-  DecodePathScope(PathDiagnostics* diagnostics, const R& reader,
-                  const typename R::state_type& state, PathSegment segment)
-      : diagnostics_(diagnostics), reader_(reader), state_(state) {
-    if (diagnostics_) diagnostics_->active.push_back(std::move(segment));
-  }
-  template <class Key>
-  void name_key(const Key& key) {
-    if constexpr (std::convertible_to<const Key&, std::string_view>) {
-      if (diagnostics_ && !reader_.error(state_)) {
-        diagnostics_->active.back().name = std::string(std::string_view(key));
-        diagnostics_->active.back().has_name = true;
-      }
-    }
-  }
-  DecodePathScope(const DecodePathScope&) = delete;
-  auto operator=(const DecodePathScope&) -> DecodePathScope& = delete;
-  ~DecodePathScope() {
-    if (diagnostics_) {
-      diagnostics_->capture(reader_.error(state_));
-      diagnostics_->active.pop_back();
-    }
-  }
-
- private:
-  PathDiagnostics* diagnostics_;
-  const R& reader_;
-  const typename R::state_type& state_;
-};
-
 template <ReaderConcept R>
 struct DecodeContextBase {
   using reader_state_type = typename R::state_type;
   using reader_type = R;
 
  protected:
-  explicit DecodeContextBase(R& reader, reader_state_type& state,
-                             PathDiagnostics* diagnostics = nullptr) noexcept
-      : reader_(reader), reader_state_(state), diagnostics_(diagnostics) {}
-
-  [[nodiscard]] auto path_diagnostics() const noexcept -> PathDiagnostics* {
-    return diagnostics_;
-  }
+  explicit DecodeContextBase(R& reader, reader_state_type& state) noexcept
+      : reader_(reader), reader_state_(state) {}
 
   [[nodiscard]]
   auto reader() noexcept -> R& {
@@ -105,7 +46,6 @@ struct DecodeContextBase {
  private:
   std::reference_wrapper<R> reader_;
   std::reference_wrapper<reader_state_type> reader_state_;
-  PathDiagnostics* diagnostics_;
 };
 
 }  // namespace detail
@@ -133,28 +73,22 @@ struct DecodeContext<T, R, Phase> : private detail::DecodeContextBase<R> {
   static constexpr auto scan_phase = Phase;
 
   using base_type::input;
-  using base_type::path_diagnostics;
   using base_type::reader;
   using base_type::reader_state;
 
-  explicit DecodeContext(T& value, R& reader, reader_state_type& state,
-                         detail::PathDiagnostics* diagnostics = nullptr) noexcept
-      : base_type(reader, state, diagnostics), elem_(value) {}
+  explicit DecodeContext(T& value, R& reader, reader_state_type& state) noexcept
+      : base_type(reader, state), elem_(value) {}
 
   template <TryPhase OtherPhase>
     requires(Phase == OtherPhase)
   explicit DecodeContext(T& value,
                          DecodeContext<void, R, OtherPhase>& other) noexcept
-      : base_type(other.reader(), other.reader_state(),
-                  other.path_diagnostics()),
-        elem_(value) {}
+      : base_type(other.reader(), other.reader_state()), elem_(value) {}
 
   template <TryPhase OtherPhase>
     requires(Phase == TryPhase::normal && OtherPhase == TryPhase::first)
   /* implicit */ DecodeContext(DecodeContext<T, R, OtherPhase>& other) noexcept
-      : base_type(other.reader(), other.reader_state(),
-                  other.path_diagnostics()),
-        elem_(other.elem()) {}
+      : base_type(other.reader(), other.reader_state()), elem_(other.elem()) {}
 
   [[nodiscard]]
   auto value() noexcept -> T& {
@@ -182,27 +116,23 @@ struct DecodeContext<void, R, Phase> : private detail::DecodeContextBase<R> {
   static constexpr auto scan_phase = Phase;
 
   using base_type::input;
-  using base_type::path_diagnostics;
   using base_type::reader;
   using base_type::reader_state;
 
-  explicit DecodeContext(R& reader, reader_state_type& state,
-                         detail::PathDiagnostics* diagnostics = nullptr) noexcept
-      : base_type(reader, state, diagnostics) {}
+  explicit DecodeContext(R& reader, reader_state_type& state) noexcept
+      : base_type(reader, state) {}
 
   template <class T, TryPhase OtherPhase>
     requires(!std::same_as<T, void> &&
              (Phase == TryPhase::normal || OtherPhase == TryPhase::first))
   /* implicit */ DecodeContext(DecodeContext<T, R, OtherPhase>& other) noexcept
-      : base_type(other.reader(), other.reader_state(),
-                  other.path_diagnostics()) {}
+      : base_type(other.reader(), other.reader_state()) {}
 
   template <TryPhase OtherPhase>
     requires(Phase == TryPhase::normal && OtherPhase == TryPhase::first)
   /* implicit */ DecodeContext(
       DecodeContext<void, R, OtherPhase>& other) noexcept
-      : base_type(other.reader(), other.reader_state(),
-                  other.path_diagnostics()) {}
+      : base_type(other.reader(), other.reader_state()) {}
 };
 
 namespace detail {

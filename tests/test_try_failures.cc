@@ -119,12 +119,12 @@ TEST(TryFailures, LossyFloatNarrowingDoesNotFallThroughToFloat64) {
 template <class R, class W>
 void check_text_is_not_numeric_fallback() {
   struct Input {
-    types::Text<"n"> text;
+    types::String<"n"> text;
   } input;
   input.text.value().value() = "42";
   struct Value {
     Try<types::Int8<"n">> integer;
-    Try<Entry<AnyKey, v::Text>> text;
+    Try<Entry<AnyKey, v::String>> text;
   } value;
   value.text.value().value() = "unchanged";
   const auto error = decode_into<R>(value, wire<W>(input));
@@ -142,28 +142,28 @@ TEST(TryFailures, NamedTypedMismatchDoesNotTryAnotherValueSchemaForTheKey) {
 }
 
 struct RejectValue {
-  auto operator()(int value) const -> MatchResult<int> { return {false, value}; }
+  auto operator()(int) const -> bool { return false; }
 };
 struct RejectWithError {
   template <class C>
     requires(!std::is_const_v<C>)
-  auto operator()(int value, C& ctx) const -> MatchResult<int> {
+  auto operator()(int, C& ctx) const -> bool {
     ctx.reader().report_error(ctx.reader_state(),
                               {EC::validation_failed, 0, "rejected Try value"});
-    return {false, value};
+    return false;
   }
 };
 struct ObserveAccepted {
   static inline int calls = 0;
-  auto operator()(int value) const -> MatchResult<int> {
+  auto operator()(int) const -> bool {
     ++calls;
-    return {true, value};
+    return true;
   }
 };
 template <class Predicate>
-using CheckedNumber =
-    Elem<scan::scalar | decode::number<int> | step<Predicate> | store::assign,
-         encode::value>;
+using CheckedNumber = Elem<scan::scalar | decode::number<int> |
+                               match::predicate<Predicate{}> | store::assign,
+                           encode::value>;
 template <class Predicate>
 struct CheckedArray {
   Try<CheckedNumber<Predicate>> rejected;

@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include <string>
-#include <tuple>
 
 #include "hosq/bson/reader.hh"
 #include "hosq/hosq.hh"
@@ -22,9 +21,11 @@ TEST(TypedDocument, TopLevelRejectsTrailingValuesAcrossFormats) {
   EXPECT_FALSE(decode_document_into<msgpack::Reader<>>(
                    integer, std::string("\x01\x02", 2))
                    .is_ok());
-  using EmptyObject = types::value::Record<std::tuple<>>;
-  EmptyObject object;
-  const std::string bson("\x05\0\0\0\0", 5);
+  struct Document {
+    types::Int<"v"> v;
+  } object;
+  const std::string bson("\x0c\0\0\0\x10v\0\x01\0\0\0\0", 12);
+  ASSERT_TRUE(decode_document_into<bson::Reader<>>(object, bson).is_ok());
   EXPECT_FALSE(
       decode_document_into<bson::Reader<>>(object, bson + bson).is_ok());
   EXPECT_FALSE(decode_document_into<toml::Reader<>>(object, "[]").is_ok());

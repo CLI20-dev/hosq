@@ -16,11 +16,13 @@ struct ScanScalar {
     const auto& state = ctx.reader_state();
     const auto& tok = reader.current_token(state);
     if (tok.type != TokenType::Scalar) [[unlikely]] {
-      reader.report_error(state, Error{
-                                     .code = ErrorCode::type_mismatch,
-                                     .offset = tok.offset,
-                                     .detail = "scan::scalar expected scalar",
-                                 });
+      ::hosq::detail::report_reader_error(
+          reader, state,
+          ::hosq::detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "scan::scalar expected scalar",
+          });
     }
     return {};
   }
@@ -34,11 +36,13 @@ struct ScanObject {
     auto& state = ctx.reader_state();
     const auto& tok = reader.current_token(state);
     if (tok.type != TokenType::ObjectBegin) [[unlikely]] {
-      reader.report_error(state, Error{
-                                     .code = ErrorCode::type_mismatch,
-                                     .offset = tok.offset,
-                                     .detail = "scan::object expected object",
-                                 });
+      ::hosq::detail::report_reader_error(
+          reader, state,
+          ::hosq::detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "scan::object expected object",
+          });
     }
     return {};
   }
@@ -53,11 +57,13 @@ struct ScanArray {
     const auto& tok = reader.current_token(state);
 
     if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
-      reader.report_error(state, Error{
-                                     .code = ErrorCode::type_mismatch,
-                                     .offset = tok.offset,
-                                     .detail = "scan::array expected array",
-                                 });
+      ::hosq::detail::report_reader_error(
+          reader, state,
+          ::hosq::detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "scan::array expected array",
+          });
     }
     return {};
   }

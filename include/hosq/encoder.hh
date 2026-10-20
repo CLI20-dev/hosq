@@ -39,7 +39,7 @@ class Encoder<W> {
         .type = TokenType::End,
         .context = 0,
     });
-    return !writer().error().has_error();
+    return !::hosq::detail::writer_error(writer()).has_error();
   }
 
   template <class T>
@@ -83,7 +83,7 @@ class Encoder<W> {
       auto& value = const_cast<Storage&>(t.value());  // NOLINT
       EncodeContext<Storage, W> ctx{value, writer()};
       t.encode(ctx);
-      return !writer().error().has_error();
+      return !::hosq::detail::writer_error(writer()).has_error();
     }
   }
 
@@ -99,7 +99,7 @@ class Encoder<W> {
         .type = object ? TokenType::ObjectBegin : TokenType::ArrayBegin,
         .context = 0,
     });
-    if (writer().error().has_error()) {
+    if (::hosq::detail::writer_error(writer()).has_error()) {
       return false;
     }
 
@@ -124,7 +124,7 @@ class Encoder<W> {
         .type = object ? TokenType::ObjectEnd : TokenType::ArrayEnd,
         .context = 0,
     });
-    return !writer().error().has_error();
+    return !::hosq::detail::writer_error(writer()).has_error();
   }
 
   template <class Entry>
