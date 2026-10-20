@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "hosq/element.hh"
+#include "hosq/decode_outcome.hh"
 #include "hosq/entry.hh"
 #include "hosq/map.hh"
 #include "hosq/pipeline/encode.hh"
@@ -18,6 +19,7 @@
 #include "hosq/pipeline/typed_decode.hh"
 #include "hosq/pipeline_util.hh"
 #include "hosq/try.hh"
+#include "hosq/types_field.hh"
 
 namespace hosq::detail {
 
@@ -86,15 +88,8 @@ auto decode_container_into(E& element, R& reader, typename R::state_type& state)
     -> void {
   DecodeContext<typename E::storage_type, R, TryPhase::first> ctx{
       element.storage(), reader, state};
-  if constexpr (std::same_as<decltype(element.decode(ctx)), bool>) {
-    if (!element.decode(ctx) && reader.error(state).is_ok())
-      reader.report_error(state,
-                          Error{ErrorCode::candidate_rejected,
-                                reader.current_token(state).offset,
-                                "typed container element rejected value"});
-  } else {
-    element.decode(ctx);
-  }
+  const auto outcome = invoke_decode(element, ctx);
+  (void)require_decode_match(outcome, reader, state);
 }
 
 template <ElemT E, ReaderConcept R>
@@ -269,8 +264,8 @@ struct TypedRecordImpl {
         bool missing = false;
         [&]<std::size_t... I>(std::index_sequence<I...>) {
           ((missing |=
-            !seen[I] && !hosq::detail::TryT<
-                            std::tuple_element_t<I, typename info::tuple_type>>),
+            !seen[I] && !hosq::detail::RecordFieldPresence<
+                            std::remove_cvref_t<std::tuple_element_t<I, typename info::tuple_type>>>::allows_missing),
            ...);
         }(std::make_index_sequence<info::size>{});
         if (missing)
@@ -405,10 +400,7 @@ struct TypedRecordImpl {
                 using Entry = hosq::detail::record_entry_t<Field>;
                 using E = typename Entry::value_type;
                 if (!ok) return;
-                if constexpr (hosq::detail::TryT<Field> &&
-                              hosq::detail::IsEncodeOptional<
-                                  typename E::storage_type>::value)
-                  if (!field.value().value()) return;
+                if (hosq::detail::RecordFieldPresence<Field>::omit(field)) return;
                 ok = hosq::ext::EncodeValue<
                          std::remove_cvref_t<decltype(writer)>>{}(
                          hosq::detail::record_key<Entry>.view(), writer) &&

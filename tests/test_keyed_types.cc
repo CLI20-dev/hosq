@@ -62,7 +62,14 @@ struct User {
 };
 static_assert(std::same_as<t::Object<"user", User>, t::Record<"user", User>>);
 static_assert(std::same_as<t::Optional<"nickname", v::Text>,
-                           t::Try<t::Field<"nickname", v::Optional<v::Text>>>>);
+                           t::Field<"nickname", v::Optional<v::Text>, t::presence::Optional>>);
+
+static_assert(!hosq::detail::TryT<t::Optional<"nickname", v::Text>>);
+static_assert(hosq::detail::EntryT<t::Optional<"nickname", v::Text>>);
+static_assert(hosq::detail::RecordFieldPresence<
+              t::Optional<"nickname", v::Text>>::allows_missing);
+static_assert(!hosq::detail::RecordFieldPresence<
+              t::Field<"nickname", v::Optional<v::Text>>>::allows_missing);
 
 template <class Writer, class E>
 std::string encode(const E& value) {
@@ -153,3 +160,30 @@ TEST(KeyedTypes, FieldKeepsCustomPipelineAndTryIdentity) {
       hosq::ErrorCode::duplicate_member);
 }
 }  // namespace
+
+TEST(FieldPresence, RequiredOptionalStorageStillRequiresMember) {
+  struct Schema {
+    t::Field<"name", v::Optional<v::Text>> name;
+  };
+  v::Record<Schema> value;
+  EXPECT_EQ(hosq::decode_document_into<hosq::json::FastReader<>>(value, "{}").code,
+            hosq::ErrorCode::missing_required);
+  ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
+      value, R"({"name":""})").is_ok());
+  ASSERT_TRUE(value.value().name.value().value());
+  EXPECT_TRUE(value.value().name.value().value()->empty());
+  EXPECT_EQ(hosq::decode_document_into<hosq::json::FastReader<>>(
+      value, R"({"name":null})").code, hosq::ErrorCode::type_mismatch);
+}
+
+TEST(FieldPresence, OptionalPolicyDoesNotMakeNullImplicit) {
+  struct Schema {
+    t::Field<"nil", v::Optional<v::Null>, t::presence::Optional> nil;
+  };
+  v::Record<Schema> value;
+  ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(value, "{}").is_ok());
+  EXPECT_EQ(encode<hosq::json::CompactWriter<>>(value), "{}");
+  ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
+      value, R"({"nil":null})").is_ok());
+  EXPECT_EQ(encode<hosq::json::CompactWriter<>>(value), R"({"nil":null})");
+}

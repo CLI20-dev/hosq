@@ -71,9 +71,13 @@ struct IsConstKeyEntry<::hosq::Entry<::hosq::Key<K>, Value>> : std::true_type {}
 template <class T>
 concept ConstKeyEntryT = IsConstKeyEntry<std::remove_cvref_t<T>>::value;
 
+template <class T>
+struct IsOptionalField : std::false_type {};
+
 template <class... Ts>
 struct EntryTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (EntryT<Ts> && ...)> {};
+    : std::bool_constant<(sizeof...(Ts) > 0) && (EntryT<Ts> && ...) &&
+                         (!IsOptionalField<std::remove_cvref_t<Ts>>::value && ...)> {};
 
 template <class T>
 concept EntryTupleT = EntryTuple<std::remove_cvref_t<T>>::value;
@@ -129,7 +133,8 @@ template <class Tuple>
 struct TryEntryTuple : std::false_type {};
 
 template <class... Ts>
-  requires(sizeof...(Ts) > 0 && (TryT<Ts> && ...))
+  requires(sizeof...(Ts) > 0 &&
+           ((TryT<Ts> || IsOptionalField<std::remove_cvref_t<Ts>>::value) && ...))
 struct TryEntryTuple<std::tuple<Ts...>>
     : std::bool_constant<(EntryT<try_base_t<Ts>> && ...)> {};
 

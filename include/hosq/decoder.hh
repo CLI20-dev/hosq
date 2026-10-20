@@ -427,7 +427,7 @@ class Decoder<R> {
           auto& entry = std::get<I>(tuple);
 
           using try_entry_type = std::remove_cvref_t<decltype(entry)>;
-          using entry_type = typename try_entry_type::base_type;
+          using entry_type = detail::try_base_t<try_entry_type>;
           using value_type = typename entry_type::value_type;
           using value_storage_type = typename value_type::storage_type;
           using value_context_type =
