@@ -1,32 +1,86 @@
 #pragma once
 
+#include <optional>
+#include <type_traits>
 #include <utility>
 
 namespace hosq {
+namespace match::detail {
+template <auto>
+struct LiteralMatchImpl;
+template <auto>
+struct PredicateImpl;
+}  // namespace match::detail
+namespace decode::detail {
+template <auto...>
+struct EachImpl;
+}  // namespace decode::detail
 
+/// Candidate control result produced only by library matching operations.
+/// A mismatch carries no payload; successful payloads remain owned and movable.
 template <class T>
 struct MatchResult {
   using value_type = std::remove_cvref_t<T>;
 
-  MatchResult(bool matched, T value)
-      : matched_(matched), value_(std::move(value)) {}
+  [[nodiscard]] constexpr auto matched() const -> bool {
+    return value_.has_value();
+  }
+  [[nodiscard]] constexpr auto value() & -> value_type& { return *value_; }
+  [[nodiscard]] constexpr auto value() const& -> const value_type& {
+    return *value_;
+  }
+  [[nodiscard]] constexpr auto value() && -> value_type&& {
+    return *std::move(value_);
+  }
 
-  [[nodiscard]] auto matched() const -> bool { return matched_; }
-  [[nodiscard]] auto value() & -> value_type& { return value_; }
-  [[nodiscard]] auto value() const& -> const value_type& { return value_; }
-  [[nodiscard]] auto value() && -> value_type&& { return std::move(value_); }
-
-  /* implicit */ operator bool() const { return matched_; }
-  auto operator*() & -> value_type& { return value_; }
-  auto operator*() const& -> const value_type& { return value_; }
-  auto operator*() && -> value_type&& { return std::move(value_); }
+  explicit constexpr operator bool() const { return matched(); }
+  constexpr auto operator*() & -> value_type& { return value(); }
+  constexpr auto operator*() const& -> const value_type& { return value(); }
+  constexpr auto operator*() && -> value_type&& {
+    return std::move(*this).value();
+  }
 
  private:
-  bool matched_;
-  value_type value_;
+  constexpr MatchResult(bool matched, value_type value) {
+    if (matched) value_.emplace(std::move(value));
+  }
+  explicit constexpr MatchResult(std::nullopt_t) : value_(std::nullopt) {}
+
+  template <auto... Fns>
+    requires(sizeof...(Fns) > 0)
+  friend struct Pipeline;
+  template <auto>
+  friend struct match::detail::LiteralMatchImpl;
+  template <auto>
+  friend struct match::detail::PredicateImpl;
+  template <auto...>
+  friend struct decode::detail::EachImpl;
+
+  std::optional<value_type> value_;
 };
 
-template <class T>
-MatchResult(bool, T) -> MatchResult<std::remove_cvref_t<T>>;
+template <>
+struct MatchResult<void> {
+  using value_type = void;
+
+  [[nodiscard]] constexpr auto matched() const -> bool { return matched_; }
+  explicit constexpr operator bool() const { return matched_; }
+
+ private:
+  explicit constexpr MatchResult(bool matched) : matched_(matched) {}
+  explicit constexpr MatchResult(std::nullopt_t) : matched_(false) {}
+
+  template <auto... Fns>
+    requires(sizeof...(Fns) > 0)
+  friend struct Pipeline;
+  template <auto>
+  friend struct match::detail::LiteralMatchImpl;
+  template <auto>
+  friend struct match::detail::PredicateImpl;
+  template <auto...>
+  friend struct decode::detail::EachImpl;
+
+  bool matched_;
+};
 
 }  // namespace hosq

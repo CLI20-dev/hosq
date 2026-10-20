@@ -6,6 +6,7 @@
 
 #include "hosq/detail/input_view.hh"
 #include "hosq/detail/type_traits.hh"
+#include "hosq/match_result.hh"
 
 namespace hosq::detail {
 
@@ -83,27 +84,27 @@ constexpr auto analyze_pipeline_impl() {
   }
 
   using raw_after_type = typename decltype([]() -> auto {
-    if constexpr (std::same_as<In, void> &&
-                  requires(Context& ctx) { FnHead(ctx); }) {
-      return std::type_identity<
-          std::invoke_result_t<decltype(FnHead), Context&>>{};
-    } else if constexpr (std::same_as<In, void> && requires { FnHead(); }) {
-      return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
-    } else if constexpr (!std::same_as<In, void> &&
-                         requires(In in, Context& ctx) {
-                           FnHead(std::move(in), ctx);
-                         }) {
-      return std::type_identity<
-          std::invoke_result_t<decltype(FnHead), In&&, Context&>>{};
-    } else if constexpr (!std::same_as<In, void> &&
-                         requires(In in) { FnHead(std::move(in)); }) {
-      return std::type_identity<std::invoke_result_t<decltype(FnHead), In&&>>{};
+    if constexpr (std::same_as<In, void>) {
+      if constexpr (requires(Context& ctx) { FnHead(ctx); })
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), Context&>>{};
+      else if constexpr (requires { FnHead(); })
+        return std::type_identity<std::invoke_result_t<decltype(FnHead)>>{};
+      else
+        static_assert(detail::always_false<Head>,
+                      "Pipeline step must accept Fn(ctx) or Fn()");
     } else {
-      static_assert(
-          detail::always_false<Head>,
-          "Pipeline step is not callable. It must be callable as "
-          "Fn(ctx) or Fn() when input is void, or Fn(input, ctx) or Fn(input) "
-          "when input is non-void.");
+      if constexpr (requires(In in, Context& ctx) {
+                      FnHead(std::move(in), ctx);
+                    })
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), In&&, Context&>>{};
+      else if constexpr (requires(In in) { FnHead(std::move(in)); })
+        return std::type_identity<
+            std::invoke_result_t<decltype(FnHead), In&&>>{};
+      else
+        static_assert(detail::always_false<Head>,
+                      "Pipeline step must accept Fn(input, ctx) or Fn(input)");
     }
   }())::type;
   using clean_after_type = std::remove_cvref_t<raw_after_type>;
@@ -112,14 +113,9 @@ constexpr auto analyze_pipeline_impl() {
   using after_type = detail::pipeline_after_t<raw_after_type>;
 
   if constexpr (sizeof...(FnTail) == 0) {
+    using payload_type = detail::step_input_t<after_type, void, Context>;
     using terminal_type =
-        std::conditional_t<uses_match, bool,
-                           detail::step_input_t<after_type, void, Context>>;
-    if constexpr (uses_match) {
-      static_assert(
-          std::same_as<terminal_type, void> || std::same_as<terminal_type, bool>,
-          "Pipeline using MatchResult may only have void or bool terminal");
-    }
+        std::conditional_t<uses_match, MatchResult<payload_type>, payload_type>;
     return std::make_tuple(true, std::type_identity<NextStorage>{},
                            std::type_identity<terminal_type>{});
   } else {
@@ -189,7 +185,7 @@ consteval auto callable_with_const_context_impl() -> bool {
   } else if constexpr (sizeof...(FnTail) == 0) {
     return true;
   } else {
-    using After = raw_return_type;
+    using After = detail::pipeline_after_t<raw_return_type>;
     return callable_with_const_context_impl<Context, After, FnTail...>();
   }
 }
@@ -246,7 +242,7 @@ consteval auto callable_with_mutable_context_impl() -> bool {
   } else if constexpr (sizeof...(FnTail) == 0) {
     return true;
   } else {
-    using After = raw_return_type;
+    using After = detail::pipeline_after_t<raw_return_type>;
     return callable_with_mutable_context_impl<Context, After, FnTail...>();
   }
 }
