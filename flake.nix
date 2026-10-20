@@ -25,6 +25,7 @@
           version = builtins.replaceStrings [ "\n" ] [ "" ] (builtins.readFile ./VERSION);
           clangTools = pkgs.clang-tools.override { enableLibcxx = true; };
           gtest = pkgs.gtest.override { stdenv = pkgs.libcxxStdenv; };
+          googleBenchmark = pkgs.gbenchmark.override { stdenv = pkgs.libcxxStdenv; };
           developmentTools = [
             pkgs.llvmPackages.libcxxClang
             clangTools
@@ -79,6 +80,9 @@
               packages = developmentTools;
             };
             ci = default;
+            performance = pkgs.mkShellNoCC {
+              packages = developmentTools ++ [ googleBenchmark ];
+            };
             conformance = pkgs.mkShellNoCC {
               packages = developmentTools ++ [ conformancePython ];
               HOSQ_TOML_CORPUS = tomlCorpus;

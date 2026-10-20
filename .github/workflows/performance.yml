@@ -1,0 +1,60 @@
+name: PR Performance
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out head and the common benchmark harness
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+      - name: Check out base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      - name: Test report calculations and publisher validation
+        working-directory: head
+        run: |
+          python3 -m unittest discover -s bench/performance -p 'test_*.py'
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+      - name: Measure base and head serially in the same environment
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        working-directory: head
+        run: |
+          nix develop .#performance --command python3 bench/performance/run.py \
+            --base ../base --head . --output ../performance-results \
+            --repository "$GITHUB_REPOSITORY" --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" --run-id "$GITHUB_RUN_ID"
+          cat ../performance-results/report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep measurements and build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: performance-report
+          path: |
+            performance-results/*.json
+            performance-results/*.md
+            performance-results/*.log
+            performance-results/build-*/CMakeCache.txt
+            performance-results/build-*/compile_commands.json
+          if-no-files-found: warn
+          retention-days: 30
