@@ -25,7 +25,10 @@
           version = builtins.replaceStrings [ "\n" ] [ "" ] (builtins.readFile ./VERSION);
           clangTools = pkgs.clang-tools.override { enableLibcxx = true; };
           gtest = pkgs.gtest.override { stdenv = pkgs.libcxxStdenv; };
-          googleBenchmark = pkgs.gbenchmark.override { stdenv = pkgs.libcxxStdenv; };
+          googleBenchmark = pkgs.gbenchmark.override {
+            stdenv = pkgs.libcxxStdenv;
+            inherit gtest;
+          };
           developmentTools = [
             pkgs.llvmPackages.libcxxClang
             clangTools
@@ -81,7 +84,13 @@
             };
             ci = default;
             performance = pkgs.mkShellNoCC {
-              packages = developmentTools ++ [ googleBenchmark ];
+              packages = [
+                pkgs.llvmPackages.libcxxClang
+                pkgs.cmake
+                pkgs.ninja
+                pkgs.python3
+                googleBenchmark
+              ];
             };
             conformance = pkgs.mkShellNoCC {
               packages = developmentTools ++ [ conformancePython ];
