@@ -195,7 +195,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
       return false;
     }
     st.current = tok;
-    st.last_error = hosq::detail::ErrorInfo::ok();
+    clear_success_error(st);
     return true;
   }
 
@@ -237,7 +237,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     if (!ok) [[unlikely]]
       return false;
     st.current = tok;
-    st.last_error = hosq::detail::ErrorInfo::ok();
+    clear_success_error(st);
     return true;
   }
 
@@ -257,11 +257,20 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     if (!ok) [[unlikely]]
       return false;
     st.current = tok;
-    st.last_error = hosq::detail::ErrorInfo::ok();
+    clear_success_error(st);
     return true;
   }
 
  private:
+  // Clear a previous failure when a subsequent reader operation succeeds.
+  static HOSQ_ALWAYS_INLINE void clear_success_error(state_type& st) noexcept {
+    const auto canonical = hosq::detail::ErrorInfo::ok();
+    if (st.last_error.code == canonical.code) {
+      return;
+    }
+    st.last_error = canonical;
+  }
+
   template <StringLiteral Key>
   HOSQ_ALWAYS_INLINE const char* const_member_start(const state_type& st) const {
     constexpr bool plain = [] {
@@ -337,7 +346,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
       st.current = lazy_scalar(off(st, st.pos), string ? kStrCtx : kLitCtx);
       st.expect = JsonFastExpect::comma_delimiter;
     }
-    st.last_error = hosq::detail::ErrorInfo::ok();
+    clear_success_error(st);
     return true;
   }
 
@@ -371,7 +380,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     st.pos += string ? 1 : 0;
     st.current = lazy_scalar(off(st, st.pos), string ? kStrCtx : kLitCtx);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = hosq::detail::ErrorInfo::ok();
+    clear_success_error(st);
   }
 
   // These value operations require the pending-member phase established by
@@ -402,7 +411,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
                           string ? kStrCtx : kLitCtx);
     st.pos = p + (string ? 1 : 0);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = hosq::detail::ErrorInfo::ok();
+    clear_success_error(st);
     value = parsed;
     return true;
   }
@@ -440,7 +449,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
                           string ? kStrCtx : kLitCtx);
     st.pos = p + (string ? 1 : 0);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = hosq::detail::ErrorInfo::ok();
+    clear_success_error(st);
     value = parsed;
     return true;
   }
@@ -464,7 +473,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
                           TokenType::Scalar, string ? kStrCtx : kLitCtx);
     st.pos = p + (string ? 1 : 0);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = hosq::detail::ErrorInfo::ok();
+    clear_success_error(st);
     value = parsed;
     return true;
   }
@@ -519,7 +528,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     st.pos = p + 1;
     pop_ctx(st);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = hosq::detail::ErrorInfo::ok();
+    clear_success_error(st);
     return true;
   }
 

@@ -148,8 +148,7 @@ class Decoder<R> {
                                              reader_state_type& reader_state)
       -> detail::ErrorState {
     auto ctx = make_decode_context(t, reader, reader_state);
-    (void)detail::invoke_required_decode(t, ctx);
-    return detail::reader_error(reader, reader_state);
+    return detail::invoke_required_decode(t, ctx);
   }
 
   template <detail::AsElemTupleT T>

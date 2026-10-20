@@ -100,8 +100,10 @@ HOSQ_ALWAYS_INLINE auto reader_error(const R& reader, const State& state)
   return ReaderErrorAccess<std::remove_cvref_t<R>>::get(reader, state);
 }
 
+// Report diagnostics only on the failure path, outside hot decoding code.
 template <class R, class State>
-void report_reader_error(const R& reader, const State& state, ErrorInfo error) {
+HOSQ_COLD_NOINLINE void report_reader_error(const R& reader, const State& state,
+                                            ErrorInfo error) {
   ReaderErrorAccess<std::remove_cvref_t<R>>::report(reader, state, error);
 }
 

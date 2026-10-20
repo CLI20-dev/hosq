@@ -48,10 +48,14 @@ auto invoke_decode(Element& element, Context& ctx) -> DecodeOutcome {
 /// Ordinary execution cannot erase the matching effect, even when a concrete
 /// reader/context changes a pipeline's terminal from its analysis result.
 template <class Element, class Context>
-auto invoke_required_decode(Element& element, Context& ctx) -> DecodeOutcome {
+auto invoke_required_decode(Element& element, Context& ctx) -> ErrorState {
   static_assert(std::same_as<decltype(element.decode(ctx)), void>,
                 "matching pipelines require Try candidate dispatch");
-  return invoke_decode(element, ctx);
+  auto& reader = ctx.reader();
+  auto& state = ctx.reader_state();
+  if (const auto error = reader_error(reader, state); error) return error;
+  element.decode(ctx);
+  return reader_error(reader, state);
 }
 
 }  // namespace detail

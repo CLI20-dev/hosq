@@ -75,6 +75,33 @@ TEST(DecodeOutcome, MatchRejectionAndValidationErrorAreDistinct) {
   check_outcomes<json::FastReader<>>();
 }
 
+TEST(DecodeOutcome, FastReaderClearsRawFailureAfterCheckpointRecovery) {
+  auto check = [](auto advance) {
+    json::FastReader<> reader;
+    json::FastReader<>::state_type state;
+    reader.reset(state, "[1,]");
+    ASSERT_TRUE(reader.next_token(state));
+    const auto checkpoint = state.checkpoint();
+    ASSERT_TRUE(advance(reader, state));
+    ASSERT_FALSE(advance(reader, state));
+    ASSERT_EQ(reader.error(state).code, ErrorCode::unexpected_token);
+    EXPECT_NE(reader.error(state).offset, 0U);
+    EXPECT_FALSE(reader.error(state).detail.empty());
+
+    state.rollback(checkpoint);
+    ASSERT_TRUE(advance(reader, state));
+    const auto error = reader.error(state);
+    EXPECT_TRUE(error.is_ok());
+    EXPECT_EQ(error.offset, 0U);
+    EXPECT_TRUE(error.detail.empty());
+    EXPECT_EQ(reader.current_token(state).type, TokenType::Scalar);
+  };
+  check([](auto& reader, auto& state) { return reader.next_token(state); });
+  check([](auto& reader, auto& state) {
+    return next_token<Expect::next_element_or_end>(reader, state);
+  });
+}
+
 struct HardReject {
   inline static int calls = 0;
   template <class Context>
