@@ -13,13 +13,13 @@
 #include <variant>
 
 #include "hosq/bytes_view.hh"
-#include "hosq/detail/raw_text.hh"
 #include "hosq/detail/type_traits.hh"
 #include "hosq/detail/utf8.hh"
 #include "hosq/extended_value_types.hh"
 #include "hosq/fwd.hh"
 #include "hosq/map.hh"
 #include "hosq/mapping_value.hh"
+#include "hosq/value_types.hh"
 #include "hosq/writer_base.hh"
 
 namespace hosq::detail {
@@ -133,12 +133,6 @@ auto encode_native_value(const T& value, W& writer) -> bool {
       return writer.write_semantic(value);
     return encode_error(writer, ErrorCode::unsupported_type,
                         "this format has no codec for this semantic type");
-  } else if constexpr (std::same_as<V, RawTextValue>) {
-    std::string text;
-    if (!resolve_raw_text(value, text))
-      return encode_error(writer, ErrorCode::invalid_escape,
-                          "invalid raw string representation");
-    return encode_native_value(text, writer);
   } else if constexpr (std::same_as<V, BytesValue>) {
     const BytesView bytes(
         reinterpret_cast<const std::uint8_t*>(value.value.data()),

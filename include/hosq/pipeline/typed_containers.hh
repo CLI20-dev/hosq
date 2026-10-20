@@ -143,10 +143,6 @@ auto container_equal(const T& a, const T& b) -> bool {
     return container_equal(a.value(), b.value());
   } else if constexpr (IsEncodeOptional<U>::value) {
     return a.has_value() == b.has_value() && (!a || container_equal(*a, *b));
-  } else if constexpr (std::same_as<U, RawTextValue>) {
-    std::string left, right;
-    return resolve_raw_text(a, left) && resolve_raw_text(b, right) &&
-           left == right;
   } else if constexpr (IsMappingValue<U>::value) {
     if (a.size() != b.size()) return false;
     for (const auto& [key, value] : a) {

@@ -33,7 +33,7 @@ inline void append_utf8(std::string& text, std::uint32_t code) {
   }
 }
 
-// Only string syntax is needed to resolve RawText; no document parser or index.
+// TOML string syntax shared by tokenization and owned string decoding.
 inline auto parse(Cursor& cursor, std::string* decoded = nullptr,
                   bool is_key = false) -> bool {
   auto at = [&](char c) {
@@ -158,15 +158,5 @@ inline auto parse(Cursor& cursor, std::string* decoded = nullptr,
       *decoded += static_cast<char>(c);
   }
   return fail(ErrorCode::unexpected_eof, "unterminated TOML string");
-}
-inline auto resolve(std::string_view literal, std::string& output) -> bool {
-  output.clear();
-  Cursor cursor{literal};
-  if (hosq::detail::invalid_utf8_offset(literal) != literal.size() ||
-      !parse(cursor, &output) || cursor.pos != literal.size()) {
-    output.clear();
-    return false;
-  }
-  return true;
 }
 }  // namespace hosq::toml::string_codec

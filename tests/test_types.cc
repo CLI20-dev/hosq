@@ -50,7 +50,6 @@ static_assert(std::same_as<types::value::Uint<>::storage_type, std::uint64_t>);
 static_assert(std::same_as<types::value::Float<>::storage_type, double>);
 static_assert(std::same_as<types::value::Bool::storage_type, bool>);
 static_assert(std::same_as<types::value::Text::storage_type, std::string>);
-static_assert(std::same_as<types::value::RawText::storage_type, RawTextValue>);
 static_assert(std::same_as<types::value::Bytes::storage_type, BytesValue>);
 static_assert(std::same_as<types::value::Int8::storage_type, std::int8_t>);
 static_assert(std::same_as<types::value::Int16::storage_type, std::int16_t>);
@@ -304,23 +303,6 @@ TEST(ScalarTypes, TextOwnsDataAfterInputHasGoneAway) {
     source.assign(source.size(), 'x');
   }
   EXPECT_EQ(value.value(), "owned\ntext");
-}
-
-TEST(ScalarTypes, RawTextBorrowsOnlyWhileInputLives) {
-  // RawText borrows input; it must not be used after source destruction or
-  // reallocation. Exercise the contract with a live, unmodified owner only.
-  const std::string source = R"("raw\n\u0061")";
-  types::value::RawText value;
-  ASSERT_TRUE(decode_into<json::SimpleReader>(value, source).is_ok());
-  EXPECT_EQ(value.value().value, R"(raw\n\u0061)");
-  EXPECT_EQ(value.value().format, Format::json);
-  EXPECT_EQ(value.value().value.data(), source.data() + 1);
-  std::string output;
-  json::CompactWriter writer(output);
-  ASSERT_TRUE(encode_into(value, writer));
-  types::value::Text semantic;
-  ASSERT_TRUE(decode_into<json::SimpleReader>(semantic, output).is_ok());
-  EXPECT_EQ(semantic.value(), "raw\na");
 }
 
 TEST(ScalarTypes, TextRejectsBinaryAndNativeExtensions) {

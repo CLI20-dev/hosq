@@ -24,14 +24,14 @@ using Named =
     std::tuple<t::Int8<"k">, t::Int16<"k">, t::Int32<"k">, t::Int64<"k">,
                t::Uint8<"k">, t::Uint16<"k">, t::Uint32<"k">, t::Uint64<"k">,
                t::Float32<"k">, t::Float64<"k">, t::Bool<"k">, t::Null<"k">,
-               t::Text<"k">, t::RawText<"k">, t::Bytes<"k">, t::Instant<"k">,
+               t::Text<"k">, t::Bytes<"k">, t::Instant<"k">,
                t::OffsetDateTime<"k">, t::LocalDateTime<"k">, t::LocalDate<"k">,
                t::LocalTime<"k">, t::Decimal128<"k">, t::ObjectId<"k">,
                t::BsonTimestamp<"k">, t::Extension<"k">>;
 using Values =
     std::tuple<v::Int8, v::Int16, v::Int32, v::Int64, v::Uint8, v::Uint16,
                v::Uint32, v::Uint64, v::Float32, v::Float64, v::Bool, v::Null,
-               v::Text, v::RawText, v::Bytes, v::Instant, v::OffsetDateTime,
+               v::Text, v::Bytes, v::Instant, v::OffsetDateTime,
                v::LocalDateTime, v::LocalDate, v::LocalTime, v::Decimal128,
                v::ObjectId, v::BsonTimestamp, v::Extension>;
 static_assert([]<std::size_t... I>(std::index_sequence<I...>) {

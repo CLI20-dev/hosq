@@ -102,7 +102,6 @@ struct ScalarCodecImpl {
   }
 };
 using TextImpl = ScalarCodecImpl<std::string>;
-using RawTextImpl = ScalarCodecImpl<RawTextValue>;
 using NullImpl = ScalarCodecImpl<std::nullptr_t>;
 using BytesImpl = ScalarCodecImpl<BytesValue>;
 using TypedBooleanImpl = ScalarCodecImpl<bool>;
@@ -119,7 +118,6 @@ inline constexpr auto unsigned_integer = step<detail::TypedNumberImpl<T, false>>
 template <std::floating_point T = double>
 inline constexpr auto floating = step<detail::TypedNumberImpl<T, true>>;
 inline constexpr auto text = step<detail::TextImpl>;
-inline constexpr auto raw_text = step<detail::RawTextImpl>;
 inline constexpr auto null = step<detail::NullImpl>;
 inline constexpr auto bytes = step<detail::BytesImpl>;
 inline constexpr auto typed_boolean = step<detail::TypedBooleanImpl>;

@@ -115,7 +115,6 @@ representation and rejects values that its format cannot represent.
 | `Float<T = double>`, `Float32`, `Float64` | Floating-point input, with checked range and narrowing |
 | `Bool`, `Null` | `bool`, `std::nullptr_t`; strict scalar categories |
 | `Text` | Owned `std::string`, with escapes resolved |
-| `RawText` | Borrowed `RawTextValue`, with the source representation tagged |
 | `Bytes` | Owned `BytesValue` payload and BSON binary subtype |
 | `Array<E>` | `std::vector<E::storage_type>` |
 | `Mapping<K, V>` | `hosq::MappingValue<K::storage_type, V::storage_type>` with paired entries |
@@ -164,13 +163,7 @@ rounded to binary64 during parsing, so this is not an arbitrary precision
 decimal codec.
 
 `Text` resolves JSON Unicode escapes and surrogate pairs and TOML string
-escapes before storage; encoding escapes the semantic text once. `RawText`
-borrows the caller's input, which must remain alive and unchanged for every
-use of the value, including encoding. Its format tag distinguishes JSON
-escaped string bodies, full TOML string literals, and semantic UTF-8 text;
-the encoder resolves that representation before writing the destination
-format. Copying the wrapper does not extend the input lifetime. Use `Text`
-for ownership.
+escapes before storage; encoding escapes the semantic text once.
 
 `Mapping` rejects duplicate decoded keys. Its `MappingValue` storage owns an
 ordered `std::vector<std::pair<K, V>>`: use `entries()` to inspect, erase or
@@ -389,8 +382,8 @@ API as the JSON readers:
 For example, replace `json::FastReader<>` in `decode_document_into` with
 `msgpack::Reader<>` to decode a MessagePack object into the same schema.
 The optional template argument limits container depth (default: 64).
-`v::Text` and `v::Bytes` own their data. Borrowed `RawText` and legacy
-`string_view` values require the input to stay alive and unchanged.
+`v::Text` and `v::Bytes` own their data. Borrowed `string_view` values require
+the input to stay alive and unchanged.
 `construct<std::string>` also provides owned string storage. As with the existing
 JSON readers, the legacy `decode::string_view` exposes raw input without
 resolving escapes; use `v::Text` for owned semantic text.
@@ -665,10 +658,9 @@ Common typed decoders request semantic values through
 `read_semantic(state, output)` or specialize the adapter without exposing its
 state layout. Numeric codecs produce `SemanticNumber` (signed/unsigned 64-bit
 integer or binary64); common pipelines then enforce the requested category,
-range and precision. Text, raw text, bool, null and bytes use the same boundary.
+range and precision. Text, bool, null and bytes use the same boundary.
 A codec conversion failure must record a Reader error. Existing dedicated
-string/raw-text/binary hooks remain supported.
+string/binary hooks remain supported.
 
-JSON and TOML own their string-literal parsing helpers. Common encoders resolve
-borrowed RawText through those lightweight helpers without including a complete
-TOML reader. Decoding does not change ownership or extend borrowed input life.
+JSON and TOML own their string-literal parsing helpers. Decoding does not
+extend borrowed input life.

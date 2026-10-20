@@ -24,7 +24,7 @@ struct SemanticNumber {
 namespace hosq::ext {
 /// Optional scalar codec boundary. Readers can provide read_semantic(state, T&)
 /// or specialize this adapter without exposing their state representation.
-/// Existing dedicated string/raw-text/binary reader hooks remain supported.
+/// Existing dedicated string/binary reader hooks remain supported.
 /// A failed conversion must report an error through the Reader.
 template <ReaderConcept R>
 struct DecodeSemanticScalar {
@@ -37,9 +37,6 @@ struct DecodeSemanticScalar {
     else if constexpr (std::same_as<T, std::string> &&
                        requires { reader.read_string(state, output); })
       return reader.read_string(state, output);
-    else if constexpr (std::same_as<T, RawTextValue> &&
-                       requires { reader.read_raw_text(state, output); })
-      return reader.read_raw_text(state, output);
     else if constexpr (std::same_as<T, BytesValue> &&
                        requires { reader.read_bytes(state, output); })
       return reader.read_bytes(state, output);

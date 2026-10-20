@@ -138,9 +138,6 @@ TEST(TypeContainers, MappingDuplicatesAndPairedMutations) {
             (std::vector<std::pair<std::string, int>>{{"x", 1}, {"y", 2}}));
   EXPECT_EQ(read<json::SimpleReader>(value, R"({"x":1,"\u0078":2})").code,
             EC::duplicate_member);
-  t::Mapping<t::RawText, t::Int<int>> raw;
-  EXPECT_EQ(read<json::SimpleReader>(raw, R"({"x":1,"\u0078":2})").code,
-            EC::duplicate_member);
   value.value().entries() = {{"x", 1}, {"x", 2}};
   Error error;
   (void)write<msgpack::Writer<>>(value, &error);
@@ -157,10 +154,6 @@ TEST(TypeContainers, MappingDuplicatesAndPairedMutations) {
   ASSERT_TRUE(
       read<msgpack::Reader<>>(decoded, write<msgpack::Writer<>>(value)).is_ok());
   EXPECT_EQ(decoded.value().entries(), value.value().entries());
-  raw.value().entries() = {{{"x", Format::json}, 1},
-                           {{"\\u0078", Format::json}, 2}};
-  (void)write<msgpack::Writer<>>(raw, &error);
-  EXPECT_EQ(error.code, EC::duplicate_member);
   t::Mapping<t::Int<int>, t::Int<int>> numeric;
   EXPECT_EQ(read<msgpack::Reader<>>(numeric,
                                     std::string("\x82\x01\x02\xcc\x01\x03", 6))

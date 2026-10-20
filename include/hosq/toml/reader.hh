@@ -154,35 +154,6 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     }
     return true;
   }
-  // Preserve quote kind, escapes, and multiline continuations in a view of the
-  // caller's input. Bare keys already contain semantic UTF-8 bytes.
-  auto read_raw_text(const state_type& s, RawTextValue& output) const -> bool {
-    output = {};
-    if (s.failure) return false;
-    if (s.current == absent || s.token.type != TokenType::Scalar ||
-        s.token.context !=
-            static_cast<std::uint8_t>(detail::NativeContext::string)) {
-      report_error(
-          s, {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
-      return false;
-    }
-    const auto& node = s.nodes[s.current];
-    const auto start = node.source;
-    if (!node.children.empty() && s.input[start] != '"' &&
-        s.input[start] != '\'') {
-      output = {s.input.substr(s.token.offset, s.token.length), Format::unknown};
-      return true;
-    }
-    state_type cursor;
-    cursor.input = s.input;
-    cursor.pos = start;
-    if (!string(cursor)) {
-      report_error(s, cursor.failure);
-      return false;
-    }
-    output = {s.input.substr(start, cursor.pos - start), Format::toml};
-    return true;
-  }
   auto read_semantic(const state_type& s, LocalDateValue& output) const -> bool {
     return read_temporal(s, output, detail::TemporalKind::date,
                          detail::parse_local_date);

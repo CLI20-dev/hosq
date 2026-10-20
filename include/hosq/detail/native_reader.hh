@@ -132,13 +132,6 @@ struct NativeReaderAccess {
   }
   auto read_string(const state_type& s, std::string& output) const -> bool {
     output.clear();
-    RawTextValue text;
-    if (!read_raw_text(s, text)) return false;
-    output = text.value;
-    return true;
-  }
-  auto read_raw_text(const state_type& s, RawTextValue& output) const -> bool {
-    output = {};
     if (s.failure) return false;
     if (s.token.type != TokenType::Scalar ||
         s.token.context != static_cast<std::uint8_t>(NativeContext::string)) {
@@ -153,7 +146,7 @@ struct NativeReaderAccess {
                        "invalid string UTF-8"});
       return false;
     }
-    output = {text, Format::unknown};
+    output = text;
     return true;
   }
   auto read_bytes(const state_type& s, BytesValue& output) const -> bool {

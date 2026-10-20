@@ -88,11 +88,6 @@ class OpaqueReader {
     value = state.payload_;
     return true;
   }
-  auto read_semantic(const state_type& state, RawTextValue& value) const
-      -> bool {
-    value = {state.payload_, Format::unknown};
-    return true;
-  }
   auto read_semantic(const state_type&, BytesValue& value) const -> bool {
     value.value = {std::byte{0}, std::byte{255}};
     return true;
@@ -113,10 +108,6 @@ TEST(ScalarCodecBoundary, PrivateReaderStateProvidesAllCommonScalars) {
   const std::string source = "opaque\n日";
   ASSERT_TRUE(decode_into<OpaqueReader>(text, source).is_ok());
   EXPECT_EQ(text.value(), source);
-  types::value::RawText raw;
-  ASSERT_TRUE(decode_into<OpaqueReader>(raw, source).is_ok());
-  EXPECT_EQ(raw.value().value.data(), source.data());
-  EXPECT_EQ(raw.value().value, source);
   types::value::Bytes bytes;
   ASSERT_TRUE(decode_into<OpaqueReader>(bytes, "bytes").is_ok());
   EXPECT_EQ(bytes.value().value,
@@ -173,24 +164,16 @@ void check_text_round_trips() {
   std::string source;
   SourceWriter source_writer(source);
   ASSERT_TRUE(encode_into(original, source_writer));
-  TextDocument<types::value::RawText> raw;
   TextDocument<types::value::Text> text;
-  ASSERT_TRUE(decode_into<SourceReader>(raw, source).is_ok());
   ASSERT_TRUE(decode_into<SourceReader>(text, source).is_ok());
-  const auto span = raw.value.value().value().value;
-  ASSERT_GE(span.data(), source.data());
-  ASSERT_LE(span.data() + span.size(), source.data() + source.size());
+  EXPECT_EQ(text.value.value().value(), original.value.value().value());
   auto destination = [&]<class Reader, class Writer>() {
-    for (bool borrowed : {false, true}) {
-      std::string output;
-      Writer writer(output);
-      ASSERT_TRUE(borrowed ? encode_into(raw, writer)
-                           : encode_into(text, writer))
-          << writer.error().detail;
-      TextDocument<types::value::Text> decoded;
-      ASSERT_TRUE(decode_into<Reader>(decoded, output).is_ok());
-      EXPECT_EQ(decoded.value.value().value(), original.value.value().value());
-    }
+    std::string output;
+    Writer writer(output);
+    ASSERT_TRUE(encode_into(text, writer)) << writer.error().detail;
+    TextDocument<types::value::Text> decoded;
+    ASSERT_TRUE(decode_into<Reader>(decoded, output).is_ok());
+    EXPECT_EQ(decoded.value.value().value(), original.value.value().value());
   };
   destination.template operator()<json::SimpleReader, json::CompactWriter<>>();
   destination.template operator()<toml::Reader<>, toml::Writer<>>();
@@ -198,7 +181,7 @@ void check_text_round_trips() {
   destination.template operator()<msgpack::Reader<>, msgpack::Writer<>>();
 }
 
-TEST(ScalarCodecBoundary, TextAndBorrowedRawTextResolveSameAndCrossFormats) {
+TEST(ScalarCodecBoundary, TextResolvesSameAndCrossFormats) {
   check_text_round_trips<json::SimpleReader, json::CompactWriter<>>();
   check_text_round_trips<json::FastReader<>, json::CompactWriter<>>();
   check_text_round_trips<toml::Reader<>, toml::Writer<>>();

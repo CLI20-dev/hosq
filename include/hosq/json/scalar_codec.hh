@@ -94,16 +94,12 @@ struct SemanticScalarCodec {
       if (result.ec != std::errc{} || result.ptr != raw.data() + raw.size())
         return fail(ErrorCode::invalid_number, "invalid numeric literal");
       return true;
-    } else if constexpr (std::same_as<T, std::string> ||
-                         std::same_as<T, RawTextValue>) {
+    } else if constexpr (std::same_as<T, std::string>) {
       if (!string) return fail(ErrorCode::type_mismatch, "expected string");
       std::string semantic;
       if (!string_codec::unescape_json_string(raw, semantic))
         return fail(ErrorCode::invalid_escape, "invalid JSON string body");
-      if constexpr (std::same_as<T, RawTextValue>)
-        output = {raw, Format::json};
-      else
-        output = std::move(semantic);
+      output = std::move(semantic);
       return true;
     } else if constexpr (std::same_as<T, bool>) {
       if (literal && (raw == "true" || raw == "false")) {

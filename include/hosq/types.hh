@@ -33,8 +33,6 @@ using Bool =
     Elem<scan::scalar | decode::typed_boolean | store::assign, encode::value>;
 using Null = Elem<scan::scalar | decode::null | store::assign, encode::value>;
 using Text = Elem<scan::scalar | decode::text | store::assign, encode::value>;
-using RawText =
-    Elem<scan::scalar | decode::raw_text | store::assign, encode::value>;
 using Bytes = Elem<scan::scalar | decode::bytes | store::assign, encode::value>;
 }  // namespace hosq::types::value
 
@@ -72,8 +70,6 @@ template <StringLiteral K>
 using Null = Field<K, value::Null>;
 template <StringLiteral K>
 using Text = Field<K, value::Text>;
-template <StringLiteral K>
-using RawText = Field<K, value::RawText>;
 template <StringLiteral K>
 using Bytes = Field<K, value::Bytes>;
 }  // namespace hosq::types
