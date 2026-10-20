@@ -4,6 +4,7 @@
 
 #include "hosq/detail/type_traits.hh"
 #include "hosq/error.hh"
+#include "hosq/reader_base.hh"
 
 namespace hosq {
 
@@ -13,7 +14,7 @@ enum class DecodeStatus { matched, no_match, error };
 
 struct DecodeOutcome {
   DecodeStatus status = DecodeStatus::matched;
-  Error error = Error::ok();
+  detail::ErrorState error = detail::ErrorState::ok();
 
   [[nodiscard]] auto matched() const -> bool {
     return status == DecodeStatus::matched;
@@ -28,7 +29,7 @@ template <class Element, class Context>
 auto invoke_decode(Element& element, Context& ctx) -> DecodeOutcome {
   auto& reader = ctx.reader();
   auto& state = ctx.reader_state();
-  if (const auto error = reader.error(state); error)
+  if (const auto error = reader_error(reader, state); error)
     return {DecodeStatus::error, error};
   static_assert(std::same_as<decltype(element.decode(ctx)), void> ||
                     MatchResultT<decltype(element.decode(ctx))>,
@@ -38,18 +39,23 @@ auto invoke_decode(Element& element, Context& ctx) -> DecodeOutcome {
     matched = element.decode(ctx).matched();
   else
     element.decode(ctx);
-  if (const auto error = reader.error(state); error)
+  if (const auto error = reader_error(reader, state); error)
     return {DecodeStatus::error, error};
-  return {matched ? DecodeStatus::matched : DecodeStatus::no_match, Error::ok()};
+  return {matched ? DecodeStatus::matched : DecodeStatus::no_match,
+          ErrorState::ok()};
 }
 
 /// Ordinary execution cannot erase the matching effect, even when a concrete
 /// reader/context changes a pipeline's terminal from its analysis result.
 template <class Element, class Context>
-auto invoke_required_decode(Element& element, Context& ctx) -> DecodeOutcome {
+auto invoke_required_decode(Element& element, Context& ctx) -> ErrorState {
   static_assert(std::same_as<decltype(element.decode(ctx)), void>,
                 "matching pipelines require Try candidate dispatch");
-  return invoke_decode(element, ctx);
+  auto& reader = ctx.reader();
+  auto& state = ctx.reader_state();
+  if (const auto error = reader_error(reader, state); error) return error;
+  element.decode(ctx);
+  return reader_error(reader, state);
 }
 
 }  // namespace detail

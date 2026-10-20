@@ -22,8 +22,8 @@ struct DecodeStringSource {
                   })
       return ctx.reader().read_string_source(ctx.reader_state(), output);
     else {
-      ctx.reader().report_error(
-          ctx.reader_state(),
+      ::hosq::detail::report_reader_error(
+          ctx.reader(), ctx.reader_state(),
           {ErrorCode::unsupported_type,
            ctx.reader().current_token(ctx.reader_state()).offset,
            "this reader has no string source codec"});
@@ -39,8 +39,8 @@ struct UnescapeString {
   template <class Context>
   auto operator()(std::string input, const Context& ctx) const -> std::string {
     if constexpr (reader_traits_t<R>::format == Source)
-      ctx.reader().report_error(
-          ctx.reader_state(),
+      ::hosq::detail::report_reader_error(
+          ctx.reader(), ctx.reader_state(),
           {ErrorCode::unsupported_type,
            ctx.reader().current_token(ctx.reader_state()).offset,
            "this reader has no codec for this string conversion"});
@@ -58,7 +58,7 @@ struct StringSourceImpl {
   auto operator()(const ScalarView& view, const Context& ctx) const
       -> std::string_view {
     std::string_view output;
-    if (!ctx.reader().error(ctx.reader_state()))
+    if (!::hosq::detail::reader_error(ctx.reader(), ctx.reader_state()))
       (void)ext::DecodeStringSource<typename Context::reader_type>{}(view, ctx,
                                                                      output);
     return output;
@@ -68,7 +68,8 @@ template <Format Source>
 struct UnescapeStringImpl {
   template <class Context>
   auto operator()(std::string input, const Context& ctx) const -> std::string {
-    if (ctx.reader().error(ctx.reader_state())) return input;
+    if (::hosq::detail::reader_error(ctx.reader(), ctx.reader_state()))
+      return input;
     return ext::UnescapeString<typename Context::reader_type, Source>{}(
         std::move(input), ctx);
   }

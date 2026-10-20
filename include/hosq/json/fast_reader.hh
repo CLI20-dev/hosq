@@ -115,7 +115,7 @@ struct JsonFastReaderState {
   std::size_t ctx_size{0};
 
   JsonFastExpect expect{JsonFastExpect::value};
-  mutable Error last_error{Error::ok()};
+  mutable hosq::detail::ErrorInfo last_error{hosq::detail::ErrorInfo::ok()};
   mutable bool error_flag{false};
   mutable Token error_token{
       .offset = 0,
@@ -176,7 +176,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     st.input_view = input;
     st.ctx_size = 0;
     st.expect = JsonFastExpect::value;
-    st.last_error = Error::ok();
+    st.last_error = hosq::detail::ErrorInfo::ok();
     st.error_flag = false;
     st.current = {
         .offset = 0,
@@ -195,7 +195,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
       return false;
     }
     st.current = tok;
-    st.last_error = Error::ok();
+    clear_success_error(st);
     return true;
   }
 
@@ -237,7 +237,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     if (!ok) [[unlikely]]
       return false;
     st.current = tok;
-    st.last_error = Error::ok();
+    clear_success_error(st);
     return true;
   }
 
@@ -257,11 +257,20 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     if (!ok) [[unlikely]]
       return false;
     st.current = tok;
-    st.last_error = Error::ok();
+    clear_success_error(st);
     return true;
   }
 
  private:
+  // Clear a previous failure when a subsequent reader operation succeeds.
+  static HOSQ_ALWAYS_INLINE void clear_success_error(state_type& st) noexcept {
+    const auto canonical = hosq::detail::ErrorInfo::ok();
+    if (st.last_error.code == canonical.code) {
+      return;
+    }
+    st.last_error = canonical;
+  }
+
   template <StringLiteral Key>
   HOSQ_ALWAYS_INLINE const char* const_member_start(const state_type& st) const {
     constexpr bool plain = [] {
@@ -337,7 +346,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
       st.current = lazy_scalar(off(st, st.pos), string ? kStrCtx : kLitCtx);
       st.expect = JsonFastExpect::comma_delimiter;
     }
-    st.last_error = Error::ok();
+    clear_success_error(st);
     return true;
   }
 
@@ -371,7 +380,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     st.pos += string ? 1 : 0;
     st.current = lazy_scalar(off(st, st.pos), string ? kStrCtx : kLitCtx);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = Error::ok();
+    clear_success_error(st);
   }
 
   // These value operations require the pending-member phase established by
@@ -402,7 +411,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
                           string ? kStrCtx : kLitCtx);
     st.pos = p + (string ? 1 : 0);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = Error::ok();
+    clear_success_error(st);
     value = parsed;
     return true;
   }
@@ -440,7 +449,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
                           string ? kStrCtx : kLitCtx);
     st.pos = p + (string ? 1 : 0);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = Error::ok();
+    clear_success_error(st);
     value = parsed;
     return true;
   }
@@ -464,7 +473,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
                           TokenType::Scalar, string ? kStrCtx : kLitCtx);
     st.pos = p + (string ? 1 : 0);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = Error::ok();
+    clear_success_error(st);
     value = parsed;
     return true;
   }
@@ -519,7 +528,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     st.pos = p + 1;
     pop_ctx(st);
     st.expect = JsonFastExpect::comma_delimiter;
-    st.last_error = Error::ok();
+    clear_success_error(st);
     return true;
   }
 
@@ -688,7 +697,7 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
       value = ext::DecodeNumberDefault<FastReader>{}.template operator()<T>(
           scalar, ctx);
     }
-    return error(st).is_ok();
+    return hosq::detail::reader_error(*this, st).is_ok();
   }
 
  public:
@@ -792,9 +801,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
         st.pos = p + 1;
         return true;
       }
-      st.last_error = {.code = ErrorCode::unexpected_eof,
-                       .offset = static_cast<std::size_t>(st.end - st.begin),
-                       .detail = "unterminated string while skipping scalar"};
+      st.last_error = hosq::detail::ErrorInfo{
+          .code = ErrorCode::unexpected_eof,
+          .offset = static_cast<std::size_t>(st.end - st.begin),
+          .detail = "unterminated string while skipping scalar"};
       return false;
     } else {
       // literal
@@ -925,9 +935,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
   HOSQ_ALWAYS_INLINE auto push_ctx(state_type& st, std::uint8_t kind,
                                    std::size_t err_off) const noexcept -> bool {
     if (st.ctx_size >= MaxDepth) [[unlikely]] {
-      st.last_error = {.code = ErrorCode::depth_limit_exceeded,
-                       .offset = err_off,
-                       .detail = "fast reader container depth limit"};
+      st.last_error =
+          hosq::detail::ErrorInfo{.code = ErrorCode::depth_limit_exceeded,
+                                  .offset = err_off,
+                                  .detail = "fast reader container depth limit"};
       return false;
     }
     st.ctx_stack[st.ctx_size++] = kind;
@@ -958,8 +969,9 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
         case JsonFastExpect::comma_delimiter:
           return read_comma_or_close(st, out);
       }
-    st.last_error = Error{.code = ErrorCode::invalid_state,
-                          .detail = "unknown fast reader expectation state"};
+    st.last_error = hosq::detail::ErrorInfo{
+        .code = ErrorCode::invalid_state,
+        .detail = "unknown fast reader expectation state"};
     return false;
   }
 
@@ -970,9 +982,9 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
 
     if (!skip_whitespace(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_eof,
-                            .offset = off(st, p),
-                            .detail = "expected JSON value"};
+      st.last_error = hosq::detail::ErrorInfo{.code = ErrorCode::unexpected_eof,
+                                              .offset = off(st, p),
+                                              .detail = "expected JSON value"};
       return false;
     }
 
@@ -1042,9 +1054,9 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
 
     const auto o = off(st, p);
     st.pos = p;
-    st.last_error = Error{.code = ErrorCode::unexpected_token,
-                          .offset = o,
-                          .detail = "expected JSON value"};
+    st.last_error = hosq::detail::ErrorInfo{.code = ErrorCode::unexpected_token,
+                                            .offset = o,
+                                            .detail = "expected JSON value"};
     return false;
   }
 
@@ -1055,9 +1067,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     const char* p = st.pos;
     if (!skip_whitespace(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_eof,
-                            .offset = off(st, p),
-                            .detail = "expected array value or end"};
+      st.last_error =
+          hosq::detail::ErrorInfo{.code = ErrorCode::unexpected_eof,
+                                  .offset = off(st, p),
+                                  .detail = "expected array value or end"};
       return false;
     }
     if (*p == ']') {
@@ -1076,9 +1089,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     const char* p = st.pos;
     if (!skip_whitespace(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_eof,
-                            .offset = off(st, p),
-                            .detail = "expected object key or end"};
+      st.last_error =
+          hosq::detail::ErrorInfo{.code = ErrorCode::unexpected_eof,
+                                  .offset = off(st, p),
+                                  .detail = "expected object key or end"};
       return false;
     }
 
@@ -1101,9 +1115,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     }
 
     st.pos = p;
-    st.last_error = Error{.code = ErrorCode::unexpected_token,
-                          .offset = o,
-                          .detail = "expected object key string or object end"};
+    st.last_error = hosq::detail::ErrorInfo{
+        .code = ErrorCode::unexpected_token,
+        .offset = o,
+        .detail = "expected object key string or object end"};
     return false;
   }
 
@@ -1119,16 +1134,18 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     const char* p = st.pos;
     if (!skip_whitespace(p, st.end)) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_eof,
-                            .offset = off(st, p),
-                            .detail = "expected ':' after object key"};
+      st.last_error =
+          hosq::detail::ErrorInfo{.code = ErrorCode::unexpected_eof,
+                                  .offset = off(st, p),
+                                  .detail = "expected ':' after object key"};
       return false;
     }
     if (*p != ':') [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::unexpected_token,
-                            .offset = off(st, p),
-                            .detail = "expected ':' after object key"};
+      st.last_error =
+          hosq::detail::ErrorInfo{.code = ErrorCode::unexpected_token,
+                                  .offset = off(st, p),
+                                  .detail = "expected ':' after object key"};
       return false;
     }
     ++p;
@@ -1153,9 +1170,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
         out = make_tok(off(st, p), 0, TokenType::End, kNoneCtx);
         return true;
       }
-      st.last_error = Error{.code = ErrorCode::unexpected_eof,
-                            .offset = off(st, p),
-                            .detail = "expected comma or container end"};
+      st.last_error =
+          hosq::detail::ErrorInfo{.code = ErrorCode::unexpected_eof,
+                                  .offset = off(st, p),
+                                  .detail = "expected comma or container end"};
       return false;
     }
 
@@ -1164,9 +1182,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
 
     if (st.ctx_size == 0) [[unlikely]] {
       st.pos = p;
-      st.last_error = Error{.code = ErrorCode::trailing_data,
-                            .offset = o,
-                            .detail = "non-whitespace data after root value"};
+      st.last_error = hosq::detail::ErrorInfo{
+          .code = ErrorCode::trailing_data,
+          .offset = o,
+          .detail = "non-whitespace data after root value"};
       return false;
     }
 
@@ -1182,9 +1201,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     if (c == '}') {
       if (!in_object(st)) [[unlikely]] {
         st.pos = p;
-        st.last_error = Error{.code = ErrorCode::unexpected_token,
-                              .offset = o,
-                              .detail = "expected array end, found object end"};
+        st.last_error = hosq::detail::ErrorInfo{
+            .code = ErrorCode::unexpected_token,
+            .offset = o,
+            .detail = "expected array end, found object end"};
         return false;
       }
       pop_ctx(st);
@@ -1197,9 +1217,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     if (c == ']') {
       if (in_object(st)) [[unlikely]] {
         st.pos = p;
-        st.last_error = Error{.code = ErrorCode::unexpected_token,
-                              .offset = o,
-                              .detail = "expected object end, found array end"};
+        st.last_error = hosq::detail::ErrorInfo{
+            .code = ErrorCode::unexpected_token,
+            .offset = o,
+            .detail = "expected object end, found array end"};
         return false;
       }
       pop_ctx(st);
@@ -1210,9 +1231,10 @@ class FastReader : public ReaderBase<FastReader<MaxDepth, Padding, Mode>> {
     }
 
     st.pos = p;
-    st.last_error = Error{.code = ErrorCode::unexpected_token,
-                          .offset = o,
-                          .detail = "expected comma or container end"};
+    st.last_error =
+        hosq::detail::ErrorInfo{.code = ErrorCode::unexpected_token,
+                                .offset = o,
+                                .detail = "expected comma or container end"};
     return false;
   }
 };
@@ -1225,6 +1247,25 @@ struct ReaderTraits<json::FastReader<MaxDepth, Padding, Mode>> {
   static constexpr Format format = Format::json;
   static constexpr bool is_binary_format = false;
 };
+
+namespace detail {
+template <std::size_t MaxDepth, json::InputPadding Padding,
+          json::WhitespaceMode Mode>
+struct ReaderErrorAccess<json::FastReader<MaxDepth, Padding, Mode>> {
+  using Reader = json::FastReader<MaxDepth, Padding, Mode>;
+  static auto get(const Reader&, const typename Reader::state_type& state)
+      -> ErrorState {
+    return {state.last_error.code};
+  }
+  static void report(const Reader&, const typename Reader::state_type& state,
+                     ErrorInfo error) {
+    if (!state.error_flag) {
+      state.last_error = error;
+      state.error_flag = true;
+    }
+  }
+};
+}  // namespace detail
 
 static_assert(ReaderConcept<json::FastReader<>>);
 
@@ -1276,10 +1317,12 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth, Padding, Mode>> {
     auto& tok = reader.current_token(st);
 
     if (tok.type != TokenType::Scalar) [[unlikely]] {
-      reader.report_error(
-          st, Error{.code = ErrorCode::type_mismatch,
-                    .offset = tok.offset,
-                    .detail = "fast scan scalar expected scalar token"});
+      hosq::detail::report_reader_error(
+          reader, st,
+          hosq::detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "fast scan scalar expected scalar token"});
       return {};
     }
 
@@ -1324,19 +1367,22 @@ struct ScanScalar<hosq::json::FastReader<MaxDepth, Padding, Mode>> {
       st.pos = p;
       return;
     } else {
-      reader.report_error(
-          st, Error{.code = ErrorCode::type_mismatch,
-                    .offset = tok.offset,
-                    .detail = "fast scalar resolver found unknown context"});
+      hosq::detail::report_reader_error(
+          reader, st,
+          hosq::detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "fast scalar resolver found unknown context"});
       return;
     }
 
-    reader.report_error(
-        st, Error{
-                .code = ErrorCode::unexpected_eof,
-                .offset = static_cast<std::size_t>(st.end - st.begin),
-                .detail = "unterminated string while resolving scalar",
-            });
+    hosq::detail::report_reader_error(
+        reader, st,
+        hosq::detail::ErrorInfo{
+            .code = ErrorCode::unexpected_eof,
+            .offset = static_cast<std::size_t>(st.end - st.begin),
+            .detail = "unterminated string while resolving scalar",
+        });
   }
 };
 
@@ -1390,11 +1436,12 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth, Padding, Mode>> {
       skip_container(ctx, TokenType::ArrayBegin, ']');
       return;
     }
-    reader.report_error(
-        st,
-        Error{.code = ErrorCode::type_mismatch,
-              .offset = tok.offset,
-              .detail = "fast decode::skip expected scalar, array, or object"});
+    hosq::detail::report_reader_error(
+        reader, st,
+        hosq::detail::ErrorInfo{
+            .code = ErrorCode::type_mismatch,
+            .offset = tok.offset,
+            .detail = "fast decode::skip expected scalar, array, or object"});
   }
 
  private:
@@ -1418,7 +1465,8 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth, Padding, Mode>> {
 #endif
   static void skip_error(State& st, ErrorCode code, std::size_t offset,
                          const char* detail) {
-    st.last_error = {.code = code, .offset = offset, .detail = detail};
+    st.last_error = hosq::detail::ErrorInfo{
+        .code = code, .offset = offset, .detail = detail};
   }
 
   template <class T, TryPhase Phase>
@@ -1429,10 +1477,12 @@ struct DecodeSkipValue<hosq::json::FastReader<MaxDepth, Padding, Mode>> {
     auto& st = ctx.reader_state();
     const auto& tok = reader.current_token(st);
     if (tok.type != expected_type) [[unlikely]] {
-      reader.report_error(
-          st, Error{.code = ErrorCode::type_mismatch,
-                    .offset = tok.offset,
-                    .detail = "fast skip_container got wrong opening token"});
+      hosq::detail::report_reader_error(
+          reader, st,
+          hosq::detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "fast skip_container got wrong opening token"});
       return;
     }
 
@@ -1801,10 +1851,11 @@ struct ScanArray<json::FastReader<Depth, Padding, Mode>> {
       const DecodeContext<Storage, Reader, Phase>& ctx) -> ArrayView {
     const auto& tok = ctx.reader().current_token(ctx.reader_state());
     if (tok.type != TokenType::ArrayBegin) [[unlikely]]
-      ctx.reader().report_error(ctx.reader_state(),
-                                Error{.code = ErrorCode::type_mismatch,
-                                      .offset = tok.offset,
-                                      .detail = "scan::array expected array"});
+      hosq::detail::report_reader_error(
+          ctx.reader(), ctx.reader_state(),
+          hosq::detail::ErrorInfo{.code = ErrorCode::type_mismatch,
+                                  .offset = tok.offset,
+                                  .detail = "scan::array expected array"});
     return {};
   }
   template <class Storage, TryPhase Phase>

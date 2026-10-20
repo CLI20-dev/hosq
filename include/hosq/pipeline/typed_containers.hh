@@ -38,10 +38,10 @@ auto container_tuple(T& value) {
 template <class T, class Context>
 auto container_error(Context& ctx, ErrorCode code, std::string_view detail)
     -> T {
-  ctx.reader().report_error(
-      ctx.reader_state(),
-      Error{code, ctx.reader().current_token(ctx.reader_state()).offset,
-            detail});
+  ::hosq::detail::report_reader_error(
+      ctx.reader(), ctx.reader_state(),
+      ::hosq::detail::ErrorInfo{
+          code, ctx.reader().current_token(ctx.reader_state()).offset, detail});
   return T{};
 }
 
@@ -80,7 +80,7 @@ auto encode_container_element(const Value& value, W& writer) -> bool {
     auto& storage = const_cast<typename E::storage_type&>(value);  // NOLINT
     EncodeContext<typename E::storage_type, W> ctx{storage, writer};
     E::encoder_type::invoke(value, ctx);
-    return writer.error().is_ok();
+    return ::hosq::detail::writer_error(writer).is_ok();
   }
 }
 
@@ -168,14 +168,14 @@ struct TypedArrayImpl {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
     Result result;
-    if (reader.error(state)) return result;
+    if (::hosq::detail::reader_error(reader, state)) return result;
     if (reader.current_token(state).type != TokenType::ArrayBegin)
       return hosq::detail::container_error<Result>(ctx, ErrorCode::type_mismatch,
                                                    "typed array expected array");
     while (hosq::next_token<Expect::next_element_or_end>(reader, state)) {
       if (reader.current_token(state).type == TokenType::ArrayEnd) break;
       auto item = hosq::detail::decode_container_element<E>(reader, state);
-      if (reader.error(state)) break;
+      if (::hosq::detail::reader_error(reader, state)) break;
       result.push_back(std::move(item));
     }
     return result;
@@ -194,14 +194,14 @@ struct TypedMappingImpl {
     auto& reader = ctx.reader();
     auto& state = ctx.reader_state();
     result_type result;
-    if (reader.error(state)) return result;
+    if (::hosq::detail::reader_error(reader, state)) return result;
     if (reader.current_token(state).type != TokenType::ObjectBegin)
       return hosq::detail::container_error<result_type>(
           ctx, ErrorCode::type_mismatch, "typed mapping expected object");
     while (hosq::next_token<Expect::next_member_or_end>(reader, state)) {
       if (reader.current_token(state).type == TokenType::ObjectEnd) break;
       auto key = hosq::detail::decode_container_element<K>(reader, state);
-      if (reader.error(state)) break;
+      if (::hosq::detail::reader_error(reader, state)) break;
       for (const auto& entry : result) {
         if (hosq::detail::container_equal(entry.first, key))
           return hosq::detail::container_error<result_type>(
@@ -210,7 +210,7 @@ struct TypedMappingImpl {
       }
       if (!hosq::next_token<Expect::member_value>(reader, state)) break;
       auto value = hosq::detail::decode_container_element<V>(reader, state);
-      if (reader.error(state)) break;
+      if (::hosq::detail::reader_error(reader, state)) break;
       result.emplace_back(std::move(key), std::move(value));
     }
     return result;
@@ -227,7 +227,8 @@ struct TypedOptionalImpl {
       -> std::optional<typename E::storage_type> {
     auto result = hosq::detail::decode_container_element<E>(ctx.reader(),
                                                             ctx.reader_state());
-    if (ctx.reader().error(ctx.reader_state())) return std::nullopt;
+    if (::hosq::detail::reader_error(ctx.reader(), ctx.reader_state()))
+      return std::nullopt;
     return result;
   }
 };

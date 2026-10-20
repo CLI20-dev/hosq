@@ -48,12 +48,13 @@ struct StringSourceCodec {
     output = {};
     const auto& reader = ctx.reader();
     const auto& state = ctx.reader_state();
-    if (reader.error(state)) return false;
+    if (::hosq::detail::reader_error(reader, state)) return false;
     const auto& token = reader.current_token(state);
     if (token.type != TokenType::Scalar ||
         token.context != static_cast<std::uint8_t>(JsonTokenContext::string)) {
-      reader.report_error(
-          state, {ErrorCode::type_mismatch, token.offset, "expected string"});
+      ::hosq::detail::report_reader_error(
+          reader, state,
+          {ErrorCode::type_mismatch, token.offset, "expected string"});
       return false;
     }
     output =
@@ -66,8 +67,8 @@ struct UnescapeStringCodec {
   auto operator()(std::string input, const Context& ctx) const -> std::string {
     std::string output;
     if (!string_codec::unescape_json_string(input, output)) {
-      ctx.reader().report_error(
-          ctx.reader_state(),
+      ::hosq::detail::report_reader_error(
+          ctx.reader(), ctx.reader_state(),
           {ErrorCode::invalid_escape,
            ctx.reader().current_token(ctx.reader_state()).offset,
            "invalid JSON string body"});
@@ -83,10 +84,11 @@ struct SemanticScalarCodec {
   auto operator()(const View&, const Context& ctx, T& output) const -> bool {
     const auto& reader = ctx.reader();
     const auto& state = ctx.reader_state();
-    if (reader.error(state)) return false;
+    if (::hosq::detail::reader_error(reader, state)) return false;
     const auto& token = reader.current_token(state);
     auto fail = [&](ErrorCode code, std::string_view why) {
-      reader.report_error(state, {code, token.offset, why});
+      ::hosq::detail::report_reader_error(reader, state,
+                                          {code, token.offset, why});
       return false;
     };
     const bool literal =

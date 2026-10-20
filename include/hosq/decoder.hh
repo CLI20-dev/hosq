@@ -10,6 +10,7 @@
 #include "hosq/decode_outcome.hh"
 #include "hosq/detail/as_tuple.hh"
 #include "hosq/detail/compiler.hh"
+#include "hosq/detail/error_path.hh"
 #include "hosq/detail/type_traits.hh"
 #include "hosq/meta_match.hh"
 #include "hosq/pipeline/decode.hh"
@@ -17,6 +18,12 @@
 #include "hosq/reader_base.hh"
 
 namespace hosq {
+
+struct DecodeOptions {
+  // Locate the error in the input with a separate Reader traversal. Successful
+  // decoding never collects a path; disabling this skips the diagnostic pass.
+  bool error_path = true;
+};
 
 template <class R>
 class Decoder {
@@ -40,14 +47,16 @@ class Decoder<R> {
   template <class T>
     requires detail::RequiredDecoderAcceptableT<T>
   [[nodiscard]]
-  auto decode(T& t, input_type input) -> Error {
+  auto decode(T& t, input_type input, DecodeOptions options = {}) -> Error {
     reader_.reset(reader_state_, input);
-    if (const auto error = reader_.error(reader_state_); error) return error;
+    if (detail::reader_error(reader_, reader_state_))
+      return reader_.error(reader_state_);
     if (!hosq::next_token<ReadPosition::value>(reader_, reader_state_))
         [[unlikely]] {
-      return reader_.error(reader_state_);
+      return with_error_path(reader_.error(reader_state_), reader_,
+                             reader_state_, options);
     }
-    return decode_nested(t, reader_, reader_state_);
+    return decode_nested(t, reader_, reader_state_, options);
   }
 
   /// Decode one complete document, including validation of the input suffix.
@@ -55,12 +64,14 @@ class Decoder<R> {
   template <class T>
     requires detail::RequiredDecoderAcceptableT<T>
   [[nodiscard]]
-  auto decode_document(T& t, input_type input) -> Error {
-    const auto result = decode(t, input);
+  auto decode_document(T& t, input_type input, DecodeOptions options = {})
+      -> Error {
+    const auto result = decode(t, input, options);
     if (result) return result;
     // Nested decoding stops on the decoded value's last token.
     if (!hosq::next_token<Expect::document_end>(reader_, reader_state_))
-      return reader_.error(reader_state_);
+      return with_error_path(reader_.error(reader_state_), reader_,
+                             reader_state_, options);
     const auto& token = reader_.current_token(reader_state_);
     if (token.type != TokenType::End)
       return Error{ErrorCode::trailing_data, token.offset,
@@ -79,42 +90,81 @@ class Decoder<R> {
     requires detail::RequiredDecoderAcceptableT<T>
   [[nodiscard]]
   static HOSQ_ALWAYS_INLINE auto decode_nested(T& t, reader_type& reader,
-                                               reader_state_type& reader_state)
+                                               reader_state_type& reader_state,
+                                               DecodeOptions options = {})
       -> Error {
-    if (const auto error = reader.error(reader_state); error) return error;
+    if (detail::reader_error(reader, reader_state))
+      return reader.error(reader_state);
+    if (decode_value(t, reader, reader_state)) [[unlikely]]
+      return with_error_path(reader.error(reader_state), reader, reader_state,
+                             options);
+    return Error::ok();
+  }
+
+ private:
+  template <class>
+  friend class Decoder;
+  template <class T>
+    requires ::hosq::detail::DecoderAcceptableT<T>
+  friend struct decode::detail::ToImpl;
+
+  // Nested pipelines use the ordinary traversal. Only the public decoding
+  // boundary diagnoses a failure, after all user processing has stopped.
+  template <class T>
+    requires detail::RequiredDecoderAcceptableT<T>
+  [[nodiscard]]
+  static HOSQ_ALWAYS_INLINE auto decode_value(T& t, reader_type& reader,
+                                              reader_state_type& reader_state)
+      -> detail::ErrorState {
+    if (const auto error = detail::reader_error(reader, reader_state); error)
+      return error;
     return ext::ReaderDispatch<R>{}(reader, reader_state, [&](auto* active) {
       using Active = std::remove_pointer_t<decltype(active)>;
       if constexpr (std::same_as<Active, R>) {
         return decode_impl(t, *active, reader_state);
       } else {
-        return Decoder<Active>::decode_nested(t, *active, reader_state);
+        return Decoder<Active>::decode_value(t, *active, reader_state);
       }
     });
   }
 
  private:
+  static auto with_error_path(Error error, reader_type& reader,
+                              reader_state_type& state, DecodeOptions options)
+      -> Error {
+    if (error && options.error_path && error.path.empty()) {
+      if constexpr (std::default_initializable<R> &&
+                    std::constructible_from<input_type, std::string_view>) {
+        error.path = detail::locate_error_path<R>(
+            input_type{reader.input(state).as_string_view()}, error.offset);
+      }
+    }
+    return error;
+  }
+
   template <detail::ElemT T>
   [[nodiscard]]
   static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                                              reader_state_type& reader_state)
-      -> Error {
+      -> detail::ErrorState {
     auto ctx = make_decode_context(t, reader, reader_state);
-    (void)detail::invoke_required_decode(t, ctx);
-    return reader.error(reader_state);
+    return detail::invoke_required_decode(t, ctx);
   }
 
   template <detail::AsElemTupleT T>
   [[nodiscard]]
   static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                                              reader_state_type& reader_state)
-      -> Error {
+      -> detail::ErrorState {
     if (reader.current_token(reader_state).type != TokenType::ArrayBegin)
         [[unlikely]] {
-      return Error{
-          .code = ErrorCode::type_mismatch,
-          .offset = reader.current_token(reader_state).offset,
-          .detail = "expected array while decoding tuple",
-      };
+      return detail::fail_reader(
+          reader, reader_state,
+          detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = reader.current_token(reader_state).offset,
+              .detail = "expected array while decoding tuple",
+          });
     }
     std::apply(
         [&](auto&... elem) HOSQ_ALWAYS_INLINE_ATTR -> void {
@@ -133,17 +183,19 @@ class Decoder<R> {
         detail::as_tuple(t));
     if (!hosq::next_token<Expect::next_element_or_end>(reader, reader_state))
         [[unlikely]] {
-      return reader.error(reader_state);
+      return detail::reader_error(reader, reader_state);
     }
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ArrayEnd) [[unlikely]] {
-      return Error{
-          .code = ErrorCode::size_mismatch,
-          .offset = tok.offset,
-          .detail = "tuple has fewer elements than input array",
-      };
+      return detail::fail_reader(
+          reader, reader_state,
+          detail::ErrorInfo{
+              .code = ErrorCode::size_mismatch,
+              .offset = tok.offset,
+              .detail = "tuple has fewer elements than input array",
+          });
     }
-    return Error::ok();
+    return detail::ErrorState::ok();
   }
 
   template <detail::EntryT T, class ReaderT, class StateT>
@@ -171,12 +223,13 @@ class Decoder<R> {
         matched = meta::match(scan_key(), handlers);
       }
       if (!matched) {
-        if (reader.error(reader_state).is_ok()) {
-          reader.report_error(
-              reader_state,
-              Error{.code = ErrorCode::unknown_member,
-                    .offset = reader.current_token(reader_state).offset,
-                    .detail = "expected declared constant key"});
+        if (detail::reader_error(reader, reader_state).is_ok()) {
+          detail::report_reader_error(
+              reader, reader_state,
+              detail::ErrorInfo{
+                  .code = ErrorCode::unknown_member,
+                  .offset = reader.current_token(reader_state).offset,
+                  .detail = "expected declared constant key"});
         }
         return false;
       }
@@ -224,14 +277,16 @@ class Decoder<R> {
   [[nodiscard]]
   static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                                              reader_state_type& reader_state)
-      -> Error {
+      -> detail::ErrorState {
     if (reader.current_token(reader_state).type != TokenType::ObjectBegin)
         [[unlikely]] {
-      return Error{
-          .code = ErrorCode::type_mismatch,
-          .offset = reader.current_token(reader_state).offset,
-          .detail = "expected object while decoding entry tuple",
-      };
+      return detail::fail_reader(
+          reader, reader_state,
+          detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = reader.current_token(reader_state).offset,
+              .detail = "expected object while decoding entry tuple",
+          });
     }
     auto tuple = detail::as_tuple(t);
     [&]<std::size_t... I>(std::index_sequence<I...>) HOSQ_ALWAYS_INLINE_ATTR
@@ -244,32 +299,37 @@ class Decoder<R> {
             std::tuple_size_v<std::remove_cvref_t<decltype(tuple)>>>{});
     if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
         [[unlikely]] {
-      return reader.error(reader_state);
+      return detail::reader_error(reader, reader_state);
     }
     if (reader.current_token(reader_state).type != TokenType::ObjectEnd)
         [[unlikely]] {
-      return Error{
-          .code = ErrorCode::size_mismatch,
-          .offset = reader.current_token(reader_state).offset,
-          .detail = "entry tuple has fewer members than input object",
-      };
+      return detail::fail_reader(
+          reader, reader_state,
+          detail::ErrorInfo{
+              .code = ErrorCode::size_mismatch,
+              .offset = reader.current_token(reader_state).offset,
+              .detail = "entry tuple has fewer members than input object",
+          });
     }
-    return Error::ok();
+    return detail::ErrorState::ok();
   }
 
   template <detail::AsTryElemTupleT T>
   [[nodiscard]]
   static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                                              reader_state_type& reader_state)
-      -> Error {
-    if (reader.error(reader_state)) return reader.error(reader_state);
+      -> detail::ErrorState {
+    if (detail::reader_error(reader, reader_state))
+      return detail::reader_error(reader, reader_state);
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
-      return Error{
-          .code = ErrorCode::type_mismatch,
-          .offset = tok.offset,
-          .detail = "expected array while decoding try tuple",
-      };
+      return detail::fail_reader(
+          reader, reader_state,
+          detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "expected array while decoding try tuple",
+          });
     }
     auto tuple = detail::as_tuple(t);
     constexpr auto tuple_size =
@@ -278,11 +338,11 @@ class Decoder<R> {
     while (matched) [[likely]] {
       if (!hosq::next_token<Expect::next_element_or_end>(reader, reader_state))
           [[unlikely]] {
-        return reader.error(reader_state);
+        return detail::reader_error(reader, reader_state);
       }
       const auto& tok = reader.current_token(reader_state);
       if (tok.type == TokenType::ArrayEnd) {
-        return Error::ok();
+        return detail::ErrorState::ok();
       }
       matched = [&]<size_t... I>(auto& tuple, std::index_sequence<I...>)
                     HOSQ_ALWAYS_INLINE_ATTR -> bool {
@@ -315,16 +375,19 @@ class Decoder<R> {
                 }
                 return true;
               }
-            }() || reader.error(reader_state).has_error()) ||
+            }() || detail::reader_error(reader, reader_state).has_error()) ||
             ...);
       }(tuple, std::make_index_sequence<tuple_size>{});
-      if (reader.error(reader_state)) return reader.error(reader_state);
+      if (detail::reader_error(reader, reader_state))
+        return detail::reader_error(reader, reader_state);
     }
-    return Error{
-        .code = ErrorCode::unknown_member,
-        .offset = reader.current_token(reader_state).offset,
-        .detail = "no try tuple candidate matched array element",
-    };
+    return detail::fail_reader(
+        reader, reader_state,
+        detail::ErrorInfo{
+            .code = ErrorCode::unknown_member,
+            .offset = reader.current_token(reader_state).offset,
+            .detail = "no try tuple candidate matched array element",
+        });
   }
 
   template <bool IsConst, class Elem, class Context>
@@ -361,7 +424,7 @@ class Decoder<R> {
                       reader.current_token(reader_state)
                     } -> std::same_as<Token&>;
                   }) {
-      if (reader.error(reader_state).is_ok()) {
+      if (detail::reader_error(reader, reader_state).is_ok()) {
         auto& token = reader.current_token(reader_state);
         if (token.offset != initial_token.offset ||
             token.type != initial_token.type ||
@@ -557,7 +620,7 @@ class Decoder<R> {
             } else {
               (void)detail::invoke_decode(key_elem, key_ctx);
             }
-            if (reader.error(reader_state)) return false;
+            if (detail::reader_error(reader, reader_state)) return false;
 
             if constexpr (detail::MatchResultT<value_elem_raw_result_type>) {
               auto checkpoint = reader_state.checkpoint();
@@ -606,7 +669,7 @@ class Decoder<R> {
             } else {
               (void)detail::invoke_decode(key_elem, key_ctx);
             }
-            if (reader.error(reader_state)) return false;
+            if (detail::reader_error(reader, reader_state)) return false;
 
             if (!hosq::next_token<Expect::member_value>(reader, reader_state))
                 [[unlikely]] {
@@ -632,7 +695,7 @@ class Decoder<R> {
             }
             return true;
           }
-        }() || reader.error(reader_state).has_error()) ||
+        }() || detail::reader_error(reader, reader_state).has_error()) ||
         ...);
   }
 
@@ -640,15 +703,18 @@ class Decoder<R> {
   [[nodiscard]]
   static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                                              reader_state_type& reader_state)
-      -> Error {
-    if (reader.error(reader_state)) return reader.error(reader_state);
+      -> detail::ErrorState {
+    if (detail::reader_error(reader, reader_state))
+      return detail::reader_error(reader, reader_state);
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ObjectBegin) [[unlikely]] {
-      return Error{
-          .code = ErrorCode::type_mismatch,
-          .offset = tok.offset,
-          .detail = "expected object while decoding try entry tuple",
-      };
+      return detail::fail_reader(
+          reader, reader_state,
+          detail::ErrorInfo{
+              .code = ErrorCode::type_mismatch,
+              .offset = tok.offset,
+              .detail = "expected object while decoding try entry tuple",
+          });
     }
 
     auto tuple = detail::as_tuple(t);
@@ -686,12 +752,12 @@ class Decoder<R> {
     while (matched) [[likely]] {
       if (!hosq::next_token<Expect::next_member_or_end>(reader, reader_state))
           [[unlikely]] {
-        return reader.error(reader_state);
+        return detail::reader_error(reader, reader_state);
       }
 
       const auto& tok = reader.current_token(reader_state);
       if (tok.type == TokenType::ObjectEnd) {
-        return Error::ok();
+        return detail::ErrorState::ok();
       }
 
       matched = false;
@@ -701,7 +767,8 @@ class Decoder<R> {
             const_key_entries, reader, reader_state,
             std::make_index_sequence<const_key_tuple_size>{});
       }
-      if (reader.error(reader_state)) return reader.error(reader_state);
+      if (detail::reader_error(reader, reader_state))
+        return detail::reader_error(reader, reader_state);
 
       if (!matched) {
         if constexpr (entry_tuple_size > 0) {
@@ -710,14 +777,17 @@ class Decoder<R> {
               std::make_index_sequence<entry_tuple_size>{});
         }
       }
-      if (reader.error(reader_state)) return reader.error(reader_state);
+      if (detail::reader_error(reader, reader_state))
+        return detail::reader_error(reader, reader_state);
     }
 
-    return Error{
-        .code = ErrorCode::unknown_member,
-        .offset = reader.current_token(reader_state).offset,
-        .detail = "no try entry candidate matched object member",
-    };
+    return detail::fail_reader(
+        reader, reader_state,
+        detail::ErrorInfo{
+            .code = ErrorCode::unknown_member,
+            .offset = reader.current_token(reader_state).offset,
+            .detail = "no try entry candidate matched object member",
+        });
   }
 
  private:
@@ -729,9 +799,10 @@ class Decoder<R> {
 template <ReaderConcept R, class T>
   requires detail::RequiredDecoderAcceptableT<T>
 [[nodiscard]]
-auto decode_into(T& t, typename R::input_type input) -> Error {
+auto decode_into(T& t, typename R::input_type input, DecodeOptions options = {})
+    -> Error {
   Decoder<R> decoder;
-  return decoder.decode(t, input);
+  return decoder.decode(t, input, options);
 }
 
 /// Strict document convenience wrapper. Unlike decode_into, also requires the
@@ -739,9 +810,10 @@ auto decode_into(T& t, typename R::input_type input) -> Error {
 template <ReaderConcept R, class T>
   requires detail::RequiredDecoderAcceptableT<T>
 [[nodiscard]]
-auto decode_document_into(T& t, typename R::input_type input) -> Error {
+auto decode_document_into(T& t, typename R::input_type input,
+                          DecodeOptions options = {}) -> Error {
   Decoder<R> decoder;
-  return decoder.decode_document(t, input);
+  return decoder.decode_document(t, input, options);
 }
 
 }  // namespace hosq

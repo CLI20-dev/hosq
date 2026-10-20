@@ -15,8 +15,8 @@
 namespace hosq::decode::detail {
 template <class Context>
 void typed_error(const Context& ctx, ErrorCode code, std::string_view why) {
-  ctx.reader().report_error(
-      ctx.reader_state(),
+  ::hosq::detail::report_reader_error(
+      ctx.reader(), ctx.reader_state(),
       {code, ctx.reader().current_token(ctx.reader_state()).offset, why});
 }
 template <class T>
@@ -52,7 +52,8 @@ struct TypedNumberImpl {
   template <class Context>
   auto operator()(const ScalarView& view, const Context& ctx) const -> T {
     T out{};
-    if (ctx.reader().error(ctx.reader_state())) return out;
+    if (::hosq::detail::reader_error(ctx.reader(), ctx.reader_state()))
+      return out;
     SemanticNumber number;
     number.requested = Floating ? SemanticNumber::Category::floating
                                 : SemanticNumber::Category::integer;
@@ -95,7 +96,7 @@ struct ScalarCodecImpl {
   template <class Context>
   auto operator()(const ScalarView& view, const Context& ctx) const -> Value {
     Value output{};
-    if (!ctx.reader().error(ctx.reader_state()))
+    if (!::hosq::detail::reader_error(ctx.reader(), ctx.reader_state()))
       (void)ext::DecodeSemanticScalar<typename Context::reader_type>{}(view, ctx,
                                                                        output);
     return output;

@@ -78,7 +78,7 @@ class SemanticWriter {
 
  protected:
   auto fail(ErrorCode code, std::string_view why) -> bool {
-    report_error({code, output_.size(), why});
+    if (!error_) error_ = ErrorInfo{code, output_.size(), why};
     return false;
   }
   auto ready() -> bool {
@@ -135,9 +135,49 @@ class SemanticWriter {
   bool finished_ = false;
 
  private:
+  template <class>
+  friend struct WriterErrorAccess;
+
   std::string scratch_;
   bool pending_ = false;
-  Error error_ = Error::ok();
+  ErrorInfo error_ = ErrorInfo::ok();
+};
+
+// Deduction also accepts concrete writers derived from SemanticWriter, keeping
+// their diagnostic access internal without adding a public accessor.
+template <class Derived, std::size_t MaxOutput>
+auto semantic_writer_base(
+    const SemanticWriter<Derived, MaxOutput>& writer) noexcept
+    -> const SemanticWriter<Derived, MaxOutput>& {
+  return writer;
+}
+
+template <class Derived, std::size_t MaxOutput>
+auto semantic_writer_base(SemanticWriter<Derived, MaxOutput>& writer) noexcept
+    -> SemanticWriter<Derived, MaxOutput>& {
+  return writer;
+}
+
+template <class W>
+  requires requires(const W& writer) {
+    semantic_writer_base(writer);
+    requires std::is_same_v<
+        decltype(&W::error),
+        decltype(&std::remove_cvref_t<decltype(semantic_writer_base(
+                     writer))>::error)>;
+    requires std::is_same_v<
+        decltype(&W::report_error),
+        decltype(&std::remove_cvref_t<decltype(semantic_writer_base(
+                     writer))>::report_error)>;
+  }
+struct WriterErrorAccess<W> {
+  static auto get(const W& writer) noexcept -> ErrorState {
+    return {semantic_writer_base(writer).error_.code};
+  }
+  static void report(W& writer, ErrorInfo error) noexcept {
+    auto& base = semantic_writer_base(writer);
+    if (!base.error_) base.error_ = error;
+  }
 };
 
 // JSON and TOML basic strings share these escapes. Escaping DEL also keeps

@@ -8,6 +8,19 @@
 namespace {
 using namespace hosq;
 
+static_assert(sizeof(detail::ErrorState) == sizeof(ErrorCode));
+static_assert(std::is_trivially_copyable_v<detail::ErrorState>);
+static_assert(std::is_trivially_copyable_v<detail::ErrorInfo>);
+static_assert(Error{}.has_error());
+static_assert(detail::ErrorState{}.has_error());
+static_assert(detail::ErrorInfo{}.has_error());
+static_assert(detail::ErrorState::ok().is_ok());
+static_assert(!detail::ErrorState::ok().has_error());
+static_assert(!static_cast<bool>(detail::ErrorState::ok()));
+static_assert(detail::ErrorState{ErrorCode::out_of_range}.has_error());
+static_assert(detail::ErrorState{ErrorCode::out_of_range}.kind() ==
+              kind_of(ErrorCode::out_of_range));
+
 using One =
     Elem<scan::scalar | decode::integer<int> | match::literal<1> | store::assign,
          encode::value>;
@@ -19,6 +32,9 @@ template <class R>
 void check_outcomes() {
   R reader;
   typename R::state_type state;
+  static_assert(std::is_same_v<decltype(detail::reader_error(reader, state)),
+                               detail::ErrorState>);
+  static_assert(std::is_same_v<decltype(reader.error(state)), Error>);
   One one;
   one.value() = 99;
   auto invoke = [&](std::string_view input, auto& element) {
@@ -31,6 +47,7 @@ void check_outcomes() {
     return detail::invoke_decode(element, ctx);
   };
   auto result = invoke("2", one);
+  static_assert(std::is_same_v<decltype(result.error), detail::ErrorState>);
   EXPECT_EQ(result.status, DecodeStatus::no_match);
   EXPECT_TRUE(result.error.is_ok());
   EXPECT_TRUE(reader.error(state).is_ok());
@@ -45,11 +62,47 @@ void check_outcomes() {
   EXPECT_EQ(result.status, DecodeStatus::error);
   EXPECT_EQ(result.error.code, ErrorCode::out_of_range);
   EXPECT_EQ(reader.error(state).code, ErrorCode::out_of_range);
+
+  reader.reset(state, "1");
+  EXPECT_TRUE(detail::reader_error(reader, state).is_ok());
+  EXPECT_TRUE(reader.error(state).is_ok());
+  ASSERT_TRUE(reader.next_token(state));
+  const auto checkpoint = state.checkpoint();
+  (void)reader.next_token(state);
+  state.rollback(checkpoint);
+  EXPECT_TRUE(detail::reader_error(reader, state).is_ok());
 }
 
 TEST(DecodeOutcome, MatchRejectionAndValidationErrorAreDistinct) {
   check_outcomes<json::SimpleReader>();
   check_outcomes<json::FastReader<>>();
+}
+
+TEST(DecodeOutcome, FastReaderClearsRawFailureAfterCheckpointRecovery) {
+  auto check = [](auto advance) {
+    json::FastReader<> reader;
+    json::FastReader<>::state_type state;
+    reader.reset(state, "[1,]");
+    ASSERT_TRUE(reader.next_token(state));
+    const auto checkpoint = state.checkpoint();
+    ASSERT_TRUE(advance(reader, state));
+    ASSERT_FALSE(advance(reader, state));
+    ASSERT_EQ(reader.error(state).code, ErrorCode::unexpected_token);
+    EXPECT_NE(reader.error(state).offset, 0U);
+    EXPECT_FALSE(reader.error(state).detail.empty());
+
+    state.rollback(checkpoint);
+    ASSERT_TRUE(advance(reader, state));
+    const auto error = reader.error(state);
+    EXPECT_TRUE(error.is_ok());
+    EXPECT_EQ(error.offset, 0U);
+    EXPECT_TRUE(error.detail.empty());
+    EXPECT_EQ(reader.current_token(state).type, TokenType::Scalar);
+  };
+  check([](auto& reader, auto& state) { return reader.next_token(state); });
+  check([](auto& reader, auto& state) {
+    return next_token<Expect::next_element_or_end>(reader, state);
+  });
 }
 
 struct HardReject {
@@ -79,8 +132,7 @@ TEST(DecodeOutcome, HardErrorTakesPrecedenceOverFalseAndPreventsReinvocation) {
   EXPECT_EQ(HardReject::calls, 1);
   EXPECT_EQ(result.status, DecodeStatus::error);
   EXPECT_EQ(result.error.code, ErrorCode::validation_failed);
-  EXPECT_EQ(result.error.offset, 7U);
-  EXPECT_EQ(result.error.detail, "specific error");
+  EXPECT_EQ(reader.error(state).offset, 7U);
   EXPECT_EQ(reader.error(state).detail, "specific error");
 }
 

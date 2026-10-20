@@ -16,8 +16,9 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     if (!extension_token(s)) return false;
     const auto raw = s.input.substr(s.token.offset, s.token.length);
     if (static_cast<unsigned char>(raw.front()) != 0xff) {
-      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                       "expected MessagePack timestamp extension"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::type_mismatch, s.token.offset,
+                                   "expected MessagePack timestamp extension"});
       return false;
     }
     const auto payload = raw.substr(1);
@@ -43,13 +44,17 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
         result.seconds = std::bit_cast<std::int64_t>(uint_at(4, 8));
         break;
       default:
-        report_error(s, {ErrorCode::invalid_length, s.token.offset,
-                         "MessagePack timestamp requires 4, 8, or 12 bytes"});
+        detail::report_reader_error(
+            *this, s,
+            {ErrorCode::invalid_length, s.token.offset,
+             "MessagePack timestamp requires 4, 8, or 12 bytes"});
         return false;
     }
     if (result.nanoseconds >= 1000000000) {
-      report_error(s, {ErrorCode::out_of_range, s.token.offset,
-                       "MessagePack timestamp nanoseconds exceed 999999999"});
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::out_of_range, s.token.offset,
+           "MessagePack timestamp nanoseconds exceed 999999999"});
       return false;
     }
     output = result;
@@ -188,15 +193,17 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     if (s.token.type != TokenType::Scalar ||
         s.token.context !=
             static_cast<std::uint8_t>(detail::NativeContext::extension)) {
-      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                       "expected MessagePack extension"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::type_mismatch, s.token.offset,
+                                   "expected MessagePack extension"});
       return false;
     }
     if (s.token.length == 0 || s.token.offset > s.input.size() ||
         s.token.length > s.input.size() - s.token.offset) {
-      report_error(
-          s, {ErrorCode::invalid_length, s.token.offset,
-              "MessagePack extension token requires an in-bounds type byte"});
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::invalid_length, s.token.offset,
+           "MessagePack extension token requires an in-bounds type byte"});
       return false;
     }
     return true;

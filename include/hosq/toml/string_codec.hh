@@ -13,7 +13,7 @@ struct Cursor {
   std::string_view input;
   std::size_t pos = 0;
   Token token{};
-  Error failure = Error::ok();
+  detail::ErrorInfo failure = detail::ErrorInfo::ok();
 };
 inline void append_utf8(std::string& text, std::uint32_t code) {
   if (code < 0x80)
@@ -40,7 +40,8 @@ inline auto parse(Cursor& cursor, std::string* decoded = nullptr,
     return cursor.pos < cursor.input.size() && cursor.input[cursor.pos] == c;
   };
   auto fail = [&](ErrorCode code, std::string_view why) {
-    if (cursor.failure.is_ok()) cursor.failure = {code, cursor.pos, why};
+    if (cursor.failure.is_ok())
+      cursor.failure = detail::ErrorInfo{code, cursor.pos, why};
     return false;
   };
   auto need = [&](std::size_t count) {

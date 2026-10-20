@@ -46,7 +46,7 @@ struct NativeState {
   NativeScalar scalar;
   std::uint8_t binary_subtype = 0;
   std::uint8_t scalar_marker = 0;
-  mutable Error failure = Error::ok();
+  mutable ErrorInfo failure = ErrorInfo::ok();
   struct Checkpoint {
     std::size_t pos;
     bool started;
@@ -85,7 +85,9 @@ struct NativeReaderAccess {
   void report_error(const state_type& s, Error e) const {
     if (s.failure.is_ok()) s.failure = e;
   }
-  auto error(const state_type& s) const -> Error { return s.failure; }
+  auto error(const state_type& s) const -> Error {
+    return static_cast<Error>(s.failure);
+  }
   auto read_semantic(const state_type& s, SemanticNumber& output) const -> bool {
     if (s.failure) return false;
     bool numeric = false;
@@ -105,8 +107,8 @@ struct NativeReaderAccess {
           s.scalar);
     }
     if (!numeric)
-      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                       "expected numeric scalar"});
+      report_error_info(s, {ErrorCode::type_mismatch, s.token.offset,
+                            "expected numeric scalar"});
     return numeric;
   }
   auto read_semantic(const state_type& s, bool& output) const -> bool {
@@ -118,8 +120,8 @@ struct NativeReaderAccess {
         return true;
       }
     }
-    report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                     "expected boolean scalar"});
+    report_error_info(s, {ErrorCode::type_mismatch, s.token.offset,
+                          "expected boolean scalar"});
     return false;
   }
   auto read_semantic(const state_type& s, std::nullptr_t&) const -> bool {
@@ -127,7 +129,8 @@ struct NativeReaderAccess {
     if (s.token.type == TokenType::Scalar &&
         s.token.context == static_cast<std::uint8_t>(NativeContext::null))
       return true;
-    report_error(s, {ErrorCode::type_mismatch, s.token.offset, "expected null"});
+    report_error_info(
+        s, {ErrorCode::type_mismatch, s.token.offset, "expected null"});
     return false;
   }
   auto read_string_source(const state_type& s, std::string_view& output) const
@@ -136,7 +139,7 @@ struct NativeReaderAccess {
     if (s.failure) return false;
     if (s.token.type != TokenType::Scalar ||
         s.token.context != static_cast<std::uint8_t>(NativeContext::string)) {
-      report_error(
+      report_error_info(
           s, {ErrorCode::type_mismatch, s.token.offset, "expected string"});
       return false;
     }
@@ -148,15 +151,15 @@ struct NativeReaderAccess {
     if (s.failure) return false;
     if (s.token.type != TokenType::Scalar ||
         s.token.context != static_cast<std::uint8_t>(NativeContext::string)) {
-      report_error(
+      report_error_info(
           s, {ErrorCode::type_mismatch, s.token.offset, "expected string"});
       return false;
     }
     const auto text = s.input.substr(s.token.offset, s.token.length);
     const auto invalid = invalid_utf8_offset(text);
     if (invalid != text.size()) {
-      report_error(s, {ErrorCode::invalid_utf8, s.token.offset + invalid,
-                       "invalid string UTF-8"});
+      report_error_info(s, {ErrorCode::invalid_utf8, s.token.offset + invalid,
+                            "invalid string UTF-8"});
       return false;
     }
     output = text;
@@ -167,8 +170,8 @@ struct NativeReaderAccess {
     if (s.failure) return false;
     if (s.token.type != TokenType::Scalar ||
         s.token.context != static_cast<std::uint8_t>(NativeContext::binary)) {
-      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                       "expected binary value"});
+      report_error_info(s, {ErrorCode::type_mismatch, s.token.offset,
+                            "expected binary value"});
       return false;
     }
     const auto payload = s.input.substr(s.token.offset, s.token.length);
@@ -180,8 +183,11 @@ struct NativeReaderAccess {
   }
 
  protected:
+  static void report_error_info(const state_type& s, ErrorInfo error) {
+    if (s.failure.is_ok()) s.failure = error;
+  }
   static auto fail(state_type& s, ErrorCode code, std::string_view why) -> bool {
-    if (s.failure.is_ok()) s.failure = {code, s.pos, why};
+    if (s.failure.is_ok()) s.failure = ErrorInfo{code, s.pos, why};
     s.token = {s.pos, 0, TokenType::Error, 0};
     return false;
   }
@@ -211,6 +217,25 @@ struct NativeReaderAccess {
                            NativeContext context) {
     s.token = {start, s.pos - start, TokenType::Scalar,
                static_cast<std::uint8_t>(context)};
+  }
+};
+
+// Inherited native protocols keep diagnostics lightweight until the public edge.
+// An override or overload must retain the custom reader compatibility path.
+template <class R>
+  requires std::derived_from<R, NativeReaderAccess> &&
+           std::same_as<decltype(&R::error),
+                        decltype(&NativeReaderAccess::error)> &&
+           std::same_as<decltype(&R::report_error),
+                        decltype(&NativeReaderAccess::report_error)>
+struct ReaderErrorAccess<R> {
+  template <class State>
+  static auto get(const R&, const State& state) -> ErrorState {
+    return {state.failure.code};
+  }
+  template <class State>
+  static void report(const R&, const State& state, ErrorInfo error) {
+    if (state.failure.is_ok()) state.failure = error;
   }
 };
 
@@ -254,9 +279,10 @@ struct NativeDecodeNumber {
           s.scalar);
     }
     if (!numeric || !fits)
-      ctx.reader().report_error(
-          s, {numeric ? ErrorCode::out_of_range : ErrorCode::type_mismatch,
-              s.token.offset, "expected representable number"});
+      report_reader_error(
+          ctx.reader(), s,
+          {numeric ? ErrorCode::out_of_range : ErrorCode::type_mismatch,
+           s.token.offset, "expected representable number"});
     return out;
   }
 };
@@ -264,7 +290,8 @@ struct NativeDecodeNumberInto {
   template <class T, class Context>
   void operator()(const ScalarView& view, const Context& ctx) const {
     auto value = NativeDecodeNumber{}.template operator()<T>(view, ctx);
-    if (ctx.reader().error(ctx.reader_state()).is_ok()) ctx.value() = value;
+    if (reader_error(ctx.reader(), ctx.reader_state()).is_ok())
+      ctx.value() = value;
   }
 };
 struct NativeDecodeBoolean {
@@ -273,8 +300,9 @@ struct NativeDecodeBoolean {
     auto& s = ctx.reader_state();
     if (s.token.context == static_cast<std::uint8_t>(NativeContext::boolean))
       return std::get<bool>(s.scalar);
-    ctx.reader().report_error(
-        s, {ErrorCode::type_mismatch, s.token.offset, "expected boolean"});
+    report_reader_error(
+        ctx.reader(), s,
+        {ErrorCode::type_mismatch, s.token.offset, "expected boolean"});
     return false;
   }
 };
@@ -285,8 +313,9 @@ struct NativeDecodeStringView {
     auto& s = ctx.reader_state();
     if (s.token.context == static_cast<std::uint8_t>(NativeContext::string))
       return s.input.substr(s.token.offset, s.token.length);
-    ctx.reader().report_error(
-        s, {ErrorCode::type_mismatch, s.token.offset, "expected string"});
+    report_reader_error(
+        ctx.reader(), s,
+        {ErrorCode::type_mismatch, s.token.offset, "expected string"});
     return {};
   }
 };

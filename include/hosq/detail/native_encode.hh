@@ -38,18 +38,13 @@ struct IsEncodeMap<Map<K, V>> : std::true_type {};
 
 template <class W>
 auto encode_error(W& writer, ErrorCode code, std::string_view why) -> bool {
-  if constexpr (requires { writer.report_error(Error{}); })
-    writer.report_error({code, writer.output().size(), why});
-  else {
-    // Preserve the original WriterConcept; legacy writers need no new method.
-    (void)writer.write({0, TokenType::Error, 0});
-  }
+  report_writer_error(writer, {code, writer.output().size(), why});
   return false;
 }
 template <class W>
 auto encode_token(W& writer, TokenType type) -> bool {
   (void)writer.write({0, type, 0});
-  return writer.error().is_ok();
+  return ::hosq::detail::writer_error(writer).is_ok();
 }
 // Legacy JSON writers accept encoded bytes through WriteRequest. This fallback
 // leaves encode::number/boolean/string_view and custom pipelines unchanged.
@@ -59,7 +54,7 @@ auto encode_json_scalar(W& writer, std::string_view value, bool string) -> bool 
       {value.size(), TokenType::Scalar,
        static_cast<std::uint8_t>(string ? JsonTokenContext::string
                                         : JsonTokenContext::literal)});
-  if (writer.error()) return false;
+  if (::hosq::detail::writer_error(writer)) return false;
   std::copy(value.begin(), value.end(), buffer.data());
   return writer.commit(value.size());
 }
@@ -104,7 +99,7 @@ inline auto escaped_string_body(std::string_view value) -> std::string {
 template <class T, class W>
 auto encode_native_value(const T& value, W& writer) -> bool {
   using V = std::remove_cvref_t<T>;
-  if (writer.error()) return false;
+  if (::hosq::detail::writer_error(writer)) return false;
   if constexpr (IsEncodeOptional<V>::value) {
     if (!value)
       return encode_error(

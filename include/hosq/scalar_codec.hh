@@ -41,8 +41,8 @@ struct DecodeSemanticScalar {
                        requires { reader.read_bytes(state, output); })
       return reader.read_bytes(state, output);
     else {
-      reader.report_error(
-          state,
+      ::hosq::detail::report_reader_error(
+          reader, state,
           {ErrorCode::unsupported_type, reader.current_token(state).offset,
            "this format has no codec for this scalar type"});
       return false;

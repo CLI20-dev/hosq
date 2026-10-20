@@ -67,7 +67,8 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     s.input = in;
     const auto invalid = detail::invalid_utf8_offset(in);
     if (invalid != in.size()) {
-      s.failure = {ErrorCode::invalid_utf8, invalid, "invalid TOML UTF-8"};
+      s.failure = detail::ErrorInfo{ErrorCode::invalid_utf8, invalid,
+                                    "invalid TOML UTF-8"};
       return;
     }
     if (MaxDepth == 0) {
@@ -136,8 +137,9 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     if (s.current == absent || s.token.type != TokenType::Scalar ||
         s.token.context !=
             static_cast<std::uint8_t>(detail::NativeContext::string)) {
-      report_error(
-          s, {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
       return false;
     }
     const auto& node = s.nodes[s.current];
@@ -149,7 +151,7 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     }
     string_codec::Cursor cursor{s.input, start};
     if (!string_codec::parse(cursor)) {
-      report_error(s, cursor.failure);
+      detail::report_reader_error(*this, s, cursor.failure);
       return false;
     }
     output = s.input.substr(start, cursor.pos - start);
@@ -163,8 +165,9 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     if (s.current == absent || s.token.type != TokenType::Scalar ||
         s.token.context !=
             static_cast<std::uint8_t>(detail::NativeContext::string)) {
-      report_error(
-          s, {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
       return false;
     }
     const auto& node = s.nodes[s.current];
@@ -177,7 +180,7 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     cursor.pos = node.source;
     if (!string(cursor, &output)) {
       output.clear();
-      report_error(s, cursor.failure);
+      detail::report_reader_error(*this, s, cursor.failure);
       return false;
     }
     return true;
@@ -207,8 +210,9 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     OffsetDateTimeValue offset;
     if (!read_semantic(s, offset)) return false;
     if (!detail::offset_to_instant(offset, output)) {
-      report_error(s, {ErrorCode::conversion_error, s.token.offset,
-                       "TOML date-time cannot identify an Instant"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::conversion_error, s.token.offset,
+                                   "TOML date-time cannot identify an Instant"});
       return false;
     }
     return true;
@@ -231,26 +235,32 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     if (s.current == absent || s.token.type != TokenType::Scalar ||
         s.token.context !=
             static_cast<std::uint8_t>(detail::NativeContext::datetime)) {
-      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                       "expected native TOML date/time"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::type_mismatch, s.token.offset,
+                                   "expected native TOML date/time"});
       return false;
     }
     if (s.current >= s.nodes.size() || s.token.offset > s.input.size() ||
         s.token.length > s.input.size() - s.token.offset) {
-      report_error(s, {ErrorCode::invalid_state, s.token.offset,
-                       "invalid TOML date/time token span"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::invalid_state, s.token.offset,
+                                   "invalid TOML date/time token span"});
       return false;
     }
     const auto text = s.input.substr(s.token.offset, s.token.length);
     if (detail::classify_temporal(text) != kind) {
-      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                       "TOML date/time category does not match schema"});
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::type_mismatch, s.token.offset,
+           "TOML date/time category does not match schema"});
       return false;
     }
     Value parsed;
     if (!parse(text, parsed)) {
-      report_error(s, {ErrorCode::conversion_error, s.token.offset,
-                       "TOML date/time is not representable without loss"});
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::conversion_error, s.token.offset,
+           "TOML date/time is not representable without loss"});
       return false;
     }
     output = parsed;
@@ -758,8 +768,8 @@ struct UnescapeString<toml::Reader<Depth>, Format::toml> {
     toml::string_codec::Cursor cursor{input};
     if (!toml::string_codec::parse(cursor, &output) ||
         cursor.pos != input.size()) {
-      ctx.reader().report_error(
-          ctx.reader_state(),
+      detail::report_reader_error(
+          ctx.reader(), ctx.reader_state(),
           {ErrorCode::invalid_escape,
            ctx.reader().current_token(ctx.reader_state()).offset,
            "invalid TOML string representation"});

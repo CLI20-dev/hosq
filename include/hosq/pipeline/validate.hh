@@ -17,9 +17,9 @@ namespace detail {
 template <class Context>
 void report_validation_error(Context& ctx, ErrorCode code,
                              std::string_view detail) {
-  ctx.reader().report_error(
-      ctx.reader_state(),
-      Error{
+  ::hosq::detail::report_reader_error(
+      ctx.reader(), ctx.reader_state(),
+      ::hosq::detail::ErrorInfo{
           .code = code,
           .offset = ctx.reader().current_token(ctx.reader_state()).offset,
           .detail = detail,
@@ -185,12 +185,12 @@ struct Utf8Impl {
   template <class T, class Context>
     requires std::convertible_to<const T&, std::string_view>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
-    if (!ctx.reader().error(ctx.reader_state())) {
+    if (!::hosq::detail::reader_error(ctx.reader(), ctx.reader_state())) {
       const std::string_view bytes = value;
       const auto invalid = hosq::detail::invalid_utf8_offset(bytes);
       if (invalid != bytes.size())
-        ctx.reader().report_error(
-            ctx.reader_state(),
+        ::hosq::detail::report_reader_error(
+            ctx.reader(), ctx.reader_state(),
             {ErrorCode::invalid_utf8,
              ctx.reader().current_token(ctx.reader_state()).offset + invalid,
              "invalid string UTF-8"});

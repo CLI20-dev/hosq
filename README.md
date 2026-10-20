@@ -14,6 +14,7 @@ compiler's header search path; the examples below use C++20.
 - [Basic schemas](#basic-schemas)
 - [Common types](#common-types)
 - [Decoding complete documents](#decoding-complete-documents)
+- [Error locations](#error-locations)
 - [Encoding with the format writers](#encoding-with-the-format-writers)
 - [Other input formats](#other-input-formats)
 - [Advanced: custom pipelines](#advanced-custom-pipelines)
@@ -43,7 +44,7 @@ int main() {
   User user;
   const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
       user, R"({"id":42,"name":"a\nb"})");
-  if (error) return 1;  // error.code, error.offset, and error.detail explain it.
+  if (error) return 1;  // Inspect error.code, offset, detail, and path.
   assert(user.id.value().value() == 42);
   assert(user.name.value().value() == "a\nb");
 }
@@ -305,6 +306,69 @@ assert(wrong_type.code == hosq::ErrorCode::type_mismatch);
 custom pipeline may observe or consume only part of the input; successful
 partial decoding does not establish that the entire document is valid. See
 [Advanced: custom pipelines](#advanced-custom-pipelines).
+
+## Error locations
+
+`Error::path` is an owning `ErrorPath` (`std::vector<PathSegment>`), ordered
+from the input root to the byte position in `Error::offset`. `code`, `offset`,
+and `detail` retain their existing meanings. Existing positional and designated
+`Error` initializers remain valid; their path defaults to empty.
+
+Internally, decoding propagates a code-only status. Built-in Reader and Writer
+states keep the original byte offset and detail without owning a path. The
+public `Error` is assembled at the API boundary; its name and existing fields
+are unchanged. The original custom Reader/Writer protocols remain supported.
+
+Successful decoding does not collect paths. After a failure, a separate Reader
+walks the input to locate the offset. The schema and its user pipeline are not
+executed again, and the original Reader's cursor and error remain unchanged.
+JSON diagnostics use `SimpleReader`; other formats use a fresh Reader of the
+same type. Diagnosis requires an independently constructible Reader/state and
+an input reconstructible from the Reader's byte view. No Reader protocol
+methods are added.
+
+```cpp
+const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
+    user, R"({"id":42.0,"name":"Ada"})");
+assert(error.path[0] == hosq::PathSegment::key("id"));
+
+// Skip the diagnostic traversal even when decoding fails.
+const auto plain = hosq::decode_document_into<hosq::json::FastReader<>>(
+    user, R"({"id":42.0,"name":"Ada"})",
+    hosq::DecodeOptions{.error_path = false});
+assert(plain.path.empty());
+```
+
+`DecodeOptions` is also accepted by `decode_into`, `Decoder::decode`,
+`decode_document`, and `decode_nested`. Built-in Readers retain only code,
+offset, and detail when `report_error` is called; a supplied public path is not
+an internal error carrier. Prefailed Readers return immediately without a
+diagnostic pass. A custom Reader's existing nonempty public path is preserved.
+
+Arrays use `PathSegment::element(index)`. Objects use `PathSegment::key(name,
+ordinal)`, with the input's zero-based member ordinal. The path is identical
+whether an object is decoded as an Entry schema, Mapping, or custom pipeline.
+A key transformed from `"abc"` to `"ABC"` by a pipeline still appears as `"abc"`
+in the diagnostic. String key escapes are decoded by the Reader's scalar
+codec; names own their bytes, and punctuation is literal, not a separator.
+Non-text keys, unsupported key codecs, and noncopyable Reader states use
+`key_at(ordinal)` without stringifying values. Empty text keys have
+`has_name == true`. `PathSegment::field` remains available for explicitly
+supplied paths; the input traversal emits key and index segments.
+
+For example, a nested error can produce `{PathSegment::key("items"),
+PathSegment::element(1), PathSegment::key("a/b"), PathSegment::key("count")}`.
+Returned paths survive input destruction, decoder reuse, copying, and moving.
+Only key names and array/member positions are retained, never value payloads.
+
+Paths are best effort: an unlocatable offset, a Reader reset failure, an error
+at the root, or an error after the root can leave the path empty. A syntax
+failure can identify only the position reached by the diagnostic Reader.
+The offset is authoritative even for user-reported errors; an offset outside
+the input does not acquire a schema-derived path. Directly invoking a pipeline
+with a `DecodeContext` does not add a diagnostic pass. Custom Reader extensions
+used during replay must support independent state; scalar codec hooks can be
+called to interpret keys. Encoding does not diagnose paths automatically.
 
 ## Encoding with the format writers
 
