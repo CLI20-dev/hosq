@@ -22,22 +22,18 @@ namespace v = hosq::types::value;
 using EC = ErrorCode;
 
 struct Odd {
-  auto operator()(int value) const -> MatchResult<int> {
-    return {value % 2 != 0, value};
-  }
+  auto operator()(int value) const -> bool { return value % 2 != 0; }
 };
 struct Even {
-  auto operator()(int value) const -> MatchResult<int> {
-    return {value % 2 == 0, value};
-  }
+  auto operator()(int value) const -> bool { return value % 2 == 0; }
 };
 struct Accept {
-  auto operator()(int value) const -> MatchResult<int> { return {true, value}; }
+  auto operator()(int) const -> bool { return true; }
 };
 template <class Predicate>
-using Candidate =
-    Elem<scan::scalar | decode::number<int> | step<Predicate> | store::assign,
-         encode::value>;
+using Candidate = Elem<scan::scalar | decode::number<int> |
+                           match::predicate<Predicate{}> | store::assign,
+                       encode::value>;
 
 template <class W = json::CompactWriter<>, class T>
 auto write_try(const T& value) -> std::string {
@@ -81,7 +77,7 @@ template <class R>
 void check_typed_int_claims() {
   struct Values {
     types::Try<v::Int64> number;
-    types::Try<v::Text> text;
+    types::Try<v::String> text;
   } value;
   value.text.value() = "unchanged";
   ASSERT_TRUE(decode_into<R>(value, "[1,2]").is_ok());
@@ -105,7 +101,7 @@ TEST(TrySemantics, TypedVoidIntegerClaimsElementAndStopsOnFailure) {
 template <class R>
 void check_typed_text_claims() {
   struct Values {
-    types::Try<v::Text> text;
+    types::Try<v::String> text;
     types::Try<v::Int64> number;
   } value;
   value.number.value() = 17;
@@ -123,7 +119,7 @@ TEST(TrySemantics, TypedVoidTextClaimsElementAndStopsOnFailure) {
 TEST(TrySemantics, TypedContainerClaimsNestedArrayAndRetainsItsError) {
   struct Values {
     types::Try<v::Array<v::Int64>> numbers;
-    types::Try<v::Array<v::Text>> fallback;
+    types::Try<v::Array<v::String>> fallback;
   } value;
   value.fallback.value() = {"unchanged"};
   ASSERT_TRUE(decode_into<json::SimpleReader>(value, "[[1,2],[3]]").is_ok());
@@ -149,7 +145,7 @@ struct RejectAfterStore {
 };
 template <bool Hard, bool Consume = true>
 using Rejecting = Elem<scan::scalar | decode::number<int> | store::assign |
-                           step<RejectAfterStore<Hard, Consume>>,
+                           match::predicate<RejectAfterStore<Hard, Consume>{}>,
                        encode::value>;
 
 TEST(TrySemantics, FailedMutableBoolCandidatePreservesStorageButRestoresCursor) {
@@ -184,7 +180,7 @@ TEST(TrySemantics, FailedMutableBoolCandidatePreservesStickyReaderError) {
 
 struct NamedValues {
   types::Try<types::Int64<"id">> id;
-  types::Try<types::Text<"name">> name;
+  types::Try<types::String<"name">> name;
 };
 
 template <class W, class R>
@@ -200,7 +196,7 @@ void check_named_try() {
   EXPECT_EQ(decoded.name.value().value(), "value");
 
   struct WrongType {
-    types::Text<"id"> id;
+    types::String<"id"> id;
   } wrong;
   wrong.id.value().value() = "wrong";
   const auto invalid = write_try<W>(wrong);
@@ -313,9 +309,9 @@ struct LaterTerminal {
   }
 };
 template <class Terminal>
-using ObservedNumber =
-    Elem<scan::scalar | decode::number<int> | store::assign | step<Terminal>,
-         encode::value>;
+using ObservedNumber = Elem<scan::scalar | decode::number<int> | store::assign |
+                                match::predicate<Terminal{}>,
+                            encode::value>;
 using LaterNumber = ObservedNumber<LaterTerminal>;
 
 void expect_original_terminal_error(const Error& error) {
@@ -351,7 +347,8 @@ TEST(TrySemantics, ArrayHardFalseAndTrueStopAllLaterCandidates) {
 
 template <class R, bool Matched>
 void check_const_array_hard_terminal() {
-  using ConstCandidate = Elem<step<ConstHardTerminal<Matched>>, noop_encoder>;
+  using ConstCandidate =
+      Elem<match::predicate<ConstHardTerminal<Matched>{}>, noop_encoder>;
   static_assert(ConstCandidate::template decoder_const_invokable<DecodeContext<
                     typename ConstCandidate::storage_type, R, TryPhase::first>>);
   struct Values {
@@ -397,7 +394,7 @@ TEST(TrySemantics, NamedHardFalseAndTrueStopCatchall) {
 template <class R, bool Matched, bool KeyError>
 void check_dynamic_hard_terminal() {
   using HardKey = Elem<scan::scalar | decode::string_view | store::assign |
-                           step<HardTerminal<Matched>>,
+                           match::predicate<HardTerminal<Matched>{}>,
                        encode::value>;
   using FirstKey = std::conditional_t<KeyError, HardKey, DynamicKey>;
   using FirstValue = std::conditional_t<KeyError, LaterNumber,
@@ -480,7 +477,7 @@ struct SoftRejectTerminal {
 template <class R, bool RejectKey>
 void check_dynamic_soft_fallback() {
   using SoftKey = Elem<scan::scalar | decode::string_view | store::assign |
-                           step<SoftRejectTerminal>,
+                           match::predicate<SoftRejectTerminal{}>,
                        encode::value>;
   using FirstKey = std::conditional_t<RejectKey, SoftKey, DynamicKey>;
   using FirstValue =
@@ -507,11 +504,16 @@ TEST(TrySemantics, DynamicSoftKeyAndValueRejectionRestoreKeyForFallback) {
 
 template <class R>
 void check_string_soft_fallback() {
-  using RejectedText = Elem<scan::scalar | decode::text | store::assign |
-                                step<SoftRejectTerminal>,
-                            encode::value>;
+  using RejectedText =
+      Elem<scan::scalar | decode::string_source | construct<std::string> |
+               decode::json_unescape | decode::toml_unescape | validate::utf8 |
+               store::assign | match::predicate<SoftRejectTerminal{}>,
+           encode::value>;
   using AcceptedText =
-      Elem<scan::scalar | decode::text | store::assign, encode::value>;
+      Elem<scan::scalar | decode::string_source | construct<std::string> |
+               decode::json_unescape | decode::toml_unescape | validate::utf8 |
+               store::assign,
+           encode::value>;
   struct Values {
     types::Try<Entry<Key<"n">, RejectedText>> rejected;
     types::Try<Entry<DynamicKey, AcceptedText>> fallback;

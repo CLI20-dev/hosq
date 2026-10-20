@@ -2,7 +2,7 @@
 
 HOSQ is a C++20 header-only library for decoding structured input into typed
 schemas without first constructing a general-purpose DOM. Common
-`hosq::types` describe integers, text, arrays, maps, and records once; JSON,
+`hosq::types` describe integers, strings, arrays, and maps once; JSON,
 BSON, MessagePack, and TOML readers and writers handle their wire formats.
 Custom scanning, decoding, validation, and storage pipelines remain available
 when an application needs more control.
@@ -14,6 +14,7 @@ compiler's header search path; the examples below use C++20.
 - [Basic schemas](#basic-schemas)
 - [Common types](#common-types)
 - [Decoding complete documents](#decoding-complete-documents)
+- [Error locations](#error-locations)
 - [Encoding with the format writers](#encoding-with-the-format-writers)
 - [Other input formats](#other-input-formats)
 - [Advanced: custom pipelines](#advanced-custom-pipelines)
@@ -23,8 +24,9 @@ compiler's header search path; the examples below use C++20.
 ## Quick start
 
 Use `hosq::types` for named fields and `hosq::types::value` for unkeyed
-values, including the root `Record<Schema>`. Members may arrive in any order.
-Ordinary entries are required; unknown or duplicate members are errors.
+values. A structure of ordinary entries can be decoded directly. This traversal
+reads members in declaration order; see [Advanced: custom pipelines](#advanced-custom-pipelines)
+for key-based Try dispatch and its missing-member behavior.
 
 ```cpp
 #include <cassert>
@@ -32,33 +34,33 @@ Ordinary entries are required; unknown or duplicate members are errors.
 #include <hosq/json/fast_reader.hh>
 
 namespace t = hosq::types;
-namespace v = hosq::types::value;
 
 struct User {
   t::Uint64<"id"> id;
-  t::Text<"name"> name;
+  t::String<"name"> name;
 };
 
 int main() {
-  v::Record<User> user;
+  User user;
   const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
-      user, R"({"name":"a\nb","id":42})");
-  if (error) return 1;  // error.code, error.offset, and error.detail explain it.
-  assert(user.value().id.value().value() == 42);
-  assert(user.value().name.value().value() == "a\nb");
+      user, R"({"id":42,"name":"a\nb"})");
+  if (error) return 1;  // Inspect error.code, offset, detail, and path.
+  assert(user.id.value().value() == 42);
+  assert(user.name.value().value() == "a\nb");
 }
 ```
 
-`Text` owns the decoded string and resolves escapes. `Uint64` checks the
-integer category and range; it does not accept `42.0` or `"42"` as an integer.
-The outer `.value()` accesses the record, then the entry, then its stored value.
+`String` owns the decoded string and resolves escapes through its composed
+pipeline. `Uint64` checks the integer category and range; it does not accept
+`42.0` or `"42"` as an integer. An entry's first `.value()` accesses its Elem;
+the second accesses the stored C++ value.
 
 ## Basic schemas
 
 Named aliases take the key first; their element arguments come from `v`.
-Compose them for nested records, arrays, and dynamic maps.
-`t::Optional<"nickname", v::Text>` combines a missing-member marker with
-optional storage so absence can be observed.
+An `Entry` also accepts an existing aggregate schema directly as its key or
+value. For nested objects, it connects that schema to the ordinary
+`scan::object | decode::to<S> | store::assign` and `encode::value` pipelines.
 
 ```cpp
 #include <cassert>
@@ -69,35 +71,54 @@ namespace t = hosq::types;
 namespace v = hosq::types::value;
 
 struct Address {
-  t::Text<"city"> city;
+  t::String<"city"> city;
 };
 struct Profile {
-  t::Record<"address", Address> address;
-  t::Array<"tags", v::Text> tags;
-  t::Mapping<"scores", v::Text, v::Int64> scores;
-  t::Optional<"nickname", v::Text> nickname;
+  hosq::Entry<hosq::Key<"address">, Address> address;
+  t::Array<"tags", v::String> tags;
+  t::Mapping<"scores", v::String, v::Int64> scores;
 };
 
 int main() {
-  v::Record<Profile> profile;
+  Profile profile;
   const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
-      profile, R"({"tags":["cpp"],"scores":{"tests":3},
-                   "address":{"city":"Kyoto"}})");
+      profile, R"({"address":{"city":"Kyoto"},
+                   "tags":["cpp"],"scores":{"tests":3}})");
   if (error) return 1;
-  assert(profile.value().address.value().value().city.value().value() == "Kyoto");
-  assert(profile.value().tags.value().value().at(0) == "cpp");
-  const auto& scores = profile.value().scores.value().value();
-  assert(scores.keys().at(0) == "tests" && scores.values().at(0) == 3);
-  assert(!profile.value().nickname.value().value());
+  assert(profile.address.value().value().city.value().value() == "Kyoto");
+  assert(profile.tags.value().value().at(0) == "cpp");
+  const auto& scores = profile.scores.value().value();
+  assert(scores.entries().at(0).first == "tests" &&
+         scores.entries().at(0).second == 3);
 }
 ```
 
-The optional nickname is omitted when this `Record` is encoded. A present
-nickname must be text: `null` does not mean missing. Use `v::Null` when an
-explicit null is part of the schema. Without optional storage, a missing
-`t::Try<t::Field<..., E>>` in this `Record` keeps the default value of `E`
-and encodes that value later. Each typed `Record` decode builds fresh schema
-storage; the legacy in-place dispatch described below preserves prior values.
+The first `.value()` still returns the Elem used by the Entry; the second
+returns the stored `Address`. Existing Elem arguments retain their exact
+types. An array-shaped aggregate schema uses `scan::array` instead. Accepted
+schemas follow the existing Decoder contract: their fields must be Elems or
+Entries, or an aggregate with actual Try dispatch. Plain C++ data structures
+such as `struct { int n; }` do not acquire automatic parsing rules.
+
+For example, `Entry<Address, v::Int64>` uses an object as its key. MessagePack
+can represent such keys; JSON, BSON and TOML retain their string-key
+restrictions. All traversal, validation and matching behavior comes from the
+existing schema and pipeline steps. Entry adds no unknown-key, duplicate-key,
+missing-field or omission policy.
+
+To collect an array of structures, compose the traversal directly:
+
+```cpp
+using Users = hosq::Elem<
+    hosq::scan::array
+    | hosq::decode::collect<hosq::scan::object | hosq::decode::to<User>>
+    | hosq::store::assign,
+    hosq::encode::value>;
+```
+
+Its storage is `std::vector<User>`. The nested `User` keeps the decoding and
+encoding rules of its existing schema; wrapping it does not select additional
+unknown-key, duplicate-key, missing-field, or omission policies.
 
 ## Common types
 
@@ -113,12 +134,10 @@ representation and rejects values that its format cannot represent.
 | `Int8/16/32/64`, `Uint8/16/32/64` | Fixed-width signed and unsigned integers |
 | `Float<T = double>`, `Float32`, `Float64` | Floating-point input, with checked range and narrowing |
 | `Bool`, `Null` | `bool`, `std::nullptr_t`; strict scalar categories |
-| `Text` | Owned `std::string`, with escapes resolved |
-| `RawText` | Borrowed `RawTextValue`, with the source representation tagged |
+| `String` | Owned `std::string`, with escapes resolved |
 | `Bytes` | Owned `BytesValue` payload and BSON binary subtype |
 | `Array<E>` | `std::vector<E::storage_type>` |
-| `Mapping<K, V>` | `hosq::Map` of parallel key/value vectors |
-| `Record<S>`, `Object<S>` | A fixed object schema `S` of constant-key entries |
+| `Mapping<K, V>` | `hosq::MappingValue<K::storage_type, V::storage_type>` with paired entries |
 | `Optional<E>` | `std::optional<E::storage_type>`, for observable absence |
 | `Instant` | `InstantValue`: Unix seconds and a nonnegative nanosecond remainder |
 | `OffsetDateTime` | `OffsetDateTimeValue`: local date/time and offset in minutes |
@@ -128,9 +147,9 @@ representation and rejects values that its format cannot represent.
 | `BsonTimestamp` | `BsonTimestampValue`: logical timestamp seconds and increment, distinct from `Instant` |
 | `Extension` | `ExtensionValue`: signed MessagePack type tag and owned byte payload |
 
-Use `v::Record<User>` or `v::Array<v::Uint64>` for root values. Named fields
+Use a structure directly, or an Elem such as `v::Array<v::Uint64>`, at the root. Named fields
 are in `t = hosq::types`; every scalar and extended alias above has a
-key-first counterpart, such as `t::Uint64<"id">`, `t::Text<"name">`, and
+key-first counterpart, such as `t::Uint64<"id">`, `t::String<"name">`, and
 `t::Instant<"created_at">`. Generic numeric fields are `t::Int<"n", T>`,
 `t::Uint<"n", T>`, and `t::Float<"n", T>`, with the same default storage types
 as their unkeyed counterparts.
@@ -138,9 +157,8 @@ as their unkeyed counterparts.
 | Named alias | Meaning |
 | --- | --- |
 | `t::Array<"ids", v::Uint64>` | A named array |
-| `t::Mapping<"scores", v::Text, v::Int64>` | A named dynamic map |
-| `t::Record<"user", User>`, `t::Object<"user", User>` | Synonyms for a named fixed object |
-| `t::Optional<"nickname", v::Text>` | `t::Try<t::Field<"nickname", v::Optional<v::Text>>>` |
+| `t::Mapping<"scores", v::String, v::Int64>` | A named dynamic map |
+| `t::Optional<"nickname", v::String>` | `t::Field<"nickname", v::Optional<v::String>, t::presence::Optional>` |
 | `t::Field<"n", E>` | Exactly `hosq::Entry<hosq::Key<"n">, E>` |
 
 `t::Try` is a using declaration for the existing `hosq::Try` dispatch marker;
@@ -162,25 +180,55 @@ silently rounding it. NaN payload bits are not preserved. Decimal text is
 rounded to binary64 during parsing, so this is not an arbitrary precision
 decimal codec.
 
-`Text` resolves JSON Unicode escapes and surrogate pairs and TOML string
-escapes before storage; encoding escapes the semantic text once. `RawText`
-borrows the caller's input, which must remain alive and unchanged for every
-use of the value, including encoding. Its format tag distinguishes JSON
-escaped string bodies, full TOML string literals, and semantic UTF-8 text;
-the encoder resolves that representation before writing the destination
-format. Copying the wrapper does not extend the input lifetime. Use `Text`
-for ownership.
+`String` is an alias for an ordinary `Elem` pipeline with `std::string`
+storage. Its convenience behavior comes from independently composable steps:
 
-`Mapping` rejects duplicate decoded keys. `Record`/`Object` reject duplicate
-and unknown members and require ordinary `Entry` fields. A `Try<Entry<...>>`
-may be absent and keeps its fresh schema default; use optional storage when
-absence must be observable. Explicit `Null`, a missing member, and an empty
-optional are separate states. Within
-`Record`/`Object`, an empty optional in a `Try<Entry<...>>` is omitted during
-encoding. An empty optional elsewhere is an encoding error;
-it is never implicitly encoded as null.
+```cpp
+using String = hosq::Elem<
+    hosq::scan::scalar
+    | hosq::decode::string_source
+    | hosq::construct<std::string>
+    | hosq::decode::json_unescape
+    | hosq::decode::toml_unescape
+    | hosq::validate::utf8
+    | hosq::store::assign,
+    hosq::encode::value>;
+```
 
-Mapping key comparisons resolve raw text, compare nested object members
+`decode::string_source` checks the string category and returns a borrowed
+`std::string_view`: a JSON string body, a complete quoted TOML literal (or a
+bare key), or a BSON/MessagePack string payload. The input must remain alive and
+unchanged while that view is used. `construct<std::string>` makes an owned copy;
+it performs no unescaping or character encoding conversion.
+
+`decode::json_unescape` resolves JSON escapes and UTF-16 surrogate pairs only
+for JSON Readers; it passes strings through unchanged for other Readers.
+`decode::toml_unescape` independently handles TOML quotation, escapes, multiline
+newlines and continuations, and is a no-op for other Readers. Each conversion
+processes its pipeline input. `validate::utf8` is a separate validation step.
+To retain source bytes, omit those conversions and validation; to borrow them,
+also omit `construct<std::string>`. Storage types themselves do not perform
+these transformations. `encode::value` escapes stored string content once for
+the destination format.
+
+`Mapping` rejects duplicate decoded keys. Its `MappingValue` storage owns an
+ordered `std::vector<std::pair<K, V>>`: use `entries()` to inspect, erase or
+reorder pairs and `emplace_back(key, value)` to append. These operations preserve
+key/value correspondence. The legacy parallel-vector `Map` remains available
+for low-level pipeline scratch storage.
+
+Fields use `presence::Required` by default. `t::Optional<K, E>` combines
+optional presence with `std::optional` storage. In the key-based aggregate
+traversal, every field must be a Try candidate or an optional-presence field;
+a missing member preserves its existing storage. A present member must decode
+as `E`: `null` does not become absence unless `E` explicitly accepts it.
+
+Encoding writes the aggregate's fields. An empty optional has no encoded value
+and is an error; it is not automatically omitted or replaced with null.
+Explicit `Null`, a missing member, and an empty optional remain separate
+states. To control omission, supply an explicit encoder pipeline.
+
+Mapping key comparisons use decoded values, compare nested object members
 independent of input order, and otherwise use value equality. Floating keys
 follow C++ equality (`NaN` is not equal to itself). Duplicate detection is
 quadratic in the member count; this is intended for typed schema data rather
@@ -239,15 +287,15 @@ are deliberately deferred.
 Use `parse<R, T>(input)` (or `Decoder<R>::parse<T>(input)`) to decode into a
 fresh value and receive `ParseResult<T>`. A value is available only after
 `decode_document` reports success, including its check for trailing input.
-`T` is the explicit decodable type: use `v::Record<User>`, `v::Int64`, or
-`v::Array<v::Text>`, for example. The result retains that wrapper; its stored
-schema or scalar is available through `result->value()`.
+`T` is the explicit decodable type: use `User`, `v::Int64`, or
+`v::Array<v::String>`, for example. Access aggregate fields through `result->`
+and an element's stored value through `result->value()`.
 
 ```cpp
-auto result = hosq::parse<hosq::json::FastReader<>, v::Record<User>>(
+auto result = hosq::parse<hosq::json::FastReader<>, User>(
     R"({"id":42,"name":"Ada"})");
 if (result) {
-  assert(result->value().id.value().value() == 42);
+  assert(result->id.value().value() == 42);
 } else {
   const hosq::Error error = result.error();
   // Handle error.code, error.offset, and error.detail.
@@ -262,16 +310,17 @@ can transfer a move-only value and leaves a successful result with moved-from
 storage. A decoder may be reused for another parse; each call starts with a
 fresh `T`. `T` must be default constructible and move constructible.
 
-`parse` preserves `decode_document`'s pipeline semantics. `match::*` steps
-are dispatch predicates: a direct root or legacy aggregate field returning
-soft `false` does not become a hard validation error and may retain default
-storage in a successful result. Use `validate::*` for validation failures.
-Typed containers such as `v::Array` and `v::Record` also reject unmatched
-candidate values rather than accepting default storage.
+`parse` preserves `decode_document`'s pipeline and aggregate semantics,
+including declaration order for ordinary `Entry` aggregates and field presence
+policies. Matching pipelines are accepted within `Try` candidates; they cannot
+be used as required roots or fields. Use `validate::*` for required validation.
+Both parse entry points accept `DecodeOptions options = {}` and preserve error
+paths; pass `{.error_path = false}` to skip the diagnostic path pass.
 
 This isolates the decoded destination. External effects of custom callbacks
-are not rolled back on failure. `RawText` and other input views remain borrowed:
-the input must outlive their use, and the result does not extend its lifetime.
+are not rolled back on failure. `std::string_view` storage and other input
+views remain borrowed: the input must outlive their use, and the result does
+not extend its lifetime.
 Construction, callback, and move exceptions propagate rather than becoming
 parse errors. If an exception during result assignment leaves its internal
 value unavailable, `error()` reports `invalid_state`.
@@ -299,6 +348,69 @@ custom pipeline may observe or consume only part of the input; successful
 partial decoding does not establish that the entire document is valid. See
 [Advanced: custom pipelines](#advanced-custom-pipelines).
 
+## Error locations
+
+`Error::path` is an owning `ErrorPath` (`std::vector<PathSegment>`), ordered
+from the input root to the byte position in `Error::offset`. `code`, `offset`,
+and `detail` retain their existing meanings. Existing positional and designated
+`Error` initializers remain valid; their path defaults to empty.
+
+Internally, decoding propagates a code-only status. Built-in Reader and Writer
+states keep the original byte offset and detail without owning a path. The
+public `Error` is assembled at the API boundary; its name and existing fields
+are unchanged. The original custom Reader/Writer protocols remain supported.
+
+Successful decoding does not collect paths. After a failure, a separate Reader
+walks the input to locate the offset. The schema and its user pipeline are not
+executed again, and the original Reader's cursor and error remain unchanged.
+JSON diagnostics use `SimpleReader`; other formats use a fresh Reader of the
+same type. Diagnosis requires an independently constructible Reader/state and
+an input reconstructible from the Reader's byte view. No Reader protocol
+methods are added.
+
+```cpp
+const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
+    user, R"({"id":42.0,"name":"Ada"})");
+assert(error.path[0] == hosq::PathSegment::key("id"));
+
+// Skip the diagnostic traversal even when decoding fails.
+const auto plain = hosq::decode_document_into<hosq::json::FastReader<>>(
+    user, R"({"id":42.0,"name":"Ada"})",
+    hosq::DecodeOptions{.error_path = false});
+assert(plain.path.empty());
+```
+
+`DecodeOptions` is also accepted by `decode_into`, `Decoder::decode`,
+`decode_document`, and `decode_nested`. Built-in Readers retain only code,
+offset, and detail when `report_error` is called; a supplied public path is not
+an internal error carrier. Prefailed Readers return immediately without a
+diagnostic pass. A custom Reader's existing nonempty public path is preserved.
+
+Arrays use `PathSegment::element(index)`. Objects use `PathSegment::key(name,
+ordinal)`, with the input's zero-based member ordinal. The path is identical
+whether an object is decoded as an Entry schema, Mapping, or custom pipeline.
+A key transformed from `"abc"` to `"ABC"` by a pipeline still appears as `"abc"`
+in the diagnostic. String key escapes are decoded by the Reader's scalar
+codec; names own their bytes, and punctuation is literal, not a separator.
+Non-text keys, unsupported key codecs, and noncopyable Reader states use
+`key_at(ordinal)` without stringifying values. Empty text keys have
+`has_name == true`. `PathSegment::field` remains available for explicitly
+supplied paths; the input traversal emits key and index segments.
+
+For example, a nested error can produce `{PathSegment::key("items"),
+PathSegment::element(1), PathSegment::key("a/b"), PathSegment::key("count")}`.
+Returned paths survive input destruction, decoder reuse, copying, and moving.
+Only key names and array/member positions are retained, never value payloads.
+
+Paths are best effort: an unlocatable offset, a Reader reset failure, an error
+at the root, or an error after the root can leave the path empty. A syntax
+failure can identify only the position reached by the diagnostic Reader.
+The offset is authoritative even for user-reported errors; an offset outside
+the input does not acquire a schema-derived path. Directly invoking a pipeline
+with a `DecodeContext` does not add a diagnostic pass. Custom Reader extensions
+used during replay must support independent state; scalar codec hooks can be
+called to interpret keys. Encoding does not diagnose paths automatically.
+
 ## Encoding with the format writers
 
 The common aliases already contain encoder pipelines. Assign their stored
@@ -317,25 +429,25 @@ namespace v = hosq::types::value;
 
 struct User {
   t::Uint64<"id"> id;
-  t::Text<"name"> name;
+  t::String<"name"> name;
 };
 
 int main() {
-  v::Record<User> user;
-  user.value().id.value().value() = 42;
-  user.value().name.value().value() = "Ada";
+  User user;
+  user.id.value().value() = 42;
+  user.name.value().value() = "Ada";
   std::string output;
   hosq::msgpack::Writer writer{output};
   if (!hosq::encode_into(user, writer)) {
     // Inspect writer.error(); discard partial output on failure.
     return 1;
   }
-  v::Record<User> decoded;
+  User decoded;
   const auto error = hosq::decode_document_into<hosq::msgpack::Reader<>>(
       decoded, output);
   if (error) return 1;
-  assert(decoded.value().name.value().value() == "Ada");
-  assert(decoded.value().id.value().value() == 42);
+  assert(decoded.name.value().value() == "Ada");
+  assert(decoded.id.value().value() == 42);
 }
 ```
 
@@ -355,11 +467,10 @@ strings, explicit `nullptr`, `BytesValue`/`BytesView`, populated `optional`,
 active `variant`, ranges (arrays), `Map` with equally sized key/value ranges,
 and nested schemas, subject to each format's restrictions. The extended
 values follow the [format support table](#extended-values-and-format-support).
-A missing optional outside an omittable `Try` record member, a valueless
-variant, an unsupported value, or `noop_encoder` produces an error. `Try`
-alone controls decoding dispatch; omission requires the optional record member
-described in [Basic schemas](#basic-schemas). Reader-only schemas must provide
-encoder pipelines before they can be encoded.
+An empty optional, a valueless variant, an unsupported value, or `noop_encoder`
+produces an error. `Try` controls decoding dispatch and does not provide an
+encoding omission policy. Reader-only schemas must provide encoder pipelines
+before they can be encoded.
 
 MessagePack chooses the smallest integer and length/count representation;
 float storage emits float32, double emits float64. Arrays/maps can be emitted
@@ -416,11 +527,11 @@ API as the JSON readers:
 For example, replace `json::FastReader<>` in `decode_document_into` with
 `msgpack::Reader<>` to decode a MessagePack object into the same schema.
 The optional template argument limits container depth (default: 64).
-`v::Text` and `v::Bytes` own their data. Borrowed `RawText` and legacy
-`string_view` values require the input to stay alive and unchanged.
+`v::String` and `v::Bytes` own their data. Borrowed `string_view` values require
+the input to stay alive and unchanged.
 `construct<std::string>` also provides owned string storage. As with the existing
 JSON readers, the legacy `decode::string_view` exposes raw input without
-resolving escapes; use `v::Text` for owned semantic text.
+resolving escapes; use `v::String` for owned semantic text.
 
 MessagePack supports all integer widths, IEEE floats, booleans, nil, strings,
 arrays, maps (including non-string and container keys), binary payloads, and
@@ -487,6 +598,7 @@ The legacy `String` copies raw string bytes without resolving escapes.
 #include <string>
 #include <hosq/hosq.hh>
 #include <hosq/json/fast_reader.hh>
+#include <hosq/json/simple_reader.hh>
 #include <hosq/msgpack/writer.hh>
 
 using namespace hosq;
@@ -526,24 +638,97 @@ is a `Try` wrapper. All-`Try` entry tuples dispatch object members by key;
 missing members preserve their existing storage. Unknown members fail unless
 a pipeline explicitly handles them. Duplicate handling depends on the
 pipelines: for example, `store::assign` overwrites while `store::once` can reject
-a repeat. This differs from the closed, duplicate-rejecting `v::Record<S>`.
+a repeat.
 
-All-`Try` element tuples dispatch array elements. Boolean-returning candidates
-are tried left to right; `false` without a reader error permits the next
-candidate. A reported reader error stops dispatch and is returned with its
+All-`Try` element tuples dispatch array elements. Matching candidates
+are tried left to right; an unmatched `MatchResult` without a reader error
+restores the captured reader position before trying the next candidate. A
+reported reader error stops dispatch without rollback and is returned with its
 original code, offset, and detail. A void-returning
 typed decoder claims the element and reports failures through the reader's
-sticky error, so it does not provide semantic-alternative fallback. A failed
-candidate does not roll back storage, sticky errors, or the full reader state;
-reader checkpoints only restore the cursor/token state they capture. `Try` is
-not a standalone root schema, and this dispatch contract does not make
+sticky error, so it does not provide semantic-alternative fallback. On an
+error-free rejection, reader checkpoints restore only the parsing state they
+capture. Storage and callback side effects are never rolled back by `Try`.
+`Try` is not a standalone root schema, and this dispatch contract does not make
 `v::Array<Try<E>>` supported.
 
-Encoding a legacy all-`Try` aggregate writes every field, including fields
-missing during decoding; `Try` does not track presence or choose an alternative
-to emit. Empty optionals in this aggregate are errors. The omission described
-in [Basic schemas](#basic-schemas) belongs specifically to `v::Record`/`v::Object`
-and their optional `Try` members.
+`Decoder<R>::decode_nested(value, reader, state)` returns an existing Reader
+error immediately, before dispatching or decoding any schema. It preserves
+the error's code, offset and detail, the Reader position, and the destination
+storage. This check happens when decoding starts; it does not interrupt the
+remaining steps of a pipeline that has already started.
+
+To start reading a new input with the same Reader and state, call
+`reader.reset(state, input)`. Reset discards the previous error and parsing
+state; invalid new input may produce a new error. `Decoder::decode` and
+`Decoder::decode_document` reset their internal Reader for each new input, as
+do the `decode_into` and `decode_document_into` convenience functions.
+
+Encoding an all-`Try` aggregate writes every field, including fields missing
+during decoding; `Try` does not track presence or choose an alternative to
+emit. Empty optionals in this aggregate are errors.
+
+Matching is a distinct pipeline effect. `match::literal<V>` and
+`match::predicate<F>` produce library-controlled `MatchResult<T>` values;
+users cannot construct these results directly or implicitly convert them to
+bool. `if (result)` and `result.matched()` inspect the status. A predicate must
+return exactly bool; value/context and context-only signatures are supported.
+The input payload continues after a successful match, and the final pipeline
+result retains the matching type even after `store::assign`.
+
+```cpp
+using Odd = Elem<scan::scalar | decode::integer<int> |
+                     match::predicate<[](int n) { return n % 2 != 0; }> |
+                     store::assign,
+                 encode::value>;
+struct Choices {
+  Try<Odd> odd;
+  Try<types::value::Int64> fallback;
+};
+Choices choices;
+auto error = decode_into<json::SimpleReader>(choices, "[1,2]");
+// choices.odd.value() == 1; choices.fallback.value() == 2
+```
+
+A matching Elem is rejected at compile time as a direct root, an ordinary
+fixed tuple/member, or a typed Array/Mapping/Optional value. Both
+`decode_into` and `decode_document_into` enforce this restriction. Use a
+validation step (for example `validate::match<1>`) for a required value that
+must report a validation error, and Try for candidate selection. Field
+presence alone does not enable candidate selection.
+
+`decode::each` and `decode::collect` preserve matching through array/object
+traversal. If a collect operand returns `MatchResult<T>`, the collected values
+contain `T`, and collect returns a `MatchResult` wrapping the whole collection.
+For object collection, either the key or value pipeline can introduce matching;
+fixed-size collections propagate it too. A mismatch rejects the whole candidate
+so the surrounding Try can retry from its checkpoint. Recorded Reader errors,
+including fixed-size length errors, terminate decoding without rollback.
+
+```cpp
+using Ones = Elem<
+    scan::array
+    | decode::collect<scan::scalar | decode::integer<int> | match::literal<1>>
+    | store::assign,
+    encode::value>;
+using Integers = Elem<
+    scan::array | decode::collect<scan::scalar | decode::integer<int>>
+    | store::assign,
+    encode::value>;
+struct Choices {
+  Try<Ones> ones;
+  Try<Integers> fallback;
+};
+Choices choices;
+auto error = decode_document_into<json::SimpleReader>(choices, "[[1,1],[1,2]]");
+// choices.ones.value() == std::vector<int>{1,1}
+// choices.fallback.value() == std::vector<int>{1,2}
+```
+
+Ordinary collect operands retain their data types, including bool. A bool
+returned by `decode::custom` is data; use `match::predicate` when that bool is
+intended to control candidate selection. Elem decoder terminals must be void
+(ordinary decoding) or MatchResult (candidate decoding).
 
 `encode::value` is a terminal encoder for semantic storage values. It uses
 `ext::EncodeValue<W>` and writer-specific scalar operations, while `Encoder`
@@ -648,3 +833,20 @@ The maintained HOSQ/Glaze/yyjson comparisons are in
 [`bench/comparison`](bench/comparison/README.md). Each case has its own source
 file and Google Benchmark executable; the HOSQ schema is visible in that case
 file.
+
+### Scalar codec boundary
+
+Common typed decoders request semantic values through
+`hosq::ext::DecodeSemanticScalar<R>`. A reader may implement
+`read_semantic(state, output)` or specialize the adapter without exposing its
+state layout. Numeric codecs produce `SemanticNumber` (signed/unsigned 64-bit
+integer or binary64); common pipelines then enforce the requested category,
+range and precision. Bool, null and bytes use the same boundary. String source
+extraction uses `ext::DecodeStringSource<R>` (or the Reader hook
+`read_string_source(state, std::string_view&)`); explicit string conversions use
+format-owned adapters independently of scalar interpretation.
+A codec conversion failure must record a Reader error. Existing dedicated
+string/binary hooks remain supported.
+
+JSON and TOML own their string-literal parsing helpers. Decoding does not
+extend borrowed input life.

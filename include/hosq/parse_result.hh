@@ -11,10 +11,10 @@ namespace hosq {
 template <class R>
 class Decoder;
 
-/// A decode_document outcome, preserving its pipeline semantics (including
-/// soft match rejection at a root or legacy aggregate). T is the requested
-/// decodable type, including any Elem wrapper; no storage or schema type is
-/// inferred. Borrowed values in T still depend on the caller's input lifetime.
+/// A decode_document outcome, preserving its pipeline semantics. T is the
+/// requested decodable type, including any Elem wrapper; no storage or schema
+/// type is inferred. Borrowed values in T still depend on the caller's input
+/// lifetime.
 template <class T>
 class ParseResult {
  public:
