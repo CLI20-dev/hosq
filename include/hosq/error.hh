@@ -8,6 +8,7 @@
 namespace hosq {
 
 enum class ErrorCode {
+  ok = 0,
   unknown_error,
   // Input / output
   unexpected_eof,
@@ -46,8 +47,6 @@ enum class ErrorCode {
 
   // Candidate
   candidate_rejected,
-
-  ok,
 };
 
 enum class ErrorKind {
