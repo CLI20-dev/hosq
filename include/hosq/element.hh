@@ -107,9 +107,13 @@ struct Elem<Decoder, Encoder> {
 
   template <ReaderConcept R, TryPhase Phase>
   HOSQ_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R, Phase>& ctx) {
+    using context_type = DecodeContext<storage_type, R, Phase>;
+    static constexpr bool use_const = decoder_const_invokable<context_type>;
+    using active_context =
+        std::conditional_t<use_const, const context_type, context_type>;
     using actual_decoder_info = detail::pipeline_analysis_t<
-        detail::PipelineVerificationMode::at_most_one_storage,
-        DecodeContext<storage_type, R, Phase>, void, decoder_type>;
+        detail::PipelineVerificationMode::at_most_one_storage, active_context,
+        void, decoder_type>;
 
     using actual_decoder_terminal =
         detail::pipeline_terminal_t<actual_decoder_info>;
@@ -118,8 +122,7 @@ struct Elem<Decoder, Encoder> {
             detail::MatchResultT<actual_decoder_terminal>,
         "Decoder pipeline must have a terminal type of void or MatchResult "
         "for this Reader/Context");
-    if constexpr (decoder_const_invokable<
-                      DecodeContext<storage_type, R, Phase>>) {
+    if constexpr (use_const) {
       const auto& cctx = ctx;
       return decoder_type::invoke(cctx);
     } else {

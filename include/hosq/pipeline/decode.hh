@@ -409,7 +409,8 @@ struct EachImpl<Pipeline, N> {
                             MatchResult<void>, void> {
     using actual_decoder_info = ::hosq::detail::pipeline_analysis_t<
         ::hosq::detail::PipelineVerificationMode::at_most_one_storage,
-        DecodeContext<Storage, R, TryPhase::first>, void, pipeline_type>;
+        DecodeContext<typename Storage::value_type, R, TryPhase::first>, void,
+        pipeline_type>;
     using actual_decoder_terminal =
         ::hosq::detail::pipeline_terminal_t<actual_decoder_info>;
 
@@ -452,7 +453,7 @@ struct EachImpl<Pipeline, N> {
               ctx.value()[index], reader, state};
       if constexpr (hosq::detail::MatchResultT<terminal_type>) {
         if (!pipeline_type::invoke(elem_ctx)) {
-          return false;
+          return completion<MatchResult<void>>(false);
         }
       } else {
         pipeline_type::invoke(elem_ctx);

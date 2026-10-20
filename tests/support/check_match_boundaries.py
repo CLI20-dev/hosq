@@ -40,6 +40,9 @@ REJECTED = {
     46: "Entry aggregate with reader-specific matching field",
     47: "Try Entry cannot enable matching inside ordinary nested fields",
     48: "Entry aggregate outside the existing schema contract",
+    49: "direct Elem mutable call selecting const bool terminal",
+    50: "direct Elem const call returning bool terminal",
+    51: "required root selecting const matching terminal",
 }
 ACCEPTED = {
     100: "Try candidate dispatch", 101: "root validation",
@@ -58,6 +61,10 @@ ACCEPTED = {
     116: "Try fixed collect matching object key and value",
     117: "Try nested matching collect",
     118: "Try collect matched false bool payload",
+    119: "Try fixed matching each",
+    120: "direct Elem selected const matching terminal",
+    121: "fixed each analyzes the actual element context",
+    122: "Try dispatch preserves selected const mismatch",
 }
 
 

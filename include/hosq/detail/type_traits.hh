@@ -246,15 +246,4 @@ template <class T>
 using get_additional_property_t =
     typename GetAdditionalProperty<std::remove_cvref_t<T>>::type;
 
-template <class Terminal>
-  requires(std::same_as<Terminal, bool> || std::same_as<Terminal, void>)
-[[nodiscard]] inline constexpr auto terminal_return(bool value) -> Terminal {
-  if constexpr (std::same_as<Terminal, bool>) {
-    return value;
-  } else {
-    static_cast<void>(value);
-    return;
-  }
-}
-
 }  // namespace hosq::detail

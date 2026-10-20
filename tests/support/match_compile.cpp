@@ -1,10 +1,13 @@
 // Each HOSQ_MATCH_CASE is compiled separately by check_match_boundaries.py.
 // Keep positive controls in this same translation unit: a broken include or
 // matcher definition must not make every negative case appear to pass.
+#include <array>
 #include <concepts>
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <utility>
+#include <variant>
 #include <vector>
 
 #include "hosq/hosq.hh"
@@ -47,6 +50,38 @@ using KeyCandidate = Elem<text_match | store::assign, encode::value>;
 using EachCandidate =
     Elem<scan::array | decode::each<integer_match | store::assign>,
          noop_encoder>;
+
+struct ConstBoolTerminal {
+  template <class>
+  using storage_type = std::monostate;
+  template <class C>
+    requires(!std::is_const_v<C>)
+  void operator()(C&) const {}
+  template <class C>
+  bool operator()(const C&) const {
+    return false;
+  }
+};
+struct ConstMatchingTerminal {
+  template <class>
+  using storage_type = std::monostate;
+  template <class C>
+    requires(!std::is_const_v<C>)
+  void operator()(C&) const {}
+  template <class C>
+  auto operator()(const C& ctx) const {
+    return match::predicate<[] { return false; }>.invoke(ctx);
+  }
+};
+struct ElementContextTerminal {
+  template <class C>
+  auto operator()(C& ctx) const {
+    if constexpr (requires { ctx.value(); }) {
+      using Storage = std::remove_cvref_t<decltype(ctx.value())>;
+      if constexpr (std::same_as<Storage, std::array<int, 1>>) return false;
+    }
+  }
+};
 
 int main() {
 #if HOSQ_MATCH_CASE == 1
@@ -311,6 +346,21 @@ int main() {
     Entry<Key<"nested">, NotSchema> nested;
   } value;
   (void)value;
+#elif HOSQ_MATCH_CASE == 49 || HOSQ_MATCH_CASE == 50
+  using E = Elem<step<ConstBoolTerminal>, noop_encoder>;
+  E value;
+  Reader reader;
+  Reader::state_type state;
+  DecodeContext<E::storage_type, Reader> ctx{value.storage(), reader, state};
+#if HOSQ_MATCH_CASE == 49
+  (void)value.decode(ctx);
+#else
+  (void)value.decode(std::as_const(ctx));
+#endif
+#elif HOSQ_MATCH_CASE == 51
+  using E = Elem<step<ConstMatchingTerminal>, noop_encoder>;
+  E value;
+  (void)decode_document_into<Reader>(value, "1");
 #elif HOSQ_MATCH_CASE == 100
   struct Choices {
     Try<Candidate> one;
@@ -510,6 +560,46 @@ int main() {
   const auto error = decode_document_into<Reader>(value, "[[1,1]]");
   return !error.is_ok() ||
          value.matched.value() != std::vector<bool>{false, false};
+#elif HOSQ_MATCH_CASE == 119
+  using Fixed =
+      Elem<scan::array | decode::each<integer_match | store::assign, 2>,
+           noop_encoder>;
+  using Any =
+      Elem<scan::array | decode::collect<scan::scalar | decode::integer<int>> |
+               store::assign,
+           noop_encoder>;
+  struct Choices {
+    Try<Fixed> ones;
+    Try<Any> fallback;
+  } value;
+  const auto error =
+      decode_document_into<json::FastReader<>>(value, "[[1,1],[1,2]]");
+  return !error.is_ok() || value.ones.value()[1] != 1 ||
+         value.fallback.value() != std::vector<int>{1, 2};
+#elif HOSQ_MATCH_CASE == 120
+  using E = Elem<step<ConstMatchingTerminal>, noop_encoder>;
+  E value;
+  Reader reader;
+  Reader::state_type state;
+  DecodeContext<E::storage_type, Reader> ctx{value.storage(), reader, state};
+  static_assert(std::same_as<decltype(value.decode(ctx)), MatchResult<void>>);
+  return value.decode(ctx).matched() ||
+         value.decode(std::as_const(ctx)).matched();
+#elif HOSQ_MATCH_CASE == 121
+  constexpr auto inner =
+      scan::scalar | decode::number_into<int> | step<ElementContextTerminal>;
+  using E = Elem<scan::array | decode::each<inner, 1>, noop_encoder>;
+  E value;
+  const auto error = decode_document_into<Reader>(value, "[1]");
+  return !error.is_ok() || value.value()[0] != 1;
+#elif HOSQ_MATCH_CASE == 122
+  using E = Elem<step<ConstMatchingTerminal>, noop_encoder>;
+  struct Choices {
+    Try<E> reject;
+    Try<v::Int64> fallback;
+  } value;
+  const auto error = decode_document_into<json::FastReader<>>(value, "[1]");
+  return !error.is_ok() || value.fallback.value() != 1;
 #else
 #error Unknown HOSQ_MATCH_CASE
 #endif
