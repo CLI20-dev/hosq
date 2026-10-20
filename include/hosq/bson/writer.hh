@@ -4,6 +4,7 @@
 
 #include "hosq/bytes_view.hh"
 #include "hosq/detail/semantic_writer.hh"
+#include "hosq/detail/temporal.hh"
 
 namespace hosq::bson {
 template <std::size_t MaxDepth = 64, std::size_t MaxOutput = 0x7fffffffULL>
@@ -81,14 +82,49 @@ class Writer
   auto write_null() -> bool {
     return this->ready() && prefix(10) && after_value();
   }
-  auto write_binary(BytesView value) -> bool {
+  auto write_semantic(const InstantValue& value) -> bool {
     if (!this->ready()) return false;
-    if (value.size() > 0x7fffffffULL || value.size() > MaxOutput)
+    std::int64_t milliseconds = 0;
+    if (!detail::instant_to_milliseconds(value, milliseconds))
+      return this->fail(ErrorCode::out_of_range,
+                        "BSON datetime requires exact int64 milliseconds");
+    return prefix(0x09) &&
+           this->integer_bytes(static_cast<std::uint64_t>(milliseconds), 8,
+                               true) &&
+           after_value();
+  }
+  auto write_semantic(const Decimal128Value& value) -> bool {
+    return this->ready() && prefix(0x13) &&
+           this->append({reinterpret_cast<const char*>(value.bytes.data()),
+                         value.bytes.size()}) &&
+           after_value();
+  }
+  auto write_semantic(const ObjectIdValue& value) -> bool {
+    return this->ready() && prefix(0x07) &&
+           this->append({reinterpret_cast<const char*>(value.bytes.data()),
+                         value.bytes.size()}) &&
+           after_value();
+  }
+  auto write_semantic(const BsonTimestampValue& value) -> bool {
+    return this->ready() && prefix(0x11) &&
+           this->integer_bytes(value.increment, 4, true) &&
+           this->integer_bytes(value.seconds, 4, true) && after_value();
+  }
+  auto write_binary(BytesView value) -> bool { return write_binary(value, 0); }
+  auto write_binary(BytesView value, std::uint8_t subtype) -> bool {
+    if (!this->ready()) return false;
+    if (subtype > 9 && subtype < 128)
+      return this->fail(ErrorCode::invalid_type_marker,
+                        "reserved BSON binary subtype");
+    const std::size_t extra = subtype == 2 ? 4 : 0;
+    if (value.size() > 0x7fffffffULL - extra || value.size() > MaxOutput)
       return this->fail(ErrorCode::output_too_large,
                         "BSON binary length exceeds int32/output limit");
     const std::string copy(value.as_string_view());
-    return prefix(5) && this->integer_bytes(copy.size(), 4, true) &&
-           this->byte(0) && this->append(copy) && after_value();
+    return prefix(5) && this->integer_bytes(copy.size() + extra, 4, true) &&
+           this->byte(subtype) &&
+           (subtype != 2 || this->integer_bytes(copy.size(), 4, true)) &&
+           this->append(copy) && after_value();
   }
 
  private:

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "hosq/bson/reader.hh"
@@ -527,8 +528,10 @@ TEST(MessagePack, NonStringKeysRemainTraversableAndSkippable) {
   ASSERT_TRUE(decode_into<msgpack::Reader<>>(record, input).is_ok());
   EXPECT_EQ(record.n.value().value(), 42);
   Nested strict;
+  // Preserve the reader's non-string-key type error instead of masking it as
+  // an unknown member during constant-key dispatch.
   EXPECT_EQ(decode_into<msgpack::Reader<>>(strict, bytes({0x81, 1, 2})).code,
-            EC::unknown_member);
+            EC::type_mismatch);
   EXPECT_EQ(read<msgpack::Reader<>>(bytes({0x81, 0x91})).code,
             EC::unexpected_eof);
 }
@@ -584,6 +587,21 @@ TEST(Toml, OwnedDynamicKeysResolveEscapesAndSurviveReaderState) {
   input.assign(input.size(), 'x');
   EXPECT_EQ(value.value().keys(), (std::vector<std::string>{"n", "raw\\n"}));
   EXPECT_EQ(value.value().values(), (std::vector<int>{42, 7}));
+}
+
+TEST(Toml, TypedMappingOwnsResolvedKeysAndKeepsEntriesPaired) {
+  using Mapping =
+      types::value::Mapping<types::value::String, types::value::Int<int>>;
+  Mapping value;
+  std::string input = "\"\\u006e\"=42\n'raw\\n'=7";
+  ASSERT_TRUE(decode_into<toml::Reader<>>(value, input).is_ok());
+  input.assign(input.size(), 'x');
+  EXPECT_EQ(value.value().entries(), (std::vector<std::pair<std::string, int>>{
+                                         {"n", 42}, {"raw\\n", 7}}));
+  value.value().entries().erase(value.value().begin());
+  ASSERT_EQ(value.value().size(), 1u);
+  EXPECT_EQ(value.value().entries()[0],
+            (std::pair<std::string, int>{"raw\\n", 7}));
 }
 
 TEST(Bson, ReservedBinarySubtypesAndRegexOptionOrderAreRejected) {

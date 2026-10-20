@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "hosq/context.hh"
+#include "hosq/decode_outcome.hh"
 #include "hosq/detail/as_tuple.hh"
 #include "hosq/detail/compiler.hh"
 #include "hosq/detail/type_traits.hh"
@@ -37,15 +38,34 @@ class Decoder<R> {
   using reader_state_type = typename reader_type::state_type;
 
   template <class T>
-    requires detail::DecoderAcceptableT<T>
+    requires detail::RequiredDecoderAcceptableT<T>
   [[nodiscard]]
   auto decode(T& t, input_type input) -> Error {
     reader_.reset(reader_state_, input);
+    if (const auto error = reader_.error(reader_state_); error) return error;
     if (!hosq::next_token<ReadPosition::value>(reader_, reader_state_))
         [[unlikely]] {
       return reader_.error(reader_state_);
     }
     return decode_nested(t, reader_, reader_state_);
+  }
+
+  /// Decode one complete document, including validation of the input suffix.
+  /// decode() retains its legacy contract for cursor-observing pipelines.
+  template <class T>
+    requires detail::RequiredDecoderAcceptableT<T>
+  [[nodiscard]]
+  auto decode_document(T& t, input_type input) -> Error {
+    const auto result = decode(t, input);
+    if (result) return result;
+    // Nested decoding stops on the decoded value's last token.
+    if (!hosq::next_token<Expect::document_end>(reader_, reader_state_))
+      return reader_.error(reader_state_);
+    const auto& token = reader_.current_token(reader_state_);
+    if (token.type != TokenType::End)
+      return Error{ErrorCode::trailing_data, token.offset,
+                   "expected end of document after decoded value"};
+    return reader_.error(reader_state_);
   }
 
   template <detail::ElemT T, TryPhase Phase = TryPhase::normal>
@@ -56,11 +76,12 @@ class Decoder<R> {
   }
 
   template <class T>
-    requires detail::DecoderAcceptableT<T>
+    requires detail::RequiredDecoderAcceptableT<T>
   [[nodiscard]]
   static HOSQ_ALWAYS_INLINE auto decode_nested(T& t, reader_type& reader,
                                                reader_state_type& reader_state)
       -> Error {
+    if (const auto error = reader.error(reader_state); error) return error;
     return ext::ReaderDispatch<R>{}(reader, reader_state, [&](auto* active) {
       using Active = std::remove_pointer_t<decltype(active)>;
       if constexpr (std::same_as<Active, R>) {
@@ -78,7 +99,7 @@ class Decoder<R> {
                                              reader_state_type& reader_state)
       -> Error {
     auto ctx = make_decode_context(t, reader, reader_state);
-    t.decode(ctx);
+    (void)detail::invoke_required_decode(t, ctx);
     return reader.error(reader_state);
   }
 
@@ -103,7 +124,7 @@ class Decoder<R> {
               return false;
             }
             auto ctx = make_decode_context(elem, reader, reader_state);
-            elem.decode(ctx);
+            (void)detail::invoke_required_decode(elem, ctx);
             // If decode puts the reader into an error state, subsequent
             // next_token() is a noop and the error is reported below.
             return true;
@@ -164,7 +185,7 @@ class Decoder<R> {
         return false;
     } else {
       auto key_ctx = make_decode_context(t.key(), reader, reader_state);
-      t.key().decode(key_ctx);
+      (void)detail::invoke_required_decode(t.key(), key_ctx);
       if (!hosq::next_token<Expect::member_value>(reader, reader_state))
           [[unlikely]]
         return false;
@@ -195,7 +216,7 @@ class Decoder<R> {
     }
     if (!ready && !read_entry_key(t, reader, reader_state)) return false;
     auto value_ctx = make_decode_context(t.value(), reader, reader_state);
-    t.value().decode(value_ctx);
+    (void)detail::invoke_required_decode(t.value(), value_ctx);
     return true;
   }
 
@@ -241,6 +262,7 @@ class Decoder<R> {
   static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                                              reader_state_type& reader_state)
       -> Error {
+    if (reader.error(reader_state)) return reader.error(reader_state);
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ArrayBegin) [[unlikely]] {
       return Error{
@@ -264,28 +286,39 @@ class Decoder<R> {
       }
       matched = [&]<size_t... I>(auto& tuple, std::index_sequence<I...>)
                     HOSQ_ALWAYS_INLINE_ATTR -> bool {
-        return ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
-          auto& elem = std::get<I>(tuple);
-          using elem_type = std::remove_cvref_t<decltype(elem)>;
-          auto ctx = make_decode_context<elem_type, I == 0 ? TryPhase::first
-                                                           : TryPhase::normal>(
-              elem, reader, reader_state);
-          using context_type = decltype(ctx);
-          if constexpr (elem_type::template decoder_const_invokable<
-                            context_type>) {
-            const auto& const_ctx = ctx;
-            return elem.decode(const_ctx);
-          } else {
-            auto checkpoint = reader_state.checkpoint();
-            auto ret = elem.decode(ctx);
-            if (!ret) {
-              reader_state.rollback(std::move(checkpoint));
-              return false;
-            }
-            return true;
-          }
-        }() || ...);
+        // A hard reader error stops dispatch even when the terminal rejects.
+        return (
+            ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
+              auto& elem = std::get<I>(tuple);
+              using elem_type = std::remove_cvref_t<decltype(elem)>;
+              using base_type = detail::try_base_t<elem_type>;
+              auto ctx =
+                  make_decode_context<base_type, I == 0 ? TryPhase::first
+                                                        : TryPhase::normal>(
+                      elem, reader, reader_state);
+              using context_type = decltype(ctx);
+              constexpr bool const_decodable =
+                  elem_type::template decoder_const_invokable<context_type>;
+              using result_type =
+                  decode_raw_result_t<const_decodable, elem_type, context_type>;
+              if constexpr (const_decodable || std::same_as<result_type, void>) {
+                const auto outcome = detail::invoke_decode(elem, ctx);
+                return outcome.status != DecodeStatus::no_match;
+              } else {
+                auto checkpoint = reader_state.checkpoint();
+                const auto token = reader.current_token(reader_state);
+                const auto outcome = detail::invoke_decode(elem, ctx);
+                if (outcome.status == DecodeStatus::no_match) {
+                  rollback_try_candidate(reader, reader_state,
+                                         std::move(checkpoint), token);
+                  return false;
+                }
+                return true;
+              }
+            }() || reader.error(reader_state).has_error()) ||
+            ...);
       }(tuple, std::make_index_sequence<tuple_size>{});
+      if (reader.error(reader_state)) return reader.error(reader_state);
     }
     return Error{
         .code = ErrorCode::unknown_member,
@@ -312,6 +345,31 @@ class Decoder<R> {
   template <bool IsConst, class Elem, class Context>
   using decode_raw_result_t =
       typename decode_raw_result<IsConst, Elem, Context>::type;
+
+  // Consuming candidates can cross into nested tokens. Some readers keep the
+  // current token outside their checkpoint to cache lazy scalar scans.
+  // Restore the initial token on a soft rejection, retaining cached lengths when
+  // the candidate never left that token. Storage and hard errors are not
+  // restored.
+  static auto rollback_try_candidate(reader_type& reader,
+                                     reader_state_type& reader_state,
+                                     auto checkpoint, const Token& initial_token)
+      -> void {
+    reader_state.rollback(std::move(checkpoint));
+    if constexpr (requires {
+                    {
+                      reader.current_token(reader_state)
+                    } -> std::same_as<Token&>;
+                  }) {
+      if (reader.error(reader_state).is_ok()) {
+        auto& token = reader.current_token(reader_state);
+        if (token.offset != initial_token.offset ||
+            token.type != initial_token.type ||
+            token.context != initial_token.context)
+          token = initial_token;
+      }
+    }
+  }
 
   template <class... U>
   static auto decompose_const_key_entry_tuple_and_entry_tuple(
@@ -366,7 +424,7 @@ class Decoder<R> {
           auto& entry = std::get<I>(tuple);
 
           using try_entry_type = std::remove_cvref_t<decltype(entry)>;
-          using entry_type = typename try_entry_type::base_type;
+          using entry_type = detail::try_base_t<try_entry_type>;
           using value_type = typename entry_type::value_type;
           using value_storage_type = typename value_type::storage_type;
           using value_context_type =
@@ -378,9 +436,14 @@ class Decoder<R> {
           using value_raw_result_type =
               decode_raw_result_t<value_is_const_decodable, value_type,
                                   value_context_type>;
+          static_assert(
+              detail::TryT<try_entry_type> ||
+                  !detail::MatchResultT<value_raw_result_type>,
+              "field presence does not enable matching; use Try dispatch");
 
-          if constexpr (std::same_as<value_raw_result_type, bool>) {
+          if constexpr (detail::MatchResultT<value_raw_result_type>) {
             auto checkpoint = reader_state.checkpoint();
+            const auto key_token = reader.current_token(reader_state);
 
             if (!hosq::next_token<ReadPosition::member_value>(
                     reader, reader_state)) [[unlikely]] {
@@ -392,16 +455,10 @@ class Decoder<R> {
             auto value_ctx = make_decode_context<value_type, TryPhase::first>(
                 value, reader, reader_state);
 
-            bool ret = false;
-            if constexpr (value_is_const_decodable) {
-              const auto& const_value_ctx = value_ctx;
-              ret = value.decode(const_value_ctx);
-            } else {
-              ret = value.decode(value_ctx);
-            }
-
-            if (!ret) {
-              reader_state.rollback(std::move(checkpoint));
+            const auto outcome = detail::invoke_decode(value, value_ctx);
+            if (outcome.status == DecodeStatus::no_match) {
+              rollback_try_candidate(reader, reader_state, std::move(checkpoint),
+                                     key_token);
               decoded = false;
               return;
             }
@@ -431,12 +488,7 @@ class Decoder<R> {
             auto value_ctx = make_decode_context<value_type, TryPhase::first>(
                 value, reader, reader_state);
 
-            if constexpr (value_is_const_decodable) {
-              const auto& const_value_ctx = value_ctx;
-              value.decode(const_value_ctx);
-            } else {
-              value.decode(value_ctx);
-            }
+            (void)detail::invoke_decode(value, value_ctx);
 
             decoded = true;
             return;
@@ -462,110 +514,126 @@ class Decoder<R> {
   static auto match_try_entry_tuple(auto& tuple, reader_type& reader,
                                     reader_state_type& reader_state,
                                     std::index_sequence<I...>) -> bool {
-    return ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
-      auto& entry = std::get<I>(tuple);
+    return (
+        ([&]() HOSQ_ALWAYS_INLINE_ATTR -> bool {
+          auto& entry = std::get<I>(tuple);
 
-      static constexpr TryPhase phase =
-          I == 0 ? TryPhase::first : TryPhase::normal;
-      using entry_type = std::remove_cvref_t<decltype(entry)>;
+          static constexpr TryPhase phase =
+              I == 0 ? TryPhase::first : TryPhase::normal;
+          using entry_type = std::remove_cvref_t<decltype(entry)>;
 
-      using key_elem_type = entry_type::key_type;
-      using key_elem_value_type = typename key_elem_type::storage_type;
-      using key_elem_context_type = DecodeContext<key_elem_value_type, R, phase>;
-      static constexpr bool key_is_const_decodable =
-          key_elem_type::template decoder_const_invokable<key_elem_context_type>;
-      using key_elem_raw_result_type =
-          decode_raw_result_t<key_is_const_decodable, key_elem_type,
-                              key_elem_context_type>;
+          using key_elem_type = entry_type::key_type;
+          using key_elem_value_type = typename key_elem_type::storage_type;
+          using key_elem_context_type =
+              DecodeContext<key_elem_value_type, R, phase>;
+          static constexpr bool key_is_const_decodable =
+              key_elem_type::template decoder_const_invokable<
+                  key_elem_context_type>;
+          using key_elem_raw_result_type =
+              decode_raw_result_t<key_is_const_decodable, key_elem_type,
+                                  key_elem_context_type>;
 
-      using value_elem_type = entry_type::value_type;
-      using value_elem_value_type = typename value_elem_type::storage_type;
-      using value_elem_context_type =
-          DecodeContext<value_elem_value_type, R, TryPhase::first>;
-      static constexpr bool value_is_const_decodable =
-          value_elem_type::template decoder_const_invokable<
-              value_elem_context_type>;
-      using value_elem_raw_result_type =
-          decode_raw_result_t<value_is_const_decodable, value_elem_type,
-                              value_elem_context_type>;
+          using value_elem_type = entry_type::value_type;
+          using value_elem_value_type = typename value_elem_type::storage_type;
+          using value_elem_context_type =
+              DecodeContext<value_elem_value_type, R, TryPhase::first>;
+          static constexpr bool value_is_const_decodable =
+              value_elem_type::template decoder_const_invokable<
+                  value_elem_context_type>;
+          using value_elem_raw_result_type =
+              decode_raw_result_t<value_is_const_decodable, value_elem_type,
+                                  value_elem_context_type>;
 
-      auto& key_elem = entry.key();
-      auto key_ctx = make_decode_context<key_elem_type, phase>(key_elem, reader,
-                                                               reader_state);
-      if constexpr (key_is_const_decodable) {
-        if constexpr (std::same_as<key_elem_raw_result_type, bool>) {
-          const auto& const_key_ctx = key_ctx;
-          if (!key_elem.decode(const_key_ctx)) {
-            return false;
-          }
-        } else {
-          key_elem.decode(key_ctx);
-        }
-
-        if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
-          auto checkpoint = reader_state.checkpoint();
-          if (!hosq::next_token<ReadPosition::member_value>(
-                  reader, reader_state)) [[unlikely]] {
-            return false;
-          }
-
-          auto& value_elem = entry.value();
-          auto value_ctx = make_decode_context<value_elem_type, TryPhase::first>(
-              value_elem, reader, reader_state);
-          auto ret = value_elem.decode(value_ctx);
-          if (!ret) {
-            reader_state.rollback(std::move(checkpoint));
-            return false;
-          }
-          return true;
-        } else {
-          if (!hosq::next_token<ReadPosition::member_value>(
-                  reader, reader_state)) [[unlikely]] {
-            return false;
-          }
-          auto& value_elem = entry.value();
-          auto value_ctx = make_decode_context<value_elem_type, TryPhase::first>(
-              value_elem, reader, reader_state);
-          value_elem.decode(value_ctx);
-          return true;
-        }
-
-      } else {
-        auto checkpoint = reader_state.checkpoint();
-        if constexpr (std::same_as<key_elem_raw_result_type, bool>) {
-          {
-            auto ret = key_elem.decode(key_ctx);
-            if (!ret) {
-              reader_state.rollback(std::move(checkpoint));
-              return false;
+          auto& key_elem = entry.key();
+          auto key_ctx = make_decode_context<key_elem_type, phase>(
+              key_elem, reader, reader_state);
+          if constexpr (key_is_const_decodable) {
+            if constexpr (detail::MatchResultT<key_elem_raw_result_type>) {
+              const auto& const_key_ctx = key_ctx;
+              if (detail::invoke_decode(key_elem, const_key_ctx).status ==
+                  DecodeStatus::no_match) {
+                return false;
+              }
+            } else {
+              (void)detail::invoke_decode(key_elem, key_ctx);
             }
-          }
-        } else {
-          key_elem.decode(key_ctx);
-        }
+            if (reader.error(reader_state)) return false;
 
-        if (!hosq::next_token<Expect::member_value>(reader, reader_state))
-            [[unlikely]] {
-          return false;
-        }
+            if constexpr (detail::MatchResultT<value_elem_raw_result_type>) {
+              auto checkpoint = reader_state.checkpoint();
+              const auto key_token = reader.current_token(reader_state);
+              if (!hosq::next_token<ReadPosition::member_value>(
+                      reader, reader_state)) [[unlikely]] {
+                return false;
+              }
 
-        auto& value_elem = entry.value();
-        auto value_ctx = make_decode_context<value_elem_type, TryPhase::first>(
-            value_elem, reader, reader_state);
-        {
-          if constexpr (std::same_as<value_elem_raw_result_type, bool>) {
-            auto ret = value_elem.decode(value_ctx);
-            if (!ret) {
-              reader_state.rollback(std::move(checkpoint));
-              return false;
+              auto& value_elem = entry.value();
+              auto value_ctx =
+                  make_decode_context<value_elem_type, TryPhase::first>(
+                      value_elem, reader, reader_state);
+              const auto outcome = detail::invoke_decode(value_elem, value_ctx);
+              if (outcome.status == DecodeStatus::no_match) {
+                rollback_try_candidate(reader, reader_state,
+                                       std::move(checkpoint), key_token);
+                return false;
+              }
+              return true;
+            } else {
+              if (!hosq::next_token<ReadPosition::member_value>(
+                      reader, reader_state)) [[unlikely]] {
+                return false;
+              }
+              auto& value_elem = entry.value();
+              auto value_ctx =
+                  make_decode_context<value_elem_type, TryPhase::first>(
+                      value_elem, reader, reader_state);
+              (void)detail::invoke_decode(value_elem, value_ctx);
+              return true;
             }
+
           } else {
-            value_elem.decode(value_ctx);
+            auto checkpoint = reader_state.checkpoint();
+            const auto key_token = reader.current_token(reader_state);
+            if constexpr (detail::MatchResultT<key_elem_raw_result_type>) {
+              {
+                const auto outcome = detail::invoke_decode(key_elem, key_ctx);
+                if (outcome.status == DecodeStatus::no_match) {
+                  rollback_try_candidate(reader, reader_state,
+                                         std::move(checkpoint), key_token);
+                  return false;
+                }
+              }
+            } else {
+              (void)detail::invoke_decode(key_elem, key_ctx);
+            }
+            if (reader.error(reader_state)) return false;
+
+            if (!hosq::next_token<Expect::member_value>(reader, reader_state))
+                [[unlikely]] {
+              return false;
+            }
+
+            auto& value_elem = entry.value();
+            auto value_ctx =
+                make_decode_context<value_elem_type, TryPhase::first>(
+                    value_elem, reader, reader_state);
+            {
+              if constexpr (detail::MatchResultT<value_elem_raw_result_type>) {
+                const auto outcome =
+                    detail::invoke_decode(value_elem, value_ctx);
+                if (outcome.status == DecodeStatus::no_match) {
+                  rollback_try_candidate(reader, reader_state,
+                                         std::move(checkpoint), key_token);
+                  return false;
+                }
+              } else {
+                (void)detail::invoke_decode(value_elem, value_ctx);
+              }
+            }
+            return true;
           }
-        }
-        return true;
-      }
-    }() || ...);
+        }() || reader.error(reader_state).has_error()) ||
+        ...);
   }
 
   template <detail::AsTryEntryTupleT T>
@@ -573,6 +641,7 @@ class Decoder<R> {
   static HOSQ_ALWAYS_INLINE auto decode_impl(T& t, reader_type& reader,
                                              reader_state_type& reader_state)
       -> Error {
+    if (reader.error(reader_state)) return reader.error(reader_state);
     const auto& tok = reader.current_token(reader_state);
     if (tok.type != TokenType::ObjectBegin) [[unlikely]] {
       return Error{
@@ -632,6 +701,7 @@ class Decoder<R> {
             const_key_entries, reader, reader_state,
             std::make_index_sequence<const_key_tuple_size>{});
       }
+      if (reader.error(reader_state)) return reader.error(reader_state);
 
       if (!matched) {
         if constexpr (entry_tuple_size > 0) {
@@ -640,6 +710,7 @@ class Decoder<R> {
               std::make_index_sequence<entry_tuple_size>{});
         }
       }
+      if (reader.error(reader_state)) return reader.error(reader_state);
     }
 
     return Error{
@@ -656,11 +727,21 @@ class Decoder<R> {
 
 /// Free-function convenience wrapper.
 template <ReaderConcept R, class T>
-  requires detail::DecoderAcceptableT<T>
+  requires detail::RequiredDecoderAcceptableT<T>
 [[nodiscard]]
 auto decode_into(T& t, typename R::input_type input) -> Error {
   Decoder<R> decoder;
   return decoder.decode(t, input);
+}
+
+/// Strict document convenience wrapper. Unlike decode_into, also requires the
+/// reader to reach End after decoding the root value.
+template <ReaderConcept R, class T>
+  requires detail::RequiredDecoderAcceptableT<T>
+[[nodiscard]]
+auto decode_document_into(T& t, typename R::input_type input) -> Error {
+  Decoder<R> decoder;
+  return decoder.decode_document(t, input);
 }
 
 }  // namespace hosq

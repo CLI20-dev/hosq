@@ -64,16 +64,20 @@ struct EntryTuple : std::false_type {};
 template <class T>
 struct IsConstKeyEntry : std::false_type {};
 
-template <StringLiteral K, detail::ElemT Value>
-
+template <StringLiteral K, class Value>
 struct IsConstKeyEntry<::hosq::Entry<::hosq::Key<K>, Value>> : std::true_type {};
 
 template <class T>
 concept ConstKeyEntryT = IsConstKeyEntry<std::remove_cvref_t<T>>::value;
 
+template <class T>
+struct IsOptionalField : std::false_type {};
+
 template <class... Ts>
 struct EntryTuple<std::tuple<Ts...>>
-    : std::bool_constant<(sizeof...(Ts) > 0) && (EntryT<Ts> && ...)> {};
+    : std::bool_constant<(sizeof...(Ts) > 0) && (EntryT<Ts> && ...) &&
+                         (!IsOptionalField<std::remove_cvref_t<Ts>>::value &&
+                          ...)> {};
 
 template <class T>
 concept EntryTupleT = EntryTuple<std::remove_cvref_t<T>>::value;
@@ -129,7 +133,9 @@ template <class Tuple>
 struct TryEntryTuple : std::false_type {};
 
 template <class... Ts>
-  requires(sizeof...(Ts) > 0 && (TryT<Ts> && ...))
+  requires(
+      sizeof...(Ts) > 0 &&
+      ((TryT<Ts> || IsOptionalField<std::remove_cvref_t<Ts>>::value) && ...))
 struct TryEntryTuple<std::tuple<Ts...>>
     : std::bool_constant<(EntryT<try_base_t<Ts>> && ...)> {};
 
@@ -169,6 +175,60 @@ struct IsMatchResult<MatchResult<T>> : std::true_type {
 template <class T>
 concept MatchResultT = IsMatchResult<std::remove_cvref_t<T>>::value;
 
+// Ordinary decoding must not discard a candidate-selection result. Try
+// aggregates have their own dispatcher; regular leaves/tuples require values.
+template <class E>
+concept RequiredElemT =
+    ElemT<E> &&
+    std::same_as<typename std::remove_cvref_t<E>::decoder_terminal, void>;
+
+template <class Entry>
+consteval auto required_entry_decoder() -> bool {
+  using E = std::remove_cvref_t<Entry>;
+  if constexpr (ConstKeyEntryT<E>)
+    return RequiredElemT<typename E::value_type>;
+  else
+    return RequiredElemT<typename E::key_type> &&
+           RequiredElemT<typename E::value_type>;
+}
+
+template <class T>
+consteval auto required_decoder_acceptable() -> bool {
+  if constexpr (!DecoderAcceptableT<T>) {
+    return false;
+  } else if constexpr (ElemT<T>) {
+    return RequiredElemT<T>;
+  } else if constexpr (AsElemTupleT<T>) {
+    using Tuple = decltype(as_tuple(std::declval<T&>()));
+    return []<std::size_t... I>(std::index_sequence<I...>) {
+      return (RequiredElemT<std::tuple_element_t<I, Tuple>> && ...);
+    }(std::make_index_sequence<std::tuple_size_v<Tuple>>{});
+  } else if constexpr (AsEntryTupleT<T>) {
+    using Tuple = decltype(as_tuple(std::declval<T&>()));
+    return []<std::size_t... I>(std::index_sequence<I...>) {
+      return (required_entry_decoder<std::tuple_element_t<I, Tuple>>() && ...);
+    }(std::make_index_sequence<std::tuple_size_v<Tuple>>{});
+  } else if constexpr (AsTryEntryTupleT<T>) {
+    using Tuple = decltype(as_tuple(std::declval<T&>()));
+    return []<std::size_t... I>(std::index_sequence<I...>) {
+      return (
+          ([]<class F>() {
+            if constexpr (TryT<F>)
+              return true;
+            else
+              return required_entry_decoder<F>();
+          }.template
+           operator()<std::remove_cvref_t<std::tuple_element_t<I, Tuple>>>()) &&
+          ...);
+    }(std::make_index_sequence<std::tuple_size_v<Tuple>>{});
+  } else {
+    return true;  // Try element aggregates explicitly consume matching results.
+  }
+}
+
+template <class T>
+concept RequiredDecoderAcceptableT = required_decoder_acceptable<T>();
+
 // ----------------------------------------------------------------------
 // MatchResult
 // ----------------------------------------------------------------------
@@ -185,16 +245,5 @@ struct GetAdditionalProperty<T, std::void_t<typename T::additional_property>> {
 template <class T>
 using get_additional_property_t =
     typename GetAdditionalProperty<std::remove_cvref_t<T>>::type;
-
-template <class Terminal>
-  requires(std::same_as<Terminal, bool> || std::same_as<Terminal, void>)
-[[nodiscard]] inline constexpr auto terminal_return(bool value) -> Terminal {
-  if constexpr (std::same_as<Terminal, bool>) {
-    return value;
-  } else {
-    static_cast<void>(value);
-    return;
-  }
-}
 
 }  // namespace hosq::detail

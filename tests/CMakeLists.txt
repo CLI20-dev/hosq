@@ -12,6 +12,7 @@ if(NOT GTest_FOUND)
   FetchContent_MakeAvailable(googletest)
 endif()
 include(GoogleTest)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "*.cc")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -37,6 +38,16 @@ function(add_hosq_tests suffix cxx_std)
     DISCOVERY_TIMEOUT 60
     TEST_PREFIX "${test_prefix}/"
   )
+  add_test(NAME "${test_prefix}/match-boundaries"
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/support/check_match_boundaries.py
+      --compiler ${CMAKE_CXX_COMPILER}
+      --compiler-id ${CMAKE_CXX_COMPILER_ID}
+      --standard c++${cxx_std_num}
+      --source ${CMAKE_CURRENT_SOURCE_DIR}/support/match_compile.cpp
+      --include ${PROJECT_SOURCE_DIR}/include
+      --fast-float $<BOOL:${CXX_HOSQ_USE_FAST_FLOAT}>)
+  set_tests_properties("${test_prefix}/match-boundaries" PROPERTIES TIMEOUT 180)
 endfunction()
 
 add_hosq_tests("_cxx20" cxx_std_20)
@@ -46,7 +57,6 @@ endif()
 
 set(HOSQ_TOML_CORPUS "$ENV{HOSQ_TOML_CORPUS}" CACHE PATH "Pinned toml-test source tree (optional)")
 if(HOSQ_TOML_CORPUS)
-  find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_executable(hosq_toml_conformance support/toml_conformance.cpp)
   target_link_libraries(hosq_toml_conformance PRIVATE hosq)
   add_test(NAME corpus/toml-1.0 COMMAND ${Python3_EXECUTABLE}

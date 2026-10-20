@@ -12,6 +12,8 @@
 #include "hosq/detail/utf8.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/reader_base.hh"
+#include "hosq/scalar_codec.hh"
+#include "hosq/value_types.hh"
 
 namespace hosq::detail {
 // Scalar contexts for formats whose numbers are already typed on the wire.
@@ -42,6 +44,8 @@ struct NativeState {
   std::vector<NativeFrame> frames;
   Token token{0, 0, TokenType::End, 0};
   NativeScalar scalar;
+  std::uint8_t binary_subtype = 0;
+  std::uint8_t scalar_marker = 0;
   mutable Error failure = Error::ok();
   struct Checkpoint {
     std::size_t pos;
@@ -49,9 +53,11 @@ struct NativeState {
     std::vector<NativeFrame> frames;
     Token token;
     NativeScalar scalar;
+    std::uint8_t binary_subtype;
+    std::uint8_t scalar_marker;
   };
   auto checkpoint() const -> Checkpoint {
-    return {pos, started, frames, token, scalar};
+    return {pos, started, frames, token, scalar, binary_subtype, scalar_marker};
   }
   void rollback(Checkpoint c) {
     pos = c.pos;
@@ -59,6 +65,8 @@ struct NativeState {
     frames = std::move(c.frames);
     token = c.token;
     scalar = c.scalar;
+    binary_subtype = c.binary_subtype;
+    scalar_marker = c.scalar_marker;
   }
 };
 struct NativeReaderAccess {
@@ -78,6 +86,98 @@ struct NativeReaderAccess {
     if (s.failure.is_ok()) s.failure = e;
   }
   auto error(const state_type& s) const -> Error { return s.failure; }
+  auto read_semantic(const state_type& s, SemanticNumber& output) const -> bool {
+    if (s.failure) return false;
+    bool numeric = false;
+    if (s.token.type == TokenType::Scalar &&
+        s.token.context == static_cast<std::uint8_t>(NativeContext::number)) {
+      std::visit(
+          [&](auto value) {
+            using V = decltype(value);
+            if constexpr (std::same_as<V, std::int64_t> ||
+                          std::same_as<V, std::uint64_t> ||
+                          std::same_as<V, double>) {
+              output.value = value;
+              output.negative_integer = false;
+              numeric = true;
+            }
+          },
+          s.scalar);
+    }
+    if (!numeric)
+      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                       "expected numeric scalar"});
+    return numeric;
+  }
+  auto read_semantic(const state_type& s, bool& output) const -> bool {
+    if (s.failure) return false;
+    if (s.token.type == TokenType::Scalar &&
+        s.token.context == static_cast<std::uint8_t>(NativeContext::boolean)) {
+      if (const auto* value = std::get_if<bool>(&s.scalar)) {
+        output = *value;
+        return true;
+      }
+    }
+    report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                     "expected boolean scalar"});
+    return false;
+  }
+  auto read_semantic(const state_type& s, std::nullptr_t&) const -> bool {
+    if (s.failure) return false;
+    if (s.token.type == TokenType::Scalar &&
+        s.token.context == static_cast<std::uint8_t>(NativeContext::null))
+      return true;
+    report_error(s, {ErrorCode::type_mismatch, s.token.offset, "expected null"});
+    return false;
+  }
+  auto read_string_source(const state_type& s, std::string_view& output) const
+      -> bool {
+    output = {};
+    if (s.failure) return false;
+    if (s.token.type != TokenType::Scalar ||
+        s.token.context != static_cast<std::uint8_t>(NativeContext::string)) {
+      report_error(
+          s, {ErrorCode::type_mismatch, s.token.offset, "expected string"});
+      return false;
+    }
+    output = s.input.substr(s.token.offset, s.token.length);
+    return true;
+  }
+  auto read_string(const state_type& s, std::string& output) const -> bool {
+    output.clear();
+    if (s.failure) return false;
+    if (s.token.type != TokenType::Scalar ||
+        s.token.context != static_cast<std::uint8_t>(NativeContext::string)) {
+      report_error(
+          s, {ErrorCode::type_mismatch, s.token.offset, "expected string"});
+      return false;
+    }
+    const auto text = s.input.substr(s.token.offset, s.token.length);
+    const auto invalid = invalid_utf8_offset(text);
+    if (invalid != text.size()) {
+      report_error(s, {ErrorCode::invalid_utf8, s.token.offset + invalid,
+                       "invalid string UTF-8"});
+      return false;
+    }
+    output = text;
+    return true;
+  }
+  auto read_bytes(const state_type& s, BytesValue& output) const -> bool {
+    output = {};
+    if (s.failure) return false;
+    if (s.token.type != TokenType::Scalar ||
+        s.token.context != static_cast<std::uint8_t>(NativeContext::binary)) {
+      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                       "expected binary value"});
+      return false;
+    }
+    const auto payload = s.input.substr(s.token.offset, s.token.length);
+    output.value.reserve(payload.size());
+    for (unsigned char byte : payload)
+      output.value.push_back(static_cast<std::byte>(byte));
+    output.subtype = s.binary_subtype;
+    return true;
+  }
 
  protected:
   static auto fail(state_type& s, ErrorCode code, std::string_view why) -> bool {

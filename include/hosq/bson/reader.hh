@@ -3,12 +3,14 @@
 #include <charconv>
 
 #include "hosq/detail/native_reader.hh"
+#include "hosq/detail/temporal.hh"
 
 namespace hosq::bson {
 template <std::size_t MaxDepth = 64>
 class Reader : public ReaderBase<Reader<MaxDepth>>,
                public detail::NativeReaderAccess {
  public:
+  using detail::NativeReaderAccess::read_semantic;
   auto next_token_impl(state_type& s) const -> bool {
     if (s.failure) return false;
     if (!s.started) {
@@ -47,6 +49,7 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
       s.token = {start, s.pos - start - 1, TokenType::Scalar,
                  static_cast<std::uint8_t>(detail::NativeContext::string)};
       s.scalar = {};
+      s.scalar_marker = 0;
       return true;
     }
     char digits[32];
@@ -59,7 +62,73 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     return value(s, marker, f.limit - 1);
   }
 
+  auto read_semantic(const state_type& s, InstantValue& output) const -> bool {
+    output = {};
+    if (!semantic_payload(s, 0x09, 8)) return false;
+    output = detail::instant_from_milliseconds(
+        std::bit_cast<std::int64_t>(semantic_uint(s, 0, 8)));
+    return true;
+  }
+  auto read_semantic(const state_type& s, Decimal128Value& output) const
+      -> bool {
+    output = {};
+    if (!semantic_payload(s, 0x13, output.bytes.size())) return false;
+    for (std::size_t i = 0; i < output.bytes.size(); ++i)
+      output.bytes[i] = static_cast<std::byte>(
+          static_cast<unsigned char>(s.input[s.token.offset + i]));
+    return true;
+  }
+  auto read_semantic(const state_type& s, ObjectIdValue& output) const -> bool {
+    output = {};
+    if (!semantic_payload(s, 0x07, output.bytes.size())) return false;
+    for (std::size_t i = 0; i < output.bytes.size(); ++i)
+      output.bytes[i] = static_cast<std::byte>(
+          static_cast<unsigned char>(s.input[s.token.offset + i]));
+    return true;
+  }
+  auto read_semantic(const state_type& s, BsonTimestampValue& output) const
+      -> bool {
+    output = {};
+    if (!semantic_payload(s, 0x11, 8)) return false;
+    output.increment = static_cast<std::uint32_t>(semantic_uint(s, 0, 4));
+    output.seconds = static_cast<std::uint32_t>(semantic_uint(s, 4, 4));
+    return true;
+  }
+
  private:
+  auto semantic_payload(const state_type& s, unsigned marker,
+                        std::size_t width) const -> bool {
+    if (s.failure) return false;
+    if (s.token.type != TokenType::Scalar ||
+        s.token.context !=
+            static_cast<std::uint8_t>(detail::NativeContext::extension) ||
+        s.scalar_marker != marker) {
+      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
+                       "expected matching BSON semantic type"});
+      return false;
+    }
+    if (s.token.length != width) {
+      report_error(s, {ErrorCode::invalid_length, s.token.offset,
+                       "invalid BSON semantic payload length"});
+      return false;
+    }
+    if (s.token.offset > s.input.size() ||
+        width > s.input.size() - s.token.offset) {
+      report_error(s, {ErrorCode::unexpected_eof, s.token.offset,
+                       "truncated BSON semantic payload"});
+      return false;
+    }
+    return true;
+  }
+  static auto semantic_uint(const state_type& s, std::size_t offset,
+                            unsigned width) -> std::uint64_t {
+    std::uint64_t result = 0;
+    for (unsigned i = 0; i < width; ++i)
+      result |= std::uint64_t(static_cast<unsigned char>(
+                    s.input[s.token.offset + offset + i]))
+                << (8 * i);
+    return result;
+  }
   static auto cstring(state_type& s, std::size_t limit) -> bool {
     const auto start = s.pos;
     while (s.pos < limit) {
@@ -99,6 +168,8 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
   static auto value(state_type& s, unsigned m, std::size_t limit) -> bool {
     using C = detail::NativeContext;
     s.scalar = {};
+    s.binary_subtype = 0;
+    s.scalar_marker = static_cast<std::uint8_t>(m);
     const auto start = s.pos;
     auto bytes = [&](std::size_t n, C context) {
       if (!need(s, n, limit)) return false;
@@ -156,6 +227,7 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
         }
         const auto offset = s.pos;
         s.pos += static_cast<std::size_t>(n);
+        s.binary_subtype = static_cast<std::uint8_t>(subtype);
         scalar_token(s, offset, C::binary);
         return true;
       }

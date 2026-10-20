@@ -119,6 +119,10 @@ class SemanticWriter {
   }
   template <class T>
   auto binary_double(T value, double& out) -> bool {
+    if (std::isfinite(value) && (value < -std::numeric_limits<double>::max() ||
+                                 value > std::numeric_limits<double>::max()))
+      return fail(ErrorCode::out_of_range,
+                  "floating value exceeds binary64 range");
     out = static_cast<double>(value);
     if constexpr (sizeof(T) > sizeof(double)) {
       if (std::isfinite(value) && static_cast<T>(out) != value)

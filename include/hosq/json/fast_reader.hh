@@ -11,6 +11,7 @@
 #include "hosq/context.hh"
 #include "hosq/detail/compiler.hh"
 #include "hosq/error.hh"
+#include "hosq/json/scalar_codec.hh"
 #include "hosq/meta_match.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/scan.hh"
@@ -1863,6 +1864,11 @@ struct EntryInput<json::FastReader<Depth, Padding, Mode>> {
           use_const ? Pipe::template callable_with_const_context<Ctx, Tag>()
                     : Pipe::template callable_with_mutable_context<Ctx, Tag>();
       if constexpr (accepts_tag) {
+        using ActiveContext = std::conditional_t<use_const, const Ctx, Ctx>;
+        using Result =
+            typename Pipe::template final_output_type<Tag, ActiveContext>;
+        // A matching effect may not disappear through this void fast path.
+        if constexpr (!std::same_as<Result, void>) return false;
         if constexpr (Matched) {
           if (!reader.begin_matched_scalar_member(state)) return false;
         } else {
@@ -1908,3 +1914,21 @@ HOSQ_ALWAYS_INLINE auto ArrayInput<Reader>::materialize(Context& ctx)
   return ext::ScanArray<Reader>::resolved(ctx);
 }
 }  // namespace hosq::json::detail
+
+namespace hosq::ext {
+template <std::size_t Depth, json::InputPadding Padding,
+          json::WhitespaceMode Mode>
+struct DecodeSemanticScalar<json::FastReader<Depth, Padding, Mode>>
+    : json::detail::SemanticScalarCodec {};
+}  // namespace hosq::ext
+
+namespace hosq::ext {
+template <std::size_t Depth, json::InputPadding Padding,
+          json::WhitespaceMode Mode>
+struct DecodeStringSource<json::FastReader<Depth, Padding, Mode>>
+    : json::detail::StringSourceCodec {};
+template <std::size_t Depth, json::InputPadding Padding,
+          json::WhitespaceMode Mode>
+struct UnescapeString<json::FastReader<Depth, Padding, Mode>, Format::json>
+    : json::detail::UnescapeStringCodec {};
+}  // namespace hosq::ext

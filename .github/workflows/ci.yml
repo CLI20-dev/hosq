@@ -40,4 +40,5 @@ jobs:
               -DCXX_HOSQ_ENABLE_SANITIZERS=ON
             cmake --build build/test --target hosq_tests_cxx20 --parallel 2
             ./build/test/tests/hosq_tests_cxx20
+            ctest --test-dir build/test -R "^cxx20/match-boundaries$" --output-on-failure
           '
