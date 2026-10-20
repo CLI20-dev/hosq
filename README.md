@@ -525,14 +525,27 @@ a repeat. This differs from the closed, duplicate-rejecting `v::Record<S>`.
 
 All-`Try` element tuples dispatch array elements. Matching candidates
 are tried left to right; an unmatched `MatchResult` without a reader error
-permits the next candidate. A reported reader error stops dispatch and is returned with its
+restores the captured reader position before trying the next candidate. A
+reported reader error stops dispatch without rollback and is returned with its
 original code, offset, and detail. A void-returning
 typed decoder claims the element and reports failures through the reader's
-sticky error, so it does not provide semantic-alternative fallback. A failed
-candidate does not roll back storage, sticky errors, or the full reader state;
-reader checkpoints only restore the cursor/token state they capture. `Try` is
-not a standalone root schema, and this dispatch contract does not make
+sticky error, so it does not provide semantic-alternative fallback. On an
+error-free rejection, reader checkpoints restore only the parsing state they
+capture. Storage and callback side effects are never rolled back by `Try`.
+`Try` is not a standalone root schema, and this dispatch contract does not make
 `v::Array<Try<E>>` supported.
+
+`Decoder<R>::decode_nested(value, reader, state)` returns an existing Reader
+error immediately, before dispatching or decoding any schema. It preserves
+the error's code, offset and detail, the Reader position, and the destination
+storage. This check happens when decoding starts; it does not interrupt the
+remaining steps of a pipeline that has already started.
+
+To start reading a new input with the same Reader and state, call
+`reader.reset(state, input)`. Reset discards the previous error and parsing
+state; invalid new input may produce a new error. `Decoder::decode` and
+`Decoder::decode_document` reset their internal Reader for each new input, as
+do the `decode_into` and `decode_document_into` convenience functions.
 
 Encoding a legacy all-`Try` aggregate writes every field, including fields
 missing during decoding; `Try` does not track presence or choose an alternative

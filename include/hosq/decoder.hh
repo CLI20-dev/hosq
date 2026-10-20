@@ -42,6 +42,7 @@ class Decoder<R> {
   [[nodiscard]]
   auto decode(T& t, input_type input) -> Error {
     reader_.reset(reader_state_, input);
+    if (const auto error = reader_.error(reader_state_); error) return error;
     if (!hosq::next_token<ReadPosition::value>(reader_, reader_state_))
         [[unlikely]] {
       return reader_.error(reader_state_);
@@ -80,6 +81,7 @@ class Decoder<R> {
   static HOSQ_ALWAYS_INLINE auto decode_nested(T& t, reader_type& reader,
                                                reader_state_type& reader_state)
       -> Error {
+    if (const auto error = reader.error(reader_state); error) return error;
     return ext::ReaderDispatch<R>{}(reader, reader_state, [&](auto* active) {
       using Active = std::remove_pointer_t<decltype(active)>;
       if constexpr (std::same_as<Active, R>) {
