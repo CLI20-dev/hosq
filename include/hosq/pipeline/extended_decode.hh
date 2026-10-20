@@ -15,17 +15,19 @@ struct ExtendedValueImpl {
   template <class Context>
   auto operator()(const ScalarView&, const Context& ctx) const -> Value {
     Value output{};
-    if (ctx.reader().error(ctx.reader_state())) return output;
+    if (::hosq::detail::reader_error(ctx.reader(), ctx.reader_state()))
+      return output;
     if constexpr (requires {
                     ctx.reader().read_semantic(ctx.reader_state(), output);
                   }) {
       (void)ctx.reader().read_semantic(ctx.reader_state(), output);
     } else {
-      ctx.reader().report_error(
-          ctx.reader_state(),
-          Error{ErrorCode::unsupported_type,
-                ctx.reader().current_token(ctx.reader_state()).offset,
-                "this format has no codec for the requested semantic type"});
+      ::hosq::detail::report_reader_error(
+          ctx.reader(), ctx.reader_state(),
+          ::hosq::detail::ErrorInfo{
+              ErrorCode::unsupported_type,
+              ctx.reader().current_token(ctx.reader_state()).offset,
+              "this format has no codec for the requested semantic type"});
     }
     return output;
   }

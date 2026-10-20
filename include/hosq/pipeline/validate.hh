@@ -1,11 +1,13 @@
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 
 #include "hosq/detail/native_encode.hh"
+#include "hosq/detail/utf8.hh"
 #include "hosq/error.hh"
 #include "hosq/pipeline.hh"
 
@@ -17,15 +19,15 @@ template <class Context>
 void report_validation_error(Context& ctx, ErrorCode code,
                              std::string_view detail) {
   if constexpr (requires { ctx.reader(); }) {
-    ctx.reader().report_error(
-        ctx.reader_state(),
-        Error{
+    ::hosq::detail::report_reader_error(
+        ctx.reader(), ctx.reader_state(),
+        ::hosq::detail::ErrorInfo{
             .code = code,
             .offset = ctx.reader().current_token(ctx.reader_state()).offset,
             .detail = detail,
         });
   } else {
-    (void)hosq::detail::encode_error(ctx.writer(), code, detail);
+    (void)::hosq::detail::encode_error(ctx.writer(), code, detail);
   }
 }
 
@@ -184,6 +186,24 @@ struct CustomImpl {
   }
 };
 
+struct Utf8Impl {
+  template <class T, class Context>
+    requires std::convertible_to<const T&, std::string_view>
+  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
+    if (!::hosq::detail::reader_error(ctx.reader(), ctx.reader_state())) {
+      const std::string_view bytes = value;
+      const auto invalid = hosq::detail::invalid_utf8_offset(bytes);
+      if (invalid != bytes.size())
+        ::hosq::detail::report_reader_error(
+            ctx.reader(), ctx.reader_state(),
+            {ErrorCode::invalid_utf8,
+             ctx.reader().current_token(ctx.reader_state()).offset + invalid,
+             "invalid string UTF-8"});
+    }
+    return std::forward<T>(value);
+  }
+};
+
 struct IdentityImpl {
   template <class T>
   auto operator()(T&& value) const -> decltype(auto) {
@@ -241,6 +261,9 @@ inline constexpr auto predicate = step<detail::PredicateImpl<F>>;
 /// next pipeline step.
 template <auto F>
 inline constexpr auto custom = step<detail::CustomImpl<F>>;
+
+/// Validate UTF-8 bytes and forward the original value without copying it.
+inline constexpr auto utf8 = step<detail::Utf8Impl>;
 
 /// Passes any value through unchanged.
 inline constexpr auto identity = step<detail::IdentityImpl>;

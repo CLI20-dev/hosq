@@ -79,6 +79,42 @@ concept ReaderConcept = requires(      //
   { cr.input(cs) } -> std::same_as<BytesView>;
 };
 
+namespace detail {
+// Built-in readers specialize this internal access. Original custom Reader
+// protocols remain accepted and use the public error as a compatibility path.
+template <class R>
+struct ReaderErrorAccess {
+  template <class State>
+  static auto get(const R& reader, const State& state) -> ErrorState {
+    return {reader.error(state).code};
+  }
+  template <class State>
+  static void report(const R& reader, const State& state, ErrorInfo error) {
+    reader.report_error(state, static_cast<hosq::Error>(error));
+  }
+};
+
+template <class R, class State>
+HOSQ_ALWAYS_INLINE auto reader_error(const R& reader, const State& state)
+    -> ErrorState {
+  return ReaderErrorAccess<std::remove_cvref_t<R>>::get(reader, state);
+}
+
+// Report diagnostics only on the failure path, outside hot decoding code.
+template <class R, class State>
+HOSQ_COLD_NOINLINE void report_reader_error(const R& reader, const State& state,
+                                            ErrorInfo error) {
+  ReaderErrorAccess<std::remove_cvref_t<R>>::report(reader, state, error);
+}
+
+template <class R, class State>
+auto fail_reader(const R& reader, const State& state, ErrorInfo error)
+    -> ErrorState {
+  report_reader_error(reader, state, error);
+  return reader_error(reader, state);
+}
+}  // namespace detail
+
 // Static traversal hints. They describe the caller's operation, not a promise
 // that untrusted input has the expected type. Readers must retain validation.
 enum class Expect : std::uint8_t {

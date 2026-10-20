@@ -39,7 +39,7 @@ using ObjectEachPipeline =
     decltype(scan::object |
              decode::each<scan::scalar | decode::string_view | store::assign,
                           scan::scalar | decode::number<int> |
-                              decode::custom<[](int) constexpr -> bool {
+                              match::predicate<[](int) constexpr -> bool {
                                 return true;
                               }>>);
 

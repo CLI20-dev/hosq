@@ -49,8 +49,7 @@ static_assert(std::same_as<types::value::Int<>::storage_type, std::int64_t>);
 static_assert(std::same_as<types::value::Uint<>::storage_type, std::uint64_t>);
 static_assert(std::same_as<types::value::Float<>::storage_type, double>);
 static_assert(std::same_as<types::value::Bool::storage_type, bool>);
-static_assert(std::same_as<types::value::Text::storage_type, std::string>);
-static_assert(std::same_as<types::value::RawText::storage_type, RawTextValue>);
+static_assert(std::same_as<types::value::String::storage_type, std::string>);
 static_assert(std::same_as<types::value::Bytes::storage_type, BytesValue>);
 static_assert(std::same_as<types::value::Int8::storage_type, std::int8_t>);
 static_assert(std::same_as<types::value::Int16::storage_type, std::int16_t>);
@@ -182,7 +181,7 @@ TEST(ScalarTypes, BoolNullAndTextDoNotCoerceQuotedLiterals) {
   for (auto input : {R"("null")", "false", "0"})
     check_json_category<types::value::Null>(input, EC::type_mismatch);
   for (auto input : {"true", "null", "42", "1.5"})
-    check_json_category<types::value::Text>(input, EC::type_mismatch);
+    check_json_category<types::value::String>(input, EC::type_mismatch);
 }
 
 TEST(ScalarTypes, NativeNonFiniteFloatsAndSignedZeroKeepMeaning) {
@@ -256,13 +255,13 @@ TEST(ScalarTypes, TextUnescapesUnicodeSurrogatesAndEmbeddedNul) {
   const std::string source = R"("A\n\t\"\\\u0000\u65e5\uD83D\uDE00")";
   const std::string expected = std::string("A\n\t\"\\\0", 6) + "日😀";
   auto check = [&]<class Reader>() {
-    types::value::Text value;
+    types::value::String value;
     ASSERT_TRUE(decode_into<Reader>(value, source).is_ok());
     EXPECT_EQ(value.value(), expected);
     std::string output;
     json::CompactWriter writer(output);
     ASSERT_TRUE(encode_into(value, writer));
-    types::value::Text again;
+    types::value::String again;
     ASSERT_TRUE(decode_into<Reader>(again, output).is_ok());
     EXPECT_EQ(again.value(), expected);
   };
@@ -272,7 +271,7 @@ TEST(ScalarTypes, TextUnescapesUnicodeSurrogatesAndEmbeddedNul) {
 
 TEST(ScalarTypes, TextDoesNotUnescapeTwice) {
   for (auto source : {R"("\\n")", R"("\\u0061")", R"("\\\"")"}) {
-    types::value::Text value;
+    types::value::String value;
     ASSERT_TRUE(decode_into<json::SimpleReader>(value, source).is_ok());
     std::string output;
     json::CompactWriter writer(output);
@@ -284,20 +283,20 @@ TEST(ScalarTypes, TextDoesNotUnescapeTwice) {
 TEST(ScalarTypes, TextRejectsBrokenSurrogatesAndInvalidUtf8) {
   for (auto source : {R"("\uD800")", R"("\uDC00")", R"("\uD800\u0041")",
                       R"("\uD800\uD800")"}) {
-    EXPECT_FALSE(
-        (scalar_error<types::value::Text, json::SimpleReader>(source)).is_ok());
-    EXPECT_FALSE(
-        (scalar_error<types::value::Text, json::FastReader<>>(source)).is_ok());
+    EXPECT_FALSE((scalar_error<types::value::String, json::SimpleReader>(source))
+                     .is_ok());
+    EXPECT_FALSE((scalar_error<types::value::String, json::FastReader<>>(source))
+                     .is_ok());
   }
   auto invalid = std::string("\"") + scalar_octets({0xc0, 0xaf}) + '"';
   EXPECT_FALSE(
-      (scalar_error<types::value::Text, json::SimpleReader>(invalid)).is_ok());
+      (scalar_error<types::value::String, json::SimpleReader>(invalid)).is_ok());
   EXPECT_FALSE(
-      (scalar_error<types::value::Text, json::FastReader<>>(invalid)).is_ok());
+      (scalar_error<types::value::String, json::FastReader<>>(invalid)).is_ok());
 }
 
 TEST(ScalarTypes, TextOwnsDataAfterInputHasGoneAway) {
-  types::value::Text value;
+  types::value::String value;
   {
     std::string source = R"("owned\ntext")";
     ASSERT_TRUE(decode_into<json::SimpleReader>(value, source).is_ok());
@@ -306,30 +305,13 @@ TEST(ScalarTypes, TextOwnsDataAfterInputHasGoneAway) {
   EXPECT_EQ(value.value(), "owned\ntext");
 }
 
-TEST(ScalarTypes, RawTextBorrowsOnlyWhileInputLives) {
-  // RawText borrows input; it must not be used after source destruction or
-  // reallocation. Exercise the contract with a live, unmodified owner only.
-  const std::string source = R"("raw\n\u0061")";
-  types::value::RawText value;
-  ASSERT_TRUE(decode_into<json::SimpleReader>(value, source).is_ok());
-  EXPECT_EQ(value.value().value, R"(raw\n\u0061)");
-  EXPECT_EQ(value.value().format, Format::json);
-  EXPECT_EQ(value.value().value.data(), source.data() + 1);
-  std::string output;
-  json::CompactWriter writer(output);
-  ASSERT_TRUE(encode_into(value, writer));
-  types::value::Text semantic;
-  ASSERT_TRUE(decode_into<json::SimpleReader>(semantic, output).is_ok());
-  EXPECT_EQ(semantic.value(), "raw\na");
-}
-
 TEST(ScalarTypes, TextRejectsBinaryAndNativeExtensions) {
   auto binary = scalar_octets({0xc4, 2, 0, 255});
   auto extension = scalar_octets({0xd4, 255, 42});
-  EXPECT_EQ((scalar_error<types::value::Text, msgpack::Reader<>>(binary)).code,
+  EXPECT_EQ((scalar_error<types::value::String, msgpack::Reader<>>(binary)).code,
             EC::type_mismatch);
-  EXPECT_FALSE(
-      (scalar_error<types::value::Text, msgpack::Reader<>>(extension)).is_ok());
+  EXPECT_FALSE((scalar_error<types::value::String, msgpack::Reader<>>(extension))
+                   .is_ok());
   EXPECT_FALSE(
       (scalar_error<types::value::Bytes, msgpack::Reader<>>(extension)).is_ok());
   EXPECT_EQ((scalar_error<types::value::Bytes, msgpack::Reader<>>(
@@ -354,7 +336,7 @@ TEST(ScalarTypes, BytesOwnPayloadAfterInputIsDestroyed) {
 struct TypedScalarRecord {
   Try<Entry<Key<"integer">, types::value::Int<>>> integer;
   Try<Entry<Key<"real">, types::value::Float<>>> real;
-  Try<Entry<Key<"text">, types::value::Text>> text;
+  Try<Entry<Key<"text">, types::value::String>> text;
   Try<Entry<Key<"flag">, types::value::Bool>> flag;
 };
 

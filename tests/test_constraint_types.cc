@@ -28,8 +28,9 @@ using EC = hosq::ErrorCode;
 constexpr auto even = [](const auto& value) { return value % 2 == 0; };
 constexpr auto age_rules = check::range<0, 120> | check::predicate<even>;
 using Age = v::Constrained<v::Int8, age_rules>;
-using Name = v::Constrained<v::Text, check::non_empty | check::size_range<1, 8>>;
-using Code = v::Constrained<v::Text, check::size<3>>;
+using Name =
+    v::Constrained<v::String, check::non_empty | check::size_range<1, 8>>;
+using Code = v::Constrained<v::String, check::size<3>>;
 using NamedAge = t::Constrained<"age", v::Int8, age_rules>;
 static_assert(hosq::detail::ElemT<Age>);
 static_assert(hosq::detail::EntryT<NamedAge>);
@@ -37,7 +38,7 @@ static_assert(std::same_as<NamedAge, t::Field<"age", Age>>);
 static_assert(std::same_as<Age::storage_type, v::Int8::storage_type>);
 static_assert(std::same_as<Name::storage_type, std::string>);
 static_assert(sizeof(Age) == sizeof(v::Int8));
-static_assert(sizeof(Name) == sizeof(v::Text));
+static_assert(sizeof(Name) == sizeof(v::String));
 static_assert(std::same_as<decltype(*std::declval<Age&>()), std::int8_t&>);
 static_assert(
     std::same_as<decltype(std::declval<const NamedAge&>().value()), const Age&>);
@@ -45,12 +46,12 @@ static_assert(
 template <class E, auto Rules>
 concept CanConstrain = requires { typename v::Constrained<E, Rules>; };
 static_assert(!CanConstrain<v::Int8, check::non_empty>);
-static_assert(!CanConstrain<v::Text, check::range<0, 1>>);
+static_assert(!CanConstrain<v::String, check::range<0, 1>>);
 static_assert(!CanConstrain<NamedAge, age_rules>);
 static_assert(!CanConstrain<v::Int8, hosq::store::assign>);
 static_assert(!CanConstrain<v::Int8, check::custom<even>>);
-static_assert(
-    !CanConstrain<v::Text, check::predicate<[](std::string&) { return true; }>>);
+static_assert(!CanConstrain<
+              v::String, check::predicate<[](std::string&) { return true; }>>);
 
 template <class E, class Reader = hosq::json::SimpleReader>
 hosq::Error read_error(std::string_view input) {
@@ -159,19 +160,19 @@ void rejects_encoding(const E& value, EC expected) {
 TEST(ConstraintTypes, MutableAndDefaultStorageAreRecheckedBeforeEncoding) {
   Age age;
   age.value() = 121;
-  rejects_encoding<hosq::json::CompactWriter<>>(age, EC::invalid_token);
+  rejects_encoding<hosq::json::CompactWriter<>>(age, EC::out_of_range);
   rejects_encoding<hosq::msgpack::Writer<>>(age, EC::out_of_range);
   *age = 43;
-  rejects_encoding<hosq::json::CompactWriter<>>(age, EC::invalid_token);
+  rejects_encoding<hosq::json::CompactWriter<>>(age, EC::validation_failed);
   Name name;
-  rejects_encoding<hosq::json::CompactWriter<>>(name, EC::invalid_token);
+  rejects_encoding<hosq::json::CompactWriter<>>(name, EC::validation_failed);
   name.value() = "valid";
   std::string output;
   hosq::json::CompactWriter writer(output);
   ASSERT_TRUE(hosq::encode_into(name, writer));
   EXPECT_EQ(output, R"("valid")");
   name.value().clear();
-  rejects_encoding<hosq::json::CompactWriter<>>(name, EC::invalid_token);
+  rejects_encoding<hosq::json::CompactWriter<>>(name, EC::validation_failed);
 }
 
 TEST(ConstraintTypes, EncodingPreservesExistingWriterErrorAndSkipsPredicate) {
@@ -205,23 +206,45 @@ TEST(ConstraintTypes, RulesStopAtFirstFailureAndInspectConstStorage) {
     }
     auto operator()(std::string&) const -> bool = delete;
   };
-  using ConstText = v::Constrained<v::Text, check::predicate<ConstOnly{}>>;
+  using ConstText = v::Constrained<v::String, check::predicate<ConstOnly{}>>;
   json_error<ConstText>(R"("abc")", EC::ok);
   json_error<ConstText>(R"("def")", EC::validation_failed);
 }
 
-TEST(ConstraintTypes, PreservesBoolDecoderCandidatesAndReaderOnlyEncoding) {
+TEST(ConstraintTypes, PreservesMatchingCandidatesAndReaderOnlyEncoding) {
   using Candidate = hosq::Elem<hosq::scan::scalar | hosq::decode::integer<int> |
                                    hosq::match::literal<2> | hosq::store::assign,
                                hosq::encode::value>;
   using CheckedCandidate = v::Constrained<Candidate, check::range<0, 10>>;
-  static_assert(std::same_as<CheckedCandidate::decoder_terminal, bool>);
-  json_error<CheckedCandidate>("2", EC::ok);
-  // Preserve the existing root bool-terminal contract; typed containers turn
-  // a rejected element into candidate_rejected.
-  EXPECT_EQ(read_error<CheckedCandidate>("3").code,
-            read_error<Candidate>("3").code);
-  json_error<v::Array<CheckedCandidate>>("[3]", EC::candidate_rejected);
+  static_assert(
+      std::same_as<CheckedCandidate::decoder_terminal, hosq::MatchResult<void>>);
+  static_assert(!hosq::detail::RequiredDecoderAcceptableT<CheckedCandidate>);
+  auto check_candidate = []<class Reader>() {
+    struct Choices {
+      hosq::Try<CheckedCandidate> candidate;
+      hosq::Try<v::Int64> fallback;
+    } accepted, rejected, malformed;
+    ASSERT_TRUE(hosq::decode_document_into<Reader>(accepted, "[2]").is_ok());
+    EXPECT_EQ(accepted.candidate.value(), 2);
+    ASSERT_TRUE(hosq::decode_document_into<Reader>(rejected, "[3]").is_ok());
+    EXPECT_EQ(rejected.fallback.value(), 3);
+    malformed.fallback.value() = 99;
+    EXPECT_EQ(hosq::decode_document_into<Reader>(malformed, R"(["bad"])").code,
+              EC::type_mismatch);
+    EXPECT_EQ(malformed.fallback.value(), 99);
+
+    using InvalidCandidate = v::Constrained<Candidate, check::range<0, 1>>;
+    struct InvalidChoices {
+      hosq::Try<InvalidCandidate> candidate;
+      hosq::Try<v::Int64> fallback;
+    } invalid;
+    invalid.fallback.value() = 99;
+    EXPECT_EQ(hosq::decode_document_into<Reader>(invalid, "[2]").code,
+              EC::out_of_range);
+    EXPECT_EQ(invalid.fallback.value(), 99);
+  };
+  check_candidate.template operator()<hosq::json::SimpleReader>();
+  check_candidate.template operator()<hosq::json::FastReader<>>();
   using ReadOnly = hosq::Elem<hosq::scan::scalar | hosq::decode::integer<int> |
                                   hosq::store::assign,
                               hosq::noop_encoder>;
@@ -230,7 +253,7 @@ TEST(ConstraintTypes, PreservesBoolDecoderCandidatesAndReaderOnlyEncoding) {
   rejects_encoding<hosq::msgpack::Writer<>>(read_only, EC::unsupported_type);
 }
 
-template <bool AnalysisBool>
+template <bool AnalysisMatch>
 struct ContextTerminal {
   template <class>
   using storage_type = int;
@@ -239,10 +262,12 @@ struct ContextTerminal {
   auto operator()(Context& ctx) const {
     if constexpr (std::same_as<typename Context::reader_type,
                                hosq::detail::PipelineAnalysisReader>) {
-      if constexpr (AnalysisBool) return true;
+      if constexpr (AnalysisMatch)
+        return hosq::match::predicate<[] { return true; }>.invoke(ctx);
     } else {
       ctx.value() = 7;
-      if constexpr (!AnalysisBool) return false;
+      if constexpr (!AnalysisMatch)
+        return hosq::match::predicate<[] { return false; }>.invoke(ctx);
     }
   }
 };
@@ -256,20 +281,35 @@ TEST(ConstraintTypes, PreservesActualReaderDependentDecoderTerminal) {
   using CheckedAccept = v::Constrained<Accept, check::range<0, 10>>;
   static_assert(std::same_as<Reject::decoder_terminal, void>);
   static_assert(std::same_as<CheckedReject::decoder_terminal, void>);
-  static_assert(std::same_as<Accept::decoder_terminal, bool>);
-  static_assert(std::same_as<CheckedAccept::decoder_terminal, bool>);
+  static_assert(std::same_as<Accept::decoder_terminal, hosq::MatchResult<void>>);
+  static_assert(
+      std::same_as<CheckedAccept::decoder_terminal, hosq::MatchResult<void>>);
   using RealContext =
       hosq::DecodeContext<int, hosq::json::SimpleReader, hosq::TryPhase::first>;
   static_assert(std::same_as<decltype(std::declval<CheckedReject&>().decode(
                                  std::declval<RealContext&>())),
-                             bool>);
+                             hosq::MatchResult<void>>);
   static_assert(std::same_as<decltype(std::declval<CheckedAccept&>().decode(
                                  std::declval<RealContext&>())),
                              void>);
-  json_error<v::Array<Reject>>("[7]", EC::candidate_rejected);
-  json_error<v::Array<CheckedReject>>("[7]", EC::candidate_rejected);
-  json_error<v::Array<Accept>>("[7]", EC::ok);
-  json_error<v::Array<CheckedAccept>>("[7]", EC::ok);
+  auto check = []<class E>(bool matched) {
+    auto check_reader = [=]<class Reader>() {
+      struct Choices {
+        hosq::Try<E> candidate;
+        hosq::Try<v::Int64> fallback;
+      } values;
+      values.fallback.value() = 99;
+      ASSERT_TRUE(hosq::decode_document_into<Reader>(values, "[7]").is_ok());
+      EXPECT_EQ(values.candidate.value(), 7);
+      EXPECT_EQ(values.fallback.value(), matched ? 99 : 7);
+    };
+    check_reader.template operator()<hosq::json::SimpleReader>();
+    check_reader.template operator()<hosq::json::FastReader<>>();
+  };
+  check.template operator()<Reject>(false);
+  check.template operator()<CheckedReject>(false);
+  check.template operator()<Accept>(true);
+  check.template operator()<CheckedAccept>(true);
 }
 
 TEST(ConstraintTypes, FloatingBoundsKeepExistingNanComparisonSemantics) {
@@ -301,47 +341,49 @@ TEST(ConstraintTypes, FloatingBoundsKeepExistingNanComparisonSemantics) {
 
 struct Person {
   NamedAge age;
-  t::Constrained<"name", v::Text, check::non_empty> name;
-  t::Constrained<"code", v::Text, check::size<3>> code;
+  t::Constrained<"name", v::String, check::non_empty> name;
+  t::Constrained<"code", v::String, check::size<3>> code;
   t::Array<"children", Age> children;
 };
 
 template <class Writer, class Reader>
-void roundtrip(const v::Record<Person>& source) {
+void roundtrip(const Person& source) {
+  SCOPED_TRACE(__PRETTY_FUNCTION__);
   std::string output;
   Writer writer(output);
   ASSERT_TRUE(hosq::encode_into(source, writer)) << writer.error().detail;
-  v::Record<Person> decoded;
+  Person decoded;
   const auto status = hosq::decode_document_into<Reader>(decoded, output);
   ASSERT_TRUE(status.is_ok()) << status.detail;
-  EXPECT_EQ(decoded.value().age.value().value(), 42);
-  EXPECT_EQ(decoded.value().name.value().value(), "Gen");
-  EXPECT_EQ(decoded.value().code.value().value(), "abc");
-  EXPECT_EQ(decoded.value().children.value().value(),
+  EXPECT_EQ(decoded.age.value().value(), 42);
+  EXPECT_EQ(decoded.name.value().value(), "Gen");
+  EXPECT_EQ(decoded.code.value().value(), "abc");
+  EXPECT_EQ(decoded.children.value().value(),
             (std::vector<std::int8_t>{0, 120}));
 }
 
 TEST(ConstraintTypes, KeyedAndNestedReuseRoundTripsEveryFormat) {
-  v::Record<Person> person;
+  Person person;
+  // Plain Entry aggregates use the existing declaration-order traversal.
   const auto status = hosq::decode_document_into<hosq::json::FastReader<>>(
-      person, R"({"children":[0,120],"name":"Gen","code":"abc","age":42})");
+      person, R"({"age":42,"name":"Gen","code":"abc","children":[0,120]})");
   ASSERT_TRUE(status.is_ok()) << status.detail;
   roundtrip<hosq::json::CompactWriter<>, hosq::json::SimpleReader>(person);
   roundtrip<hosq::msgpack::Writer<>, hosq::msgpack::Reader<>>(person);
   roundtrip<hosq::bson::Writer<>, hosq::bson::Reader<>>(person);
   roundtrip<hosq::toml::Writer<>, hosq::toml::Reader<>>(person);
-  person.value().age.value().value() = 121;
+  person.age.value().value() = 121;
   std::string output;
   hosq::json::CompactWriter writer(output);
   EXPECT_FALSE(hosq::encode_into(person, writer));
-  EXPECT_EQ(writer.error().code, EC::invalid_token);
+  EXPECT_EQ(writer.error().code, EC::out_of_range);
 }
 
 TEST(ConstraintTypes, ValidationErrorsRetainSourceLocationAndDetail) {
   struct Schema {
     t::Constrained<"n", v::Int8, check::range<0, 10>> n;
   };
-  v::Record<Schema> value;
+  Schema value;
   const auto status =
       hosq::decode_document_into<hosq::json::SimpleReader>(value, R"({"n":11})");
   EXPECT_EQ(status.code, EC::out_of_range);
@@ -356,22 +398,18 @@ void rejects_invalid_format_value() {
   struct Checked {
     t::Constrained<"n", v::Int8, check::range<0, 10>> n;
   };
-  v::Record<Plain> source;
-  source.value().n.value().value() = 11;
+  Plain source;
+  source.n.value().value() = 11;
   std::string wire;
   Writer writer(wire);
   ASSERT_TRUE(hosq::encode_into(source, writer));
-  EXPECT_EQ((read_error<v::Record<Checked>, Reader>(wire)).code,
-            EC::out_of_range);
-  v::Record<Checked> target;
-  target.value().n.value().value() = 11;
+  EXPECT_EQ((read_error<Checked, Reader>(wire)).code, EC::out_of_range);
+  Checked target;
+  target.n.value().value() = 11;
   std::string output;
   Writer bad_writer(output);
   EXPECT_FALSE(hosq::encode_into(target, bad_writer));
-  if constexpr (requires { bad_writer.report_error(hosq::Error{}); })
-    EXPECT_EQ(bad_writer.error().code, EC::out_of_range);
-  else
-    EXPECT_EQ(bad_writer.error().code, EC::invalid_token);
+  EXPECT_EQ(bad_writer.error().code, EC::out_of_range);
 }
 
 TEST(ConstraintTypes, InvalidKeyedValuesAreRejectedByEveryFormat) {

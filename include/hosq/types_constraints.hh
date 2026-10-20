@@ -64,9 +64,10 @@ struct ConstraintPipeline<Pipeline<Rules...>, T>
   static auto check(const T& value, Context& ctx) -> void {
     auto next = [&]<auto Rule>() {
       if constexpr (requires { ctx.reader(); }) {
-        if (!ctx.reader().error(ctx.reader_state()).is_ok()) return;
+        if (::hosq::detail::reader_error(ctx.reader(), ctx.reader_state()))
+          return;
       } else {
-        if (!ctx.writer().error().is_ok()) return;
+        if (::hosq::detail::writer_error(ctx.writer())) return;
       }
       (void)Rule(value, ctx);
     };
@@ -95,15 +96,21 @@ struct ConstrainedDecode {
       typename E::decoder_type::template final_output_type<void, Context> {
     using Terminal =
         typename E::decoder_type::template final_output_type<void, Context>;
-    if constexpr (std::same_as<Terminal, bool>) {
-      if (!E::decoder_type::invoke(ctx)) return false;
+    auto check = [&] {
+      if (!::hosq::detail::reader_error(ctx.reader(), ctx.reader_state()))
+        ConstraintPipeline<std::remove_cvref_t<decltype(Rules)>,
+                           typename E::storage_type>::check(ctx.value(), ctx);
+    };
+    if constexpr (::hosq::detail::MatchResultT<Terminal>) {
+      auto result = E::decoder_type::invoke(ctx);
+      if (result.matched()) check();
+      return result;
     } else {
+      static_assert(std::same_as<Terminal, void>,
+                    "decoder terminals must be void or MatchResult");
       E::decoder_type::invoke(ctx);
+      check();
     }
-    if (ctx.reader().error(ctx.reader_state()).is_ok())
-      ConstraintPipeline<std::remove_cvref_t<decltype(Rules)>,
-                         typename E::storage_type>::check(ctx.value(), ctx);
-    return hosq::detail::terminal_return<Terminal>(true);
   }
 };
 
@@ -113,7 +120,7 @@ struct ConstrainedEncode {
     requires(!std::is_const_v<Context> ||
              E::template encoder_const_invokable<std::remove_const_t<Context>>)
   auto operator()(const T& value, Context& ctx) const -> void {
-    if (!ctx.writer().error().is_ok()) return;
+    if (::hosq::detail::writer_error(ctx.writer())) return;
     if constexpr (std::same_as<typename E::encoder_type,
                                std::remove_cvref_t<decltype(noop_encoder)>>) {
       (void)hosq::detail::encode_error(
@@ -123,7 +130,8 @@ struct ConstrainedEncode {
     }
     ConstraintPipeline<std::remove_cvref_t<decltype(Rules)>,
                        typename E::storage_type>::check(value, ctx);
-    if (ctx.writer().error().is_ok()) E::encoder_type::invoke(value, ctx);
+    if (!::hosq::detail::writer_error(ctx.writer()))
+      E::encoder_type::invoke(value, ctx);
   }
 };
 

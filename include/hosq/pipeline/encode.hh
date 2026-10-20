@@ -89,7 +89,7 @@ struct ValueImpl {
   auto operator()(const T& input, Context& ctx) const -> void {
     using W = std::remove_cvref_t<decltype(ctx.writer())>;
     if (!ext::EncodeValue<W>{}(input, ctx.writer()) &&
-        ctx.writer().error().is_ok())
+        ::hosq::detail::writer_error(ctx.writer()).is_ok())
       (void)hosq::detail::encode_error(
           ctx.writer(), ErrorCode::write_failed,
           "EncodeValue returned false without reporting an error");
