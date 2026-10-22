@@ -156,23 +156,23 @@ void roundtrip(const Document& original) {
   Document decoded;
   const auto error = read<R>(decoded, encoded);
   ASSERT_TRUE(error.is_ok()) << error.detail;
-  EXPECT_EQ(decoded.value().title.value().value(), "hello\nworld");
-  EXPECT_EQ(decoded.value().matrix.value().value(),
+  EXPECT_EQ(*decoded.value().title, "hello\nworld");
+  EXPECT_EQ(*decoded.value().matrix,
             (std::vector<std::vector<int>>{{1, 2}, {}, {3}}));
-  EXPECT_EQ(decoded.value().child.value().value().n.value().value(), 7);
-  ASSERT_TRUE(decoded.value().note.value().value());
-  EXPECT_EQ(*decoded.value().note.value().value(), "note");
+  EXPECT_EQ(*decoded.value().child->n, 7);
+  ASSERT_TRUE(*decoded.value().note);
+  EXPECT_EQ(**decoded.value().note, "note");
   const auto json = write<json::CompactWriter<>>(decoded);
   Document converted;
   ASSERT_TRUE(read<json::SimpleReader>(converted, json).is_ok());
-  EXPECT_EQ(converted.value().title.value().value(), "hello\nworld");
+  EXPECT_EQ(*converted.value().title, "hello\nworld");
 }
 TEST(TypeContainers, SameAndCrossFormatNestedRoundTrips) {
   Document original;
-  original.value().title.value().value() = "hello\nworld";
-  original.value().matrix.value().value() = {{1, 2}, {}, {3}};
-  original.value().child.value().value().n.value().value() = 7;
-  original.value().note.value().value() = "note";
+  *original.value().title = "hello\nworld";
+  *original.value().matrix = {{1, 2}, {}, {3}};
+  *original.value().child->n = 7;
+  *original.value().note = "note";
   roundtrip<json::CompactWriter<>, json::SimpleReader>(original);
   roundtrip<bson::Writer<>, bson::Reader<>>(original);
   roundtrip<msgpack::Writer<>, msgpack::Reader<>>(original);
@@ -184,7 +184,7 @@ TEST(TypeContainers, OrdinarySchemaResolvesEscapedTomlKeys) {
   };
   ObjectValue<S> value;
   ASSERT_TRUE(read<toml::Reader<>>(value, "\"\\u0078\"=42").is_ok());
-  EXPECT_EQ(value.value().x.value().value(), 42);
+  EXPECT_EQ(*value.value().x, 42);
   EXPECT_EQ(write<json::CompactWriter<>>(value), R"({"x":42})");
 }
 TEST(TypeContainers, CodecRootAndKeyRestrictionsApply) {
@@ -246,7 +246,7 @@ TEST(TypeContainers, ReaderOnlyNestedElementsCannotDisappearDuringEncoding) {
     Entry<Key<"x">, ReaderOnly> x;
   };
   ObjectValue<S> object;
-  object.value().x.value().value() = 42;
+  *object.value().x = 42;
   (void)write<msgpack::Writer<>>(object, &error);
   EXPECT_EQ(error.code, EC::unsupported_type);
 }

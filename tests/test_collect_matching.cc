@@ -259,16 +259,16 @@ void roundtrip() {
     Try<Entry<Value<key>, Plain>> fallback;
   };
   for (const auto& values : {std::vector<int>{1, 1}, std::vector<int>{1, 2}}) {
-    input.items.value().value() = values;
+    *input.items = values;
     std::string encoded;
     W writer(encoded);
     ASSERT_TRUE(encode_into(input, writer));
     Output output;
     ASSERT_TRUE(decode_document_into<R>(output, encoded).is_ok());
     if (values[1] == 1)
-      EXPECT_EQ(output.first.value().value(), values);
+      EXPECT_EQ(*output.first, values);
     else
-      EXPECT_EQ(output.fallback.value().value(), values);
+      EXPECT_EQ(*output.fallback, values);
   }
 }
 TEST(CollectMatching, ObjectRootRoundtripsAcrossFormats) {

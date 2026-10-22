@@ -53,16 +53,16 @@ struct Fixture {
 template <class W>
 void nested(std::string_view format) {
   Fixture value;
-  value.n.value().value() = 42;
-  value.text.value().value() = "a\n\"\\😀";
-  value.ok.value().value() = true;
-  value.items.value().value().resize(2);
-  value.items.value().value()[0].n.value().value() = 1;
-  value.items.value().value()[1].n.value().value() = 2;
-  value.meta.value().value().n.value().value() = -7;
-  value.edge.value().value() = {std::numeric_limits<std::int64_t>::min(),
-                                std::numeric_limits<std::int64_t>::max()};
-  value.floats.value().value() = {1.0, -0.0, 0.1, 1e300};
+  *value.n = 42;
+  *value.text = "a\n\"\\😀";
+  *value.ok = true;
+  value.items->resize(2);
+  *(*value.items)[0].n = 1;
+  *(*value.items)[1].n = 2;
+  *value.meta->n = -7;
+  *value.edge = {std::numeric_limits<std::int64_t>::min(),
+                 std::numeric_limits<std::int64_t>::max()};
+  *value.floats = {1.0, -0.0, 0.1, 1e300};
   std::string output;
   W writer(output);
   if (!encode_into(value, writer)) {

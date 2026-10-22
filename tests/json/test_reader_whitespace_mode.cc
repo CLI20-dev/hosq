@@ -149,10 +149,10 @@ void check_typed_pipeline(std::string input) {
       hosq::decode_into<hosq::json::FastReader<128, Padding, Mode>>(
           fields, std::string_view{input.data(), length});
   ASSERT_TRUE(result.is_ok());
-  EXPECT_EQ(fields.number.value().value(), 7);
-  EXPECT_EQ(fields.text.value().value(), "mode");
-  EXPECT_TRUE(fields.flag.value().value());
-  EXPECT_EQ(fields.values.value().value(), (std::array<int, 3>{1, 2, 3}));
+  EXPECT_EQ(*fields.number, 7);
+  EXPECT_EQ(*fields.text, "mode");
+  EXPECT_TRUE(*fields.flag);
+  EXPECT_EQ(*fields.values, (std::array<int, 3>{1, 2, 3}));
 }
 }  // namespace
 

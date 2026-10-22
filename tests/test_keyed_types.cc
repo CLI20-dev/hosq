@@ -90,7 +90,7 @@ TEST(KeyedTypes, NestedSchemaCrossesJsonMessagePackAndBson) {
           user,
           R"({"id":42,"ids":[1,2],"address":{"city":"a\nb"},"scores":{"n":-7}})")
           .is_ok());
-  EXPECT_EQ(user.value().address.value().value().city.value().value(), "a\nb");
+  EXPECT_EQ(*user.value().address->city, "a\nb");
   const auto msgpack = encode<hosq::msgpack::Writer<>>(user);
   ObjectValue<User> from_msgpack;
   ASSERT_TRUE(
@@ -133,8 +133,8 @@ TEST(KeyedTypes, FieldKeepsCustomPipelineAndTryIdentity) {
   ASSERT_TRUE(hosq::decode_document_into<hosq::msgpack::Reader<>>(
                   schema, std::string("\x81\xa1n\xcb\x40\x45\0\0\0\0\0\0", 12))
                   .is_ok());
-  ASSERT_TRUE(schema.n.value().value());
-  EXPECT_EQ(*schema.n.value().value(), 42);
+  ASSERT_TRUE(*schema.n);
+  EXPECT_EQ(**schema.n, 42);
   EXPECT_EQ(encode<hosq::json::CompactWriter<>>(schema), R"({"n":42})");
   EXPECT_EQ(
       hosq::decode_document_into<hosq::json::FastReader<>>(schema, R"({"n":1})")
@@ -150,7 +150,7 @@ TEST(FieldPresence, OptionalPolicyLeavesNullAcceptanceToValueCodec) {
   Schema value;
   ASSERT_TRUE(
       hosq::decode_document_into<hosq::json::FastReader<>>(value, "{}").is_ok());
-  EXPECT_FALSE(value.nil.value().value().has_value());
+  EXPECT_FALSE(value.nil->has_value());
   ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
                   value, R"({"nil":null})")
                   .is_ok());

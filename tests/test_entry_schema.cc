@@ -43,11 +43,9 @@ static_assert(std::same_as<Entry<User, User>::key_type, Object<User>>);
 static_assert(std::same_as<Entry<User, User>::value_type, Object<User>>);
 static_assert(
     std::same_as<Entry<Key<"xy">, Coordinates>::value_type, Array<Coordinates>>);
+static_assert(std::same_as<decltype(*std::declval<UserField&>()), User&>);
 static_assert(
-    std::same_as<decltype(std::declval<UserField&>().value().value()), User&>);
-static_assert(
-    std::same_as<decltype(std::declval<const UserField&>().value().value()),
-                 const User&>);
+    std::same_as<decltype(*std::declval<const UserField&>()), const User&>);
 
 template <class W, class T>
 auto wire(const T& value) -> std::string {
@@ -64,8 +62,7 @@ template <class W, class R>
 void check_nested_roundtrip(const Root& source) {
   Root decoded;
   ASSERT_TRUE(read<R>(decoded, wire<W>(source)).is_ok());
-  EXPECT_EQ(
-      decoded.group.value().value().user.value().value().id.value().value(), 42);
+  EXPECT_EQ(*decoded.group->user->id, 42);
   const auto json = wire<json::CompactWriter<>>(decoded);
   EXPECT_EQ(json, R"({"group":{"user":{"id":42}}})");
   Root converted;
@@ -74,18 +71,18 @@ void check_nested_roundtrip(const Root& source) {
 }
 TEST(EntrySchema, ObjectStorageAndConstSameAndCrossFormatEncoding) {
   Root source;
-  source.group.value().value().user.value().value().id.value().value() = 42;
+  *source.group->user->id = 42;
   check_nested_roundtrip<json::CompactWriter<>, json::SimpleReader>(source);
   check_nested_roundtrip<bson::Writer<>, bson::Reader<>>(source);
   check_nested_roundtrip<msgpack::Writer<>, msgpack::Reader<>>(source);
   check_nested_roundtrip<toml::Writer<>, toml::Reader<>>(source);
   UserField direct;
   Entry<Key<"user">, Object<User>> explicit_pipeline;
-  EXPECT_EQ(&*direct, &direct.value().value());
-  EXPECT_EQ(direct.operator->(), &direct.value().value());
-  EXPECT_EQ(&*std::as_const(direct), &std::as_const(direct).value().value());
-  direct->id.value().value() = 7;
-  explicit_pipeline->id.value().value() = 7;
+  EXPECT_EQ(&*direct, &*direct);
+  EXPECT_EQ(direct.operator->(), &*direct);
+  EXPECT_EQ(&*std::as_const(direct), std::as_const(direct).operator->());
+  *direct->id = 7;
+  *explicit_pipeline->id = 7;
   struct Direct {
     UserField user;
   } a{direct};
@@ -99,8 +96,8 @@ TEST(EntrySchema, TupleShapedAggregateUsesArrayAdapter) {
     Entry<Key<"xy">, Coordinates> xy;
   } document;
   ASSERT_TRUE(read<json::SimpleReader>(document, R"({"xy":[3,4]})").is_ok());
-  EXPECT_EQ(document.xy.value().value().x.value(), 3);
-  EXPECT_EQ(document.xy.value().value().y.value(), 4);
+  EXPECT_EQ(document.xy->x.value(), 3);
+  EXPECT_EQ(document.xy->y.value(), 4);
   const auto encoded = wire<msgpack::Writer<>>(std::as_const(document));
   decltype(document) round;
   ASSERT_TRUE(read<msgpack::Reader<>>(round, encoded).is_ok());
@@ -114,16 +111,16 @@ TEST(EntrySchema, MessagePackAggregateKeysAndValues) {
   } both;
   const std::string input("\x81\x81\xa2id\x01\x81\xa2id\x02", 11);
   ASSERT_TRUE(read<msgpack::Reader<>>(both, input).is_ok());
-  EXPECT_EQ(both.item.key().value().id.value().value(), 1);
-  EXPECT_EQ(both.item.value().value().id.value().value(), 2);
+  EXPECT_EQ(*both.item.key().id, 1);
+  EXPECT_EQ(*both.item->id, 2);
   EXPECT_EQ(wire<msgpack::Writer<>>(std::as_const(both)), input);
   struct KeyOnly {
     Entry<User, v::Int64> item;
   } key_only;
   const std::string key_input("\x81\x81\xa2id\x01\x03", 7);
   ASSERT_TRUE(read<msgpack::Reader<>>(key_only, key_input).is_ok());
-  EXPECT_EQ(key_only.item.key().value().id.value().value(), 1);
-  EXPECT_EQ(key_only.item.value().value(), 3);
+  EXPECT_EQ(*key_only.item.key().id, 1);
+  EXPECT_EQ(*key_only.item, 3);
   EXPECT_EQ(wire<msgpack::Writer<>>(key_only), key_input);
   auto rejects_object_key = [&]<class W>() {
     std::string output;
@@ -147,16 +144,14 @@ TEST(EntrySchema, PreservesExplicitPipelineObjectPolicies) {
         R"({"user":{"id":7,"id":8}})", R"({"user":{"id":7,"other":8}})"}) {
     Direct direct;
     Explicit explicit_pipeline;
-    direct.user->id.value().value() = 91;
-    explicit_pipeline.user->id.value().value() = 91;
+    *direct.user->id = 91;
+    *explicit_pipeline.user->id = 91;
     const auto actual = read<json::SimpleReader>(direct, input);
     const auto expected = read<json::SimpleReader>(explicit_pipeline, input);
     EXPECT_EQ(actual.code, expected.code) << input;
     EXPECT_EQ(actual.offset, expected.offset) << input;
     EXPECT_EQ(actual.detail, expected.detail) << input;
-    EXPECT_EQ(direct.user->id.value().value(),
-              explicit_pipeline.user->id.value().value())
-        << input;
+    EXPECT_EQ(*direct.user->id, *explicit_pipeline.user->id) << input;
   }
 }
 TEST(EntrySchema, NestedShapeAndValidationFailuresPropagate) {
@@ -186,7 +181,7 @@ void check_prefailed() {
   struct Document {
     UserField user;
   } document;
-  document.user->id.value().value() = 91;
+  *document.user->id = 91;
   R reader;
   typename R::state_type state;
   reader.reset(state, R"({"user":{"id":7}})");
@@ -202,7 +197,7 @@ void check_prefailed() {
   EXPECT_EQ(state.pos, position);
   EXPECT_EQ(reader.current_token(state).type, token.type);
   EXPECT_EQ(reader.current_token(state).offset, token.offset);
-  EXPECT_EQ(document.user->id.value().value(), 91);
+  EXPECT_EQ(*document.user->id, 91);
 }
 TEST(EntrySchema, PrefailedNestedDecodePreservesStorageAndReader) {
   check_prefailed<json::SimpleReader>();
@@ -224,11 +219,11 @@ void check_try() {
   ASSERT_TRUE(
       read<R>(document, R"({"b":{"id":3},"fixed":{"id":1},"a":{"id":2}})")
           .is_ok());
-  EXPECT_EQ(document.fixed.value().value().id.value().value(), 1);
-  EXPECT_EQ(document.a.key().value(), "a");
-  EXPECT_EQ(document.a.value().value().id.value().value(), 2);
-  EXPECT_EQ(document.b.key().value(), "b");
-  EXPECT_EQ(document.b.value().value().id.value().value(), 3);
+  EXPECT_EQ(*document.fixed->id, 1);
+  EXPECT_EQ(document.a.key(), "a");
+  EXPECT_EQ(*document.a->id, 2);
+  EXPECT_EQ(document.b.key(), "b");
+  EXPECT_EQ(*document.b->id, 3);
   EXPECT_EQ(read<R>(document, R"({"fixed":[]})").code, ErrorCode::type_mismatch);
 }
 TEST(EntrySchema, TryConstantAndMatchingDynamicKeyDecodeNestedValues) {
@@ -239,21 +234,21 @@ template <class R>
 void check_matching_values() {
   using DynamicKey =
       Elem<scan::scalar | decode::string_view | store::assign, encode::value>;
-  using OneUser = Elem<
-      scan::object | decode::to<User> | match::predicate<[](const User& user) {
-        return user.id.value().value() == 1;
-      }> | store::assign,
-      encode::value>;
+  using OneUser =
+      Elem<scan::object | decode::to<User> |
+               match::predicate<[](const User& user) { return *user.id == 1; }> |
+               store::assign,
+           encode::value>;
   struct Document {
     Try<Entry<DynamicKey, OneUser>> one;
     Try<Entry<DynamicKey, User>> fallback;
   } document;
   ASSERT_TRUE(
       read<R>(document, R"({"other":{"id":2},"first":{"id":1}})").is_ok());
-  EXPECT_EQ(document.one.key().value(), "first");
-  EXPECT_EQ(document.one.value().value().id.value().value(), 1);
-  EXPECT_EQ(document.fallback.key().value(), "other");
-  EXPECT_EQ(document.fallback.value().value().id.value().value(), 2);
+  EXPECT_EQ(document.one.key(), "first");
+  EXPECT_EQ(*document.one->id, 1);
+  EXPECT_EQ(document.fallback.key(), "other");
+  EXPECT_EQ(*document.fallback->id, 2);
 }
 TEST(EntrySchema, DynamicMatchingValueFallsBackToDirectSchema) {
   check_matching_values<json::SimpleReader>();
@@ -275,8 +270,8 @@ void check_nested_try() {
     Entry<Key<"choices">, Choices> choices;
   } document;
   ASSERT_TRUE(read<R>(document, R"({"choices":[2,1]})").is_ok());
-  EXPECT_EQ(document.choices.value().value().one.value(), 1);
-  EXPECT_EQ(document.choices.value().value().two.value(), 2);
+  EXPECT_EQ(document.choices->one.value(), 1);
+  EXPECT_EQ(document.choices->two.value(), 2);
   EXPECT_EQ(wire<json::CompactWriter<>>(std::as_const(document)),
             R"({"choices":[1,2]})");
 }

@@ -114,13 +114,13 @@ struct Record {
 };
 Record sample() {
   Record r;
-  r.n.value().value() = 42;
-  r.text.value().value() = std::string("a\n\"\\😀\0z", 11);
-  r.ok.value().value() = true;
-  r.items.value().value().resize(2);
-  r.items.value().value()[0].n.value().value() = 1;
-  r.items.value().value()[1].n.value().value() = 2;
-  r.meta.value().value().n.value().value() = -7;
+  *r.n = 42;
+  *r.text = std::string("a\n\"\\😀\0z", 11);
+  *r.ok = true;
+  r.items->resize(2);
+  *(*r.items)[0].n = 1;
+  *(*r.items)[1].n = 2;
+  *r.meta->n = -7;
   return r;
 }
 template <class W, class R>
@@ -130,13 +130,13 @@ void roundtrip(const Record& original = sample()) {
   ASSERT_TRUE(encode_into(original, writer)) << writer.error().detail;
   Record decoded;
   ASSERT_TRUE(decode_into<R>(decoded, output).is_ok());
-  EXPECT_EQ(decoded.n.value().value(), 42);
-  EXPECT_EQ(decoded.text.value().value(), original.text.value().value());
-  EXPECT_TRUE(decoded.ok.value().value());
-  ASSERT_EQ(decoded.items.value().value().size(), 2u);
-  EXPECT_EQ(decoded.items.value().value()[0].n.value().value(), 1);
-  EXPECT_EQ(decoded.items.value().value()[1].n.value().value(), 2);
-  EXPECT_EQ(decoded.meta.value().value().n.value().value(), -7);
+  EXPECT_EQ(*decoded.n, 42);
+  EXPECT_EQ(*decoded.text, *original.text);
+  EXPECT_TRUE(*decoded.ok);
+  ASSERT_EQ(decoded.items->size(), 2u);
+  EXPECT_EQ(*(*decoded.items)[0].n, 1);
+  EXPECT_EQ(*(*decoded.items)[1].n, 2);
+  EXPECT_EQ(*decoded.meta->n, -7);
 }
 TEST(EncodeFormats, SameSchemaRoundTripsAllNewWriters) {
   roundtrip<msgpack::Writer<>, msgpack::Reader<>>();
@@ -145,12 +145,12 @@ TEST(EncodeFormats, SameSchemaRoundTripsAllNewWriters) {
 }
 TEST(EncodeFormats, JsonSchemaRoundTrip) {
   auto original = sample();
-  original.text.value().value() = "日本語";
+  *original.text = "日本語";
   roundtrip<json::CompactWriter<>, json::SimpleReader>(original);
 }
 TEST(EncodeFormats, SemanticPipelineWorksWithExistingJsonWriter) {
   Child c;
-  c.n.value().value() = 42;
+  *c.n = 42;
   std::string out;
   json::CompactWriter writer(out);
   ASSERT_TRUE(encode_into(c, writer));
@@ -419,17 +419,17 @@ TEST(TomlWriter, QuotesKeysStringsAndPreservesFloatType) {
 }
 TEST(TomlWriter, InlineTablesAndArraysOfTablesAreEquivalentValues) {
   Record data = sample();
-  data.text.value().value() = "plain";
-  data.items.value().value().clear();
+  *data.text = "plain";
+  data.items->clear();
   std::string out;
   toml::Writer writer(out);
   ASSERT_TRUE(encode_into(data, writer));
   EXPECT_EQ(out,
             "\"n\" = 42\n\"text\" = \"plain\"\n\"ok\" = true\n\"items\" = "
             "[]\n\"meta\" = {\"n\" = -7}\n");
-  data.items.value().value().resize(2);
-  data.items.value().value()[0].n.value().value() = 1;
-  data.items.value().value()[1].n.value().value() = 2;
+  data.items->resize(2);
+  *(*data.items)[0].n = 1;
+  *(*data.items)[1].n = 2;
   std::string second;
   toml::Writer tw(second);
   ASSERT_TRUE(encode_into(data, tw));
@@ -473,7 +473,7 @@ TEST(EncodeFormats, NonFiniteAndExtremeFloatRoundTrips) {
       Try<Entry<Key<"x">, Number<double>>> x;
     };
     FloatDoc doc;
-    doc.x.value().value() = value;
+    *doc.x = value;
     auto verify = [&]<class W, class R>() {
       std::string out;
       W writer(out);
@@ -481,10 +481,10 @@ TEST(EncodeFormats, NonFiniteAndExtremeFloatRoundTrips) {
       FloatDoc decoded;
       ASSERT_TRUE(decode_into<R>(decoded, out).is_ok());
       if (std::isnan(value))
-        EXPECT_TRUE(std::isnan(decoded.x.value().value()));
+        EXPECT_TRUE(std::isnan(*decoded.x));
       else {
-        EXPECT_EQ(decoded.x.value().value(), value);
-        EXPECT_EQ(std::signbit(decoded.x.value().value()), std::signbit(value));
+        EXPECT_EQ(*decoded.x, value);
+        EXPECT_EQ(std::signbit(*decoded.x), std::signbit(value));
       }
     };
     verify.template operator()<msgpack::Writer<>, msgpack::Reader<>>();
@@ -726,13 +726,13 @@ std::string fixture(std::string_view name) {
   return {std::istreambuf_iterator<char>(input), {}};
 }
 void expect_fixture(const Record& value) {
-  EXPECT_EQ(value.n.value().value(), 42);
-  EXPECT_EQ(value.text.value().value(), "日本語");
-  EXPECT_TRUE(value.ok.value().value());
-  ASSERT_EQ(value.items.value().value().size(), 2u);
-  EXPECT_EQ(value.items.value().value()[0].n.value().value(), 1);
-  EXPECT_EQ(value.items.value().value()[1].n.value().value(), 2);
-  EXPECT_EQ(value.meta.value().value().n.value().value(), -7);
+  EXPECT_EQ(*value.n, 42);
+  EXPECT_EQ(*value.text, "日本語");
+  EXPECT_TRUE(*value.ok);
+  ASSERT_EQ(value.items->size(), 2u);
+  EXPECT_EQ(*(*value.items)[0].n, 1);
+  EXPECT_EQ(*(*value.items)[1].n, 2);
+  EXPECT_EQ(*value.meta->n, -7);
 }
 template <class R, class W>
 void fixture_roundtrip(std::string_view name, std::string_view invalid) {

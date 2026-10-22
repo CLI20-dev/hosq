@@ -167,20 +167,20 @@ struct TextDocument {
 template <class SourceReader, class SourceWriter>
 void check_text_round_trips() {
   TextDocument<types::value::String> original;
-  original.value.value().value() = "a\n日\\z";
+  *original.value = "a\n日\\z";
   std::string source;
   SourceWriter source_writer(source);
   ASSERT_TRUE(encode_into(original, source_writer));
   TextDocument<types::value::String> text;
   ASSERT_TRUE(decode_into<SourceReader>(text, source).is_ok());
-  EXPECT_EQ(text.value.value().value(), original.value.value().value());
+  EXPECT_EQ(*text.value, *original.value);
   auto destination = [&]<class Reader, class Writer>() {
     std::string output;
     Writer writer(output);
     ASSERT_TRUE(encode_into(text, writer)) << writer.error().detail;
     TextDocument<types::value::String> decoded;
     ASSERT_TRUE(decode_into<Reader>(decoded, output).is_ok());
-    EXPECT_EQ(decoded.value.value().value(), original.value.value().value());
+    EXPECT_EQ(*decoded.value, *original.value);
   };
   destination.template operator()<json::SimpleReader, json::CompactWriter<>>();
   destination.template operator()<toml::Reader<>, toml::Writer<>>();

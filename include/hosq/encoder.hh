@@ -8,6 +8,7 @@
 #include "hosq/detail/compiler.hh"
 #include "hosq/detail/native_encode.hh"
 #include "hosq/detail/type_traits.hh"
+#include "hosq/entry.hh"
 #include "hosq/pipeline_util.hh"
 #include "hosq/writer_base.hh"
 
@@ -145,10 +146,10 @@ class Encoder<W> {
   [[nodiscard]]
   HOSQ_ALWAYS_INLINE auto encode_entry_key(const Entry& entry) -> bool {
     if constexpr (detail::ConstKeyEntryT<Entry>) {
-      static constexpr auto name = std::remove_cvref_t<Entry>::key();
+      static constexpr auto name = std::remove_cvref_t<Entry>::key_literal;
       return ext::EncodeValue<W>{}(name.view(), writer());
     } else {
-      return encode_element(entry.key());
+      return encode_element(::hosq::detail::EntryAccess::key_elem(entry));
     }
   }
 
@@ -156,7 +157,7 @@ class Encoder<W> {
     requires(detail::EntryT<std::remove_cvref_t<Entry>>)
   [[nodiscard]]
   HOSQ_ALWAYS_INLINE auto encode_entry_value(const Entry& entry) -> bool {
-    return encode_element(entry.value());
+    return encode_element(::hosq::detail::EntryAccess::value_elem(entry));
   }
 
   std::reference_wrapper<W> writer_ref_;

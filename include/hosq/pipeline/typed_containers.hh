@@ -93,7 +93,7 @@ auto container_equal(const T& a, const T& b) -> bool {
   if constexpr (ElemT<U>) {
     return container_equal(a.value(), b.value());
   } else if constexpr (EntryT<U> || TryT<U>) {
-    return container_equal(a.value(), b.value());
+    return container_equal(*a, *b);
   } else if constexpr (IsEncodeOptional<U>::value) {
     return a.has_value() == b.has_value() && (!a || container_equal(*a, *b));
   } else if constexpr (IsMappingValue<U>::value) {

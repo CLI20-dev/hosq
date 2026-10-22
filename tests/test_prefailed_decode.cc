@@ -216,9 +216,8 @@ TYPED_TEST(PrefailedDecode, OrdinaryArrayAggregatePreservesErrorAndStorage) {
 }
 TYPED_TEST(PrefailedDecode, EntryAggregatePreservesErrorAndStorage) {
   ObjectFields value;
-  check_prefailed<TypeParam>(value, Shape::object, [](auto& item) -> auto& {
-    return item.n.value().value();
-  });
+  check_prefailed<TypeParam>(value, Shape::object,
+                             [](auto& item) -> auto& { return *item.n; });
 }
 TYPED_TEST(PrefailedDecode, AllTryArrayPreservesErrorAndStorage) {
   TryArrayFields value;
@@ -227,9 +226,8 @@ TYPED_TEST(PrefailedDecode, AllTryArrayPreservesErrorAndStorage) {
 }
 TYPED_TEST(PrefailedDecode, AllTryObjectPreservesErrorAndStorage) {
   TryObjectFields value;
-  check_prefailed<TypeParam>(value, Shape::object, [](auto& item) -> auto& {
-    return item.n.value().value();
-  });
+  check_prefailed<TypeParam>(value, Shape::object,
+                             [](auto& item) -> auto& { return *item.n; });
 }
 TYPED_TEST(PrefailedDecode, TypedArrayPreservesErrorAndStorage) {
   v::Array<Observed> value;
@@ -249,11 +247,11 @@ TYPED_TEST(PrefailedDecode, NewInputResetsErrorForReusableDecoderEntrypoints) {
                       : decoder.decode(value, source);
     };
     EXPECT_EQ(decode(bad_input).code, ErrorCode::type_mismatch);
-    value.n.value().value() = 91;
+    *value.n = 91;
     callback_calls = 0;
     const auto result = decode(good_input);
     ASSERT_TRUE(result.is_ok()) << result.detail;
-    EXPECT_EQ(value.n.value().value(), 7);
+    EXPECT_EQ(*value.n, 7);
     EXPECT_EQ(callback_calls, 1u);
   }
 }

@@ -69,16 +69,16 @@ TEST(StringPipeline, TomlSourceRetainsTheSyntaxNeededForConversion) {
     const std::string input = "value = " + literal;
     StringDocument<BorrowedStringSource> borrowed;
     ASSERT_TRUE(decode_into<toml::Reader<>>(borrowed, input).is_ok());
-    EXPECT_EQ(borrowed.value.value().value(), literal);
-    EXPECT_EQ(borrowed.value.value().value().data(), input.data() + 8);
+    EXPECT_EQ(*borrowed.value, literal);
+    EXPECT_EQ(borrowed.value->data(), input.data() + 8);
   }
 
   StringDocument<TomlConvertedString> basic;
   ASSERT_TRUE(decode_into<toml::Reader<>>(basic, R"(value = "a\nb")").is_ok());
-  EXPECT_EQ(basic.value.value().value(), "a\nb");
+  EXPECT_EQ(*basic.value, "a\nb");
   StringDocument<TomlConvertedString> literal;
   ASSERT_TRUE(decode_into<toml::Reader<>>(literal, R"(value = 'a\nb')").is_ok());
-  EXPECT_EQ(literal.value.value().value(), R"(a\nb)");
+  EXPECT_EQ(*literal.value, R"(a\nb)");
 }
 
 TEST(StringPipeline, TomlConversionPreservesTheSecondInitialMultilineNewline) {
@@ -86,7 +86,7 @@ TEST(StringPipeline, TomlConversionPreservesTheSecondInitialMultilineNewline) {
   ASSERT_TRUE(
       decode_into<toml::Reader<>>(converted, "value = \"\"\"\n\na\\nb\"\"\"")
           .is_ok());
-  EXPECT_EQ(converted.value.value().value(), "\na\nb");
+  EXPECT_EQ(*converted.value, "\na\nb");
 }
 
 TEST(StringPipeline, JsonConversionIsANoopForMessagePackAndBson) {
@@ -96,20 +96,20 @@ TEST(StringPipeline, JsonConversionIsANoopForMessagePackAndBson) {
   EXPECT_EQ(msgpack.value(), R"(\q)");
 
   StringDocument<types::value::String> original;
-  original.value.value().value() = R"(\q\u0061)";
+  *original.value = R"(\q\u0061)";
   std::string bson_wire;
   bson::Writer writer(bson_wire);
   ASSERT_TRUE(encode_into(original, writer));
   StringDocument<JsonConvertedString> decoded;
   ASSERT_TRUE(decode_into<bson::Reader<>>(decoded, bson_wire).is_ok());
-  EXPECT_EQ(decoded.value.value().value(), R"(\q\u0061)");
+  EXPECT_EQ(*decoded.value, R"(\q\u0061)");
 }
 
 TEST(StringPipeline, FormatConversionsAreIndependent) {
   StringDocument<JsonConvertedString> toml_value;
   ASSERT_TRUE(
       decode_into<toml::Reader<>>(toml_value, R"(value = '\q')").is_ok());
-  EXPECT_EQ(toml_value.value.value().value(), R"('\q')");
+  EXPECT_EQ(*toml_value.value, R"('\q')");
 
   TomlConvertedString json_value;
   ASSERT_TRUE(decode_into<json::SimpleReader>(json_value, R"("\n")").is_ok());
@@ -142,7 +142,7 @@ TEST(StringPipeline, ConversionsConsumeTheirPipelineInput) {
   StringDocument<ReplacedToml> toml_value;
   ASSERT_TRUE(
       decode_into<toml::Reader<>>(toml_value, R"(value = 'original')").is_ok());
-  EXPECT_EQ(toml_value.value.value().value(), "changed\n");
+  EXPECT_EQ(*toml_value.value, "changed\n");
 }
 
 TEST(StringPipeline, ConversionFailuresAreReportedAsReaderErrors) {

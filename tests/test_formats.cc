@@ -71,9 +71,9 @@ void record(std::string_view input) {
   const auto result = decode_into<R>(value, input);
   ASSERT_TRUE(result.is_ok())
       << static_cast<int>(result.code) << ' ' << result.detail;
-  EXPECT_EQ(value.n.value().value(), 42);
-  EXPECT_EQ(value.name.value().value(), "hello");
-  EXPECT_TRUE(value.ok.value().value());
+  EXPECT_EQ(*value.n, 42);
+  EXPECT_EQ(*value.name, "hello");
+  EXPECT_TRUE(*value.ok);
 }
 TEST(Formats, ExistingSchemaDecodesAllReaders) {
   record<msgpack::Reader<>>(bytes({0x83, 0xa2}) + "ok" + bytes({0xc3, 0xa1}) +
@@ -274,8 +274,8 @@ void collection(std::string_view input) {
   const auto result = decode_into<R>(value, input);
   ASSERT_TRUE(result.is_ok())
       << static_cast<int>(result.code) << ' ' << result.detail;
-  EXPECT_EQ(value.values.value().value(), (std::vector<int>{1, 2, 3}));
-  EXPECT_EQ(value.meta.value().value().n.value().value(), 42);
+  EXPECT_EQ(*value.values, (std::vector<int>{1, 2, 3}));
+  EXPECT_EQ(*value.meta->n, 42);
 }
 TEST(Formats, NestedDecodeEachNumberIntoAndUnknownMemberSkip) {
   collection<msgpack::Reader<>>(bytes({0x83, 0xa7}) + "ignored" +
@@ -386,7 +386,7 @@ TEST(Toml, DottedAssignmentsAndEscapedConstantKeysDecode) {
       "\"\\u006e\" = 42\n");
   Nested value;
   ASSERT_TRUE(decode_into<toml::Reader<>>(value, "\"\\u006e\" = 42").is_ok());
-  EXPECT_EQ(value.n.value().value(), 42);
+  EXPECT_EQ(*value.n, 42);
   EXPECT_EQ(read<toml::Reader<>>("a = 1\n\"\\u0061\" = 2").code,
             EC::duplicate_member);
   EXPECT_EQ(read<toml::Reader<>>("a.b=1\n[a]\nc=2").code, EC::duplicate_member);
@@ -406,9 +406,9 @@ TEST(Toml, ArraysOfTablesDecodeAndRejectConflicts) {
   ASSERT_TRUE(
       decode_into<toml::Reader<>>(value, "[[items]]\nn=1\n[[items]]\nn=2")
           .is_ok());
-  ASSERT_EQ(value.items.value().value().size(), 2u);
-  EXPECT_EQ(value.items.value().value()[0].n.value().value(), 1);
-  EXPECT_EQ(value.items.value().value()[1].n.value().value(), 2);
+  ASSERT_EQ(value.items->size(), 2u);
+  EXPECT_EQ(*(*value.items)[0].n, 1);
+  EXPECT_EQ(*(*value.items)[1].n, 2);
   EXPECT_TRUE(read<toml::Reader<>>("[[fruit]]\nname='apple'\n[fruit.physical]"
                                    "\ncolor='red'\n[[fruit.variety]]\nname='red "
                                    "delicious'\n[[fruit]]\nname='banana'\n["
@@ -429,7 +429,7 @@ TEST(Toml, MultilineStringsKeepBorrowedRawSemantics) {
                      std::string("x='''\nhello\nworld'''")}) {
     Text text;
     ASSERT_TRUE(decode_into<toml::Reader<>>(text, input).is_ok());
-    EXPECT_EQ(text.x.value().value(), "hello\nworld");
+    EXPECT_EQ(*text.x, "hello\nworld");
   }
   EXPECT_TRUE(read<toml::Reader<>>(
                   "x=\"\"\"The quick brown \\\n  fox jumps \\\n over\"\"\"")
@@ -437,7 +437,7 @@ TEST(Toml, MultilineStringsKeepBorrowedRawSemantics) {
   Text quotes;
   ASSERT_TRUE(
       decode_into<toml::Reader<>>(quotes, "x=\"\"\"\"quoted\"\"\"\"").is_ok());
-  EXPECT_EQ(quotes.x.value().value(), "\"quoted\"");
+  EXPECT_EQ(*quotes.x, "\"quoted\"");
   for (auto input : {"x=\"\"\"unterminated", "x=\"\"\"bad\\q\"\"\"",
                      "\"\"\"key\"\"\"=1", "x=\"\"\"bad\"\"\"\"\"\""})
     EXPECT_FALSE(read<toml::Reader<>>(input).is_ok());
@@ -482,7 +482,7 @@ TEST(Bson, CodeWithScopeIsValidatedAndSkipped) {
   const auto input = doc(element(15, "code", code) + element(16, "n", le(42)));
   SkipRecord record;
   ASSERT_TRUE(decode_into<bson::Reader<>>(record, input).is_ok());
-  EXPECT_EQ(record.n.value().value(), 42);
+  EXPECT_EQ(*record.n, 42);
   EXPECT_TRUE(
       read<bson::Reader<>>(
           doc(element(15, "outer",
@@ -526,7 +526,7 @@ TEST(MessagePack, NonStringKeysRemainTraversableAndSkippable) {
   const auto input = bytes({0x82, 0xa7}) + "ignored" + arbitrary +
                      bytes({0xa1}) + "n" + bytes({42});
   ASSERT_TRUE(decode_into<msgpack::Reader<>>(record, input).is_ok());
-  EXPECT_EQ(record.n.value().value(), 42);
+  EXPECT_EQ(*record.n, 42);
   Nested strict;
   // Preserve the reader's non-string-key type error instead of masking it as
   // an unknown member during constant-key dispatch.
@@ -570,7 +570,7 @@ TEST(Toml, OwnedStringsResolveEscapesAndMultilineContinuations) {
            {"x=\"\"\"one \"\" two\"\"\"\"\"", "one \"\" two\"\""}}) {
     OwnedText value;
     ASSERT_TRUE(decode_into<toml::Reader<>>(value, input).is_ok()) << input;
-    EXPECT_EQ(value.x.value().value(), expected) << input;
+    EXPECT_EQ(*value.x, expected) << input;
   }
   OwnedText bad;
   EXPECT_EQ(decode_into<toml::Reader<>>(bad, "x=42").code, EC::type_mismatch);

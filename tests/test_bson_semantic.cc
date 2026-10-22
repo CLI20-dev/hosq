@@ -66,7 +66,7 @@ template <class Alias, class Value>
 void typed_roundtrip(const Value& original, unsigned marker,
                      const std::string& bytes) {
   Single<Alias> input;
-  input.v.value().value() = original;
+  *input.v = original;
   std::string encoded;
   bson::Writer writer(encoded);
   ASSERT_TRUE(encode_into(input, writer)) << writer.error().detail;
@@ -74,7 +74,7 @@ void typed_roundtrip(const Value& original, unsigned marker,
   Single<Alias> output;
   const auto error = decode_into<bson::Reader<>>(output, encoded);
   ASSERT_TRUE(error.is_ok()) << error.detail;
-  EXPECT_EQ(output.v.value().value(), original);
+  EXPECT_EQ(*output.v, original);
 }
 
 TEST(BsonSemantic, InstantSignedMillisecondsAndInt64Extremes) {
