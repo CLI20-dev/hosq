@@ -58,4 +58,25 @@ TEST(Ergonomics, ScalarElemArrow) {
           .is_ok());
   EXPECT_EQ(text->size(), 3U);
 }
+
+TEST(Ergonomics, FieldLookupByKey) {
+  v::Record<User> user;
+  ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
+                  user, R"({"id":9,"ids":[],"address":{"city":"Kyoto"}})")
+                  .is_ok());
+  EXPECT_EQ(*hosq::field<"id">(user), 9U);
+  EXPECT_EQ(*hosq::field<"city">(*hosq::field<"address">(user)), "Kyoto");
+  EXPECT_FALSE(hosq::field<"nickname">(user)->has_value());
+
+  *hosq::field<"id">(user) = 10;
+  const auto& cuser = user;
+  EXPECT_EQ(*hosq::field<"id">(cuser), 10U);
+  static_assert(std::same_as<decltype(hosq::field<"id">(user)), t::Uint64<"id">&>);
+  static_assert(std::is_const_v<
+                std::remove_reference_t<decltype(hosq::field<"id">(cuser))>>);
+
+  std::tuple<t::Int32<"a">, t::Text<"b">> tup;
+  *hosq::field<"a">(tup) = 5;
+  EXPECT_EQ(*std::get<0>(tup), 5);
+}
 }  // namespace
