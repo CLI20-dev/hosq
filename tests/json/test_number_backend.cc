@@ -7,7 +7,14 @@
 #include <string>
 #include <vector>
 
+// The floating-point std::from_chars reference is unavailable below macOS 26.
+#if defined(_LIBCPP_AVAILABILITY_HAS_FROM_CHARS_FLOATING_POINT) && \
+    !_LIBCPP_AVAILABILITY_HAS_FROM_CHARS_FLOATING_POINT
+#define HOSQ_TEST_NO_STD_FLOAT_FROM_CHARS 1
+#endif
+
 namespace {
+#ifndef HOSQ_TEST_NO_STD_FLOAT_FROM_CHARS
 template <class T, bool Json = false>
 void compare(const std::string& text) {
   T expected = T(42), actual = T(42);
@@ -69,6 +76,8 @@ TEST(NumberBackend, FromCharsContract) {
     compare<double, true>(text);
   }
 }
+
+#endif  // HOSQ_TEST_NO_STD_FLOAT_FROM_CHARS
 
 TEST(NumberBackend, JsonPrefixLeavesTheFollowingInput) {
   for (const std::string suffix :
