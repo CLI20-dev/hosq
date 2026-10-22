@@ -79,8 +79,8 @@ TEST(KeyedTypes, NestedSchemaCrossesJsonMessagePackAndBson) {
           user,
           R"({"scores":{"n":-7},"address":{"city":"a\nb"},"ids":[1,2],"id":42})")
           .is_ok());
-  EXPECT_EQ(user.value().address.value().value().city.value().value(), "a\nb");
-  EXPECT_FALSE(user.value().nickname.value().value());
+  EXPECT_EQ(*user.value().address->city, "a\nb");
+  EXPECT_FALSE(*user.value().nickname);
   const auto msgpack = encode<hosq::msgpack::Writer<>>(user);
   v::Record<User> from_msgpack;
   ASSERT_TRUE(
@@ -105,11 +105,11 @@ TEST(KeyedTypes, OptionalMissingEmptyAndNullKeepDifferentMeanings) {
     return hosq::decode_document_into<hosq::json::FastReader<>>(root, input);
   };
   ASSERT_TRUE(read(R"({"null":null,"nickname":""})").is_ok());
-  ASSERT_TRUE(root.value().nickname.value().value().has_value());
+  ASSERT_TRUE(root.value().nickname->has_value());
   EXPECT_EQ(encode<hosq::json::CompactWriter<>>(root),
             R"({"null":null,"nickname":""})");
   ASSERT_TRUE(read(R"({"null":null})").is_ok());
-  EXPECT_FALSE(root.value().nickname.value().value());
+  EXPECT_FALSE(*root.value().nickname);
   EXPECT_EQ(encode<hosq::json::CompactWriter<>>(root), R"({"null":null})");
   EXPECT_EQ(read(R"({"null":null,"nickname":null})").code,
             hosq::ErrorCode::type_mismatch);
@@ -144,8 +144,8 @@ TEST(KeyedTypes, FieldKeepsCustomPipelineAndTryIdentity) {
   ASSERT_TRUE(hosq::decode_document_into<hosq::msgpack::Reader<>>(
                   schema, std::string("\x81\xa1n\xcb\x40\x45\0\0\0\0\0\0", 12))
                   .is_ok());
-  ASSERT_TRUE(schema.n.value().value());
-  EXPECT_EQ(*schema.n.value().value(), 42);
+  ASSERT_TRUE(*schema.n);
+  EXPECT_EQ(**schema.n, 42);
   EXPECT_EQ(encode<hosq::json::CompactWriter<>>(schema), R"({"n":42})");
   EXPECT_EQ(
       hosq::decode_document_into<hosq::json::FastReader<>>(schema, R"({"n":1})")

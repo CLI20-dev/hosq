@@ -37,7 +37,7 @@ TEST(Ergonomics, DereferenceAndArrowReachStorage) {
   EXPECT_EQ(**user->nickname, "g");
 
   // Equivalent to the verbose spelling.
-  EXPECT_EQ(*user->id, user.value().id.value().value());
+  EXPECT_EQ(*user->id, *user.value().id);
 }
 
 TEST(Ergonomics, MutationAndConstAccess) {

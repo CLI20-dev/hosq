@@ -54,14 +54,14 @@ void check_bounds(std::int64_t low, std::int64_t high) {
     const auto expected =
         number < low || number > high ? EC::out_of_range : EC::ok;
     NamedInput input;
-    input.number.value().value() = number;
+    *input.number = number;
     NamedCandidates<Scalar> value;
-    value.narrow.value().value() = 11;
-    value.fallback.value().value() = 47;
+    *value.narrow = 11;
+    *value.fallback = 47;
     const auto error = decode_into<R>(value, wire<W>(input));
     EXPECT_EQ(error.code, expected) << error.detail;
-    if (expected == EC::ok) EXPECT_EQ(value.narrow.value().value(), number);
-    EXPECT_EQ(value.fallback.value().value(), 47);
+    if (expected == EC::ok) EXPECT_EQ(*value.narrow, number);
+    EXPECT_EQ(*value.fallback, 47);
 
     if constexpr (!std::same_as<R, bson::Reader<>>) {
       ArrayInput array_input;
@@ -121,15 +121,15 @@ void check_text_is_not_numeric_fallback() {
   struct Input {
     types::Text<"n"> text;
   } input;
-  input.text.value().value() = "42";
+  *input.text = "42";
   struct Value {
     Try<types::Int8<"n">> integer;
     Try<Entry<AnyKey, v::Text>> text;
   } value;
-  value.text.value().value() = "unchanged";
+  *value.text = "unchanged";
   const auto error = decode_into<R>(value, wire<W>(input));
   EXPECT_EQ(error.code, EC::type_mismatch) << error.detail;
-  EXPECT_EQ(value.text.value().value(), "unchanged");
+  EXPECT_EQ(*value.text, "unchanged");
 }
 
 TEST(TryFailures, NamedTypedMismatchDoesNotTryAnotherValueSchemaForTheKey) {
@@ -178,15 +178,15 @@ struct CheckedObject {
 template <class R, class W>
 void check_validation_dispatch() {
   NamedInput input;
-  input.number.value().value() = 7;
+  *input.number = 7;
   const auto encoded = wire<W>(input);
   CheckedObject<RejectValue> soft;
   ObserveAccepted::calls = 0;
   const auto accepted = decode_into<R>(soft, encoded);
   ASSERT_TRUE(accepted.is_ok()) << accepted.detail;
   EXPECT_EQ(ObserveAccepted::calls, 1);
-  EXPECT_EQ(soft.rejected.value().value(), 0);
-  EXPECT_EQ(soft.fallback.value().value(), 7);
+  EXPECT_EQ(*soft.rejected, 0);
+  EXPECT_EQ(*soft.fallback, 7);
 
   CheckedObject<RejectWithError> hard;
   ObserveAccepted::calls = 0;
@@ -293,14 +293,14 @@ void check_decoder_reuse() {
   Decoder<R> decoder;
   auto decode_number = [&](std::int64_t number) {
     NamedInput input;
-    input.number.value().value() = number;
+    *input.number = number;
     return decoder.decode(value, wire<W>(input));
   };
   ASSERT_TRUE(decode_number(255).is_ok());
-  EXPECT_EQ(value.number.value().value(), 255);
+  EXPECT_EQ(*value.number, 255);
   EXPECT_EQ(decode_number(256).code, EC::out_of_range);
   ASSERT_TRUE(decode_number(9).is_ok());
-  EXPECT_EQ(value.number.value().value(), 9);
+  EXPECT_EQ(*value.number, 9);
   // Empty input objects reset reader state, but do not clear legacy storage.
   std::string empty = "{}";
   if constexpr (std::same_as<R, msgpack::Reader<>>)
@@ -308,7 +308,7 @@ void check_decoder_reuse() {
   else if constexpr (std::same_as<R, bson::Reader<>>)
     empty = bson_document("");
   ASSERT_TRUE(decoder.decode(value, empty).is_ok());
-  EXPECT_EQ(value.number.value().value(), 9);
+  EXPECT_EQ(*value.number, 9);
 }
 
 TEST(TryFailures, ReusedDecoderClearsStickyErrorsWithoutClearingMissingStorage) {

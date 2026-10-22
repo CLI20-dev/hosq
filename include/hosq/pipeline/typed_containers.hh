@@ -136,7 +136,7 @@ auto container_equal(const T& a, const T& b) -> bool {
   if constexpr (ElemT<U>) {
     return container_equal(a.value(), b.value());
   } else if constexpr (EntryT<U> || TryT<U>) {
-    return container_equal(a.value(), b.value());
+    return container_equal(*a, *b);
   } else if constexpr (IsEncodeOptional<U>::value) {
     return a.has_value() == b.has_value() && (!a || container_equal(*a, *b));
   } else if constexpr (std::same_as<U, RawTextValue>) {
@@ -302,7 +302,8 @@ struct TypedRecordImpl {
               }
               seen[I] = true;
               if (!hosq::next_token<Expect::member_value>(reader, state)) return;
-              auto& field = std::get<I>(fields).value();
+              auto& field =
+                  ::hosq::detail::EntryAccess::elem(std::get<I>(fields));
               hosq::detail::decode_container_into(field, reader, state);
             }(),
             ...);
@@ -408,12 +409,11 @@ struct TypedRecordImpl {
                 if constexpr (hosq::detail::TryT<Field> &&
                               hosq::detail::IsEncodeOptional<
                                   typename E::storage_type>::value)
-                  if (!field.value().value()) return;
+                  if (!*field) return;
                 ok = hosq::ext::EncodeValue<
                          std::remove_cvref_t<decltype(writer)>>{}(
                          hosq::detail::record_key<Entry>.view(), writer) &&
-                     hosq::detail::encode_container_element<E>(
-                         field.value().value(), writer);
+                     hosq::detail::encode_container_element<E>(*field, writer);
               }(),
               ...);
         },

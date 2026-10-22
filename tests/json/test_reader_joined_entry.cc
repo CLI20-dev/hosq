@@ -173,7 +173,7 @@ TEST(ConstEntryJoinedPrefix, ShortPrefixesAreImmutableAndEscapedKeysFallback) {
   JoinedEscapedKeyRecord matching;
   EXPECT_TRUE(
       decode_into<json::FastReader<>>(matching, R"({"a\\b":12})").is_ok());
-  EXPECT_EQ(matching.escaped.value().value(), 12);
+  EXPECT_EQ(*matching.escaped, 12);
 
   JoinedEscapedKeyRecord mismatch;
   const auto mismatch_error =

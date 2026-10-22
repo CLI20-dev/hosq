@@ -157,12 +157,12 @@ auto run_hosq() -> std::array<std::uint64_t, 4> {
 
   std::array<std::uint64_t, 4> checksum{};
   for (const auto& row : root.value()) {
-    const auto& payload = row.payload.value().value();
-    checksum[0] += row.id.value().value() + payload.count.value().value();
-    for (const auto value : payload.values.value().value()) checksum[0] += value;
-    checksum[1] += std::bit_cast<std::uint64_t>(payload.ratio.value().value());
-    checksum[2] += payload.name.value().value().size();
-    checksum[3] += payload.ok.value().value();
+    const auto& payload = *row.payload;
+    checksum[0] += *row.id + *payload.count;
+    for (const auto value : *payload.values) checksum[0] += value;
+    checksum[1] += std::bit_cast<std::uint64_t>(*payload.ratio);
+    checksum[2] += payload.name->size();
+    checksum[3] += *payload.ok;
   }
   return checksum;
 }

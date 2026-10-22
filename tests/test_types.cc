@@ -366,18 +366,18 @@ void typed_scalar_roundtrip(const TypedScalarRecord& source) {
   TypedScalarRecord result;
   const auto status = decode_into<Reader>(result, output);
   ASSERT_TRUE(status.is_ok()) << to_string(status.code) << ": " << status.detail;
-  EXPECT_EQ(result.integer.value().value(), source.integer.value().value());
-  EXPECT_EQ(result.real.value().value(), source.real.value().value());
-  EXPECT_EQ(result.text.value().value(), source.text.value().value());
-  EXPECT_EQ(result.flag.value().value(), source.flag.value().value());
+  EXPECT_EQ(*result.integer, *source.integer);
+  EXPECT_EQ(*result.real, *source.real);
+  EXPECT_EQ(*result.text, *source.text);
+  EXPECT_EQ(*result.flag, *source.flag);
 }
 
 TEST(ScalarTypes, SameSchemaRoundTripsAllFourFormats) {
   TypedScalarRecord value;
-  value.integer.value().value() = -9007199254740993LL;
-  value.real.value().value() = 1.5;
-  value.text.value().value() = std::string("日本語\n\\\"\0z", 14);
-  value.flag.value().value() = true;
+  *value.integer = -9007199254740993LL;
+  *value.real = 1.5;
+  *value.text = std::string("日本語\n\\\"\0z", 14);
+  *value.flag = true;
   typed_scalar_roundtrip<json::CompactWriter<>, json::SimpleReader>(value);
   typed_scalar_roundtrip<msgpack::Writer<>, msgpack::Reader<>>(value);
   typed_scalar_roundtrip<bson::Writer<>, bson::Reader<>>(value);
@@ -389,7 +389,7 @@ TEST(ScalarTypes, JsonTextCanTravelThroughEveryOtherFormat) {
       R"({"integer":42,"real":2.5,"text":"a\n\uD83D\uDE00\\u0061","flag":false})";
   TypedScalarRecord value;
   ASSERT_TRUE(decode_into<json::SimpleReader>(value, json_input).is_ok());
-  EXPECT_EQ(value.text.value().value(), "a\n😀\\u0061");
+  EXPECT_EQ(*value.text, "a\n😀\\u0061");
   typed_scalar_roundtrip<msgpack::Writer<>, msgpack::Reader<>>(value);
   typed_scalar_roundtrip<bson::Writer<>, bson::Reader<>>(value);
   typed_scalar_roundtrip<toml::Writer<>, toml::Reader<>>(value);

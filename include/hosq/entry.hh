@@ -11,10 +11,15 @@ namespace hosq {
 template <class Key, class Value>
 struct Entry;
 
+namespace detail {
+/// Library-internal access to an Entry's Elem. Users read the stored value
+/// with `*entry` / `entry->`.
+struct EntryAccess;
+}  // namespace detail
+
 /// A key–value pair where both Key and Value are Elem types.
 ///
-/// `*entry` and `entry->` reach the value's storage directly, so
-/// `entry.value().value()` can be written as `*entry`.
+/// `*entry` and `entry->` reach the value's storage directly.
 ///
 /// `*_decoder_const_invokable` / `*_encoder_const_invokable` mirror the
 /// underlying Elem's flags and gate the const/mutable overloads of decode_key /
@@ -50,9 +55,6 @@ struct Entry<Key, Value> {
   [[nodiscard]] auto key() const -> const key_type& { return key_; }
   [[nodiscard]] auto key() -> key_type& { return key_; }
 
-  [[nodiscard]] auto value() const -> const value_type& { return value_; }
-  [[nodiscard]] auto value() -> value_type& { return value_; }
-
   [[nodiscard]] auto operator*() -> typename value_type::storage_type& {
     return *value_;
   }
@@ -70,6 +72,7 @@ struct Entry<Key, Value> {
   }
 
  private:
+  friend struct detail::EntryAccess;
   key_type key_{};      // NOLINT
   value_type value_{};  // NOLINT
 };
@@ -100,9 +103,6 @@ struct Entry<std::integral_constant<decltype(Key), Key>, Value> {
 
   [[nodiscard]] static constexpr auto key() -> key_type { return Key; }
 
-  [[nodiscard]] auto value() const -> const value_type& { return value_; }
-  [[nodiscard]] auto value() -> value_type& { return value_; }
-
   [[nodiscard]] auto operator*() -> typename value_type::storage_type& {
     return *value_;
   }
@@ -120,8 +120,22 @@ struct Entry<std::integral_constant<decltype(Key), Key>, Value> {
   }
 
  private:
+  friend struct detail::EntryAccess;
   value_type value_{};  // NOLINT
 };
+
+namespace detail {
+struct EntryAccess {
+  template <class K, class V>
+  [[nodiscard]] static auto elem(Entry<K, V>& e) -> V& {
+    return e.value_;
+  }
+  template <class K, class V>
+  [[nodiscard]] static auto elem(const Entry<K, V>& e) -> const V& {
+    return e.value_;
+  }
+};
+}  // namespace detail
 
 /**
  * @brief Prevents Entry from being decomposed as an aggregate schema.

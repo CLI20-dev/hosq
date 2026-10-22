@@ -87,9 +87,9 @@ TEST(EncodeJson, EncodesTopLevelElement) {
 
 TEST(EncodeJson, EncodesObjectSchema) {
   User user;
-  user.id.value().value() = 7;
-  user.name.value().value() = "Alice"sv;
-  user.age.value().value() = 30;
+  *user.id = 7;
+  *user.name = "Alice"sv;
+  *user.age = 30;
 
   std::string output;
   json::CompactWriter writer{output};
@@ -100,9 +100,9 @@ TEST(EncodeJson, EncodesObjectSchema) {
 
 TEST(EncodeJson, CanEncodeIntoExistingWriterStream) {
   User user;
-  user.id.value().value() = 1;
-  user.name.value().value() = "Bob"sv;
-  user.age.value().value() = 41;
+  *user.id = 1;
+  *user.name = "Bob"sv;
+  *user.age = 41;
 
   std::string output;
   json::CompactWriter writer{output};

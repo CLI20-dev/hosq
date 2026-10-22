@@ -52,7 +52,7 @@ TEST(TypeCodec, BsonBinarySubtypesRoundTripAndOwnPayload) {
     const std::string expected = input;
     Document<types::value::Bytes> decoded;
     ASSERT_TRUE(decode_into<bson::Reader<>>(decoded, input).is_ok());
-    const auto& bytes = decoded.b.value().value();
+    const auto& bytes = *decoded.b;
     EXPECT_EQ(bytes.subtype, subtype);
     EXPECT_EQ(bytes.value, (std::vector<std::byte>{std::byte{0}, std::byte{255},
                                                    std::byte{'z'}}));
@@ -174,15 +174,15 @@ TEST(TypeCodec, TomlRawTextPreservesLexicalFormAndResolvesAcrossFormats) {
     Document<types::value::Text> semantic;
     ASSERT_TRUE(decode_into<toml::Reader<>>(raw, input).is_ok());
     ASSERT_TRUE(decode_into<toml::Reader<>>(semantic, input).is_ok());
-    EXPECT_EQ(raw.b.value().value().value, literal);
-    EXPECT_EQ(raw.b.value().value().format, Format::toml);
-    EXPECT_EQ(raw.b.value().value().value.data(), input.data() + 4);
+    EXPECT_EQ(raw.b->value, literal);
+    EXPECT_EQ(raw.b->format, Format::toml);
+    EXPECT_EQ(raw.b->value.data(), input.data() + 4);
     std::string output;
     json::CompactWriter writer(output);
     ASSERT_TRUE(encode_into(raw, writer)) << writer.error().detail;
     Document<types::value::Text> decoded;
     ASSERT_TRUE(decode_into<json::SimpleReader>(decoded, output).is_ok());
-    EXPECT_EQ(decoded.b.value().value(), semantic.b.value().value());
+    EXPECT_EQ(*decoded.b, *semantic.b);
   }
 }
 
@@ -201,7 +201,7 @@ TEST(TypeCodec, JsonRawTextDoesNotDoubleEscapeInBinaryFormats) {
 
 TEST(TypeCodec, NativeScalarEncodingRespectsNumericAndRootLimits) {
   Document<types::value::Uint64> document;
-  document.b.value().value() = std::numeric_limits<std::uint64_t>::max();
+  *document.b = std::numeric_limits<std::uint64_t>::max();
   auto oversized = [&]<class W>() {
     std::string output;
     W writer(output);

@@ -34,7 +34,7 @@ void expect_round_trip(std::string_view text, std::string_view canonical) {
   EXPECT_EQ(output, std::string("\"value\" = ") + std::string(canonical) + '\n');
   TemporalDocument<Value> decoded;
   ASSERT_TRUE(decode_document_into<toml::Reader<>>(decoded, output).is_ok());
-  EXPECT_EQ(decoded.value.value().value(), document.value.value().value());
+  EXPECT_EQ(*decoded.value, *document.value);
 }
 
 TEST(TomlSemantic, FourNativeDateTimeCategoriesRoundTrip) {
@@ -55,11 +55,11 @@ TEST(TomlSemantic, OffsetAndUnknownZeroArePreserved) {
   }
   TemporalDocument<types::value::OffsetDateTime> document;
   ASSERT_TRUE(decode_temporal(document, "1979-05-27T07:32:00-00:00").is_ok());
-  EXPECT_EQ(document.value.value().value().offset_minutes, 0);
-  EXPECT_TRUE(document.value.value().value().negative_zero_offset);
+  EXPECT_EQ(document.value->offset_minutes, 0);
+  EXPECT_TRUE(document.value->negative_zero_offset);
   ASSERT_TRUE(decode_temporal(document, "1979-05-27T07:32:00+05:45").is_ok());
-  EXPECT_EQ(document.value.value().value().offset_minutes, 345);
-  EXPECT_FALSE(document.value.value().value().negative_zero_offset);
+  EXPECT_EQ(document.value->offset_minutes, 345);
+  EXPECT_FALSE(document.value->negative_zero_offset);
 }
 
 TEST(TomlSemantic, LeapSecondIsRetainedWithoutCoercingToInstant) {
@@ -111,7 +111,7 @@ TEST(TomlSemantic, QuotedDateTimesRemainText) {
             ErrorCode::type_mismatch);
   TemporalDocument<types::value::Text> text;
   ASSERT_TRUE(decode_temporal(text, "\"1979-05-27T07:32:00Z\"").is_ok());
-  EXPECT_EQ(text.value.value().value(), "1979-05-27T07:32:00Z");
+  EXPECT_EQ(*text.value, "1979-05-27T07:32:00Z");
 }
 
 TEST(TomlSemantic, NanosecondPrecisionNeverSilentlyTruncates) {
@@ -169,7 +169,7 @@ TEST(TomlSemantic, InstantRequiresExplicitOffsetAndWritesUtc) {
   TemporalDocument<types::value::Instant> document;
   ASSERT_TRUE(
       decode_temporal(document, "1970-01-01T01:30:00.000000001+01:30").is_ok());
-  EXPECT_EQ(document.value.value().value(), (InstantValue{0, 1}));
+  EXPECT_EQ(*document.value, (InstantValue{0, 1}));
   expect_round_trip<types::value::Instant>("1970-01-01T01:30:00.000000001+01:30",
                                            "1970-01-01T00:00:00.000000001Z");
   expect_round_trip<types::value::Instant>("1969-12-31T23:59:59.999999999Z",

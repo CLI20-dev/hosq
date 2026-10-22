@@ -84,8 +84,8 @@ TYPED_TEST(DecodeJsonTest, StringAndIntFields) {
       decode_into<TypeParam>(json, R"({"name":"John","id":123})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  EXPECT_EQ(json.name.value().value(), "John"sv);
-  EXPECT_EQ(json.id.value().value(), 123);
+  EXPECT_EQ(*json.name, "John"sv);
+  EXPECT_EQ(*json.id, 123);
 }
 
 TYPED_TEST(DecodeJsonTest, FieldsInReverseOrder) {
@@ -95,8 +95,8 @@ TYPED_TEST(DecodeJsonTest, FieldsInReverseOrder) {
       decode_into<TypeParam>(json, R"({"age":30,"name":"Alice"})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  EXPECT_EQ(json.name.value().value(), "Alice"sv);
-  EXPECT_EQ(json.age.value().value(), 30);
+  EXPECT_EQ(*json.name, "Alice"sv);
+  EXPECT_EQ(*json.age, 30);
 }
 
 TYPED_TEST(DecodeJsonTest, RejectsUnknownFields) {
@@ -127,7 +127,7 @@ TYPED_TEST(DecodeJsonTest, SingleStringField) {
   const auto result = decode_into<TypeParam>(json, R"({"msg":"hello world"})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  EXPECT_EQ(json.msg.value().value(), "hello world"sv);
+  EXPECT_EQ(*json.msg, "hello world"sv);
 }
 
 TYPED_TEST(DecodeJsonTest, FloatField) {
@@ -136,7 +136,7 @@ TYPED_TEST(DecodeJsonTest, FloatField) {
   const auto result = decode_into<TypeParam>(json, R"({"ratio":3.14})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  EXPECT_DOUBLE_EQ(json.ratio.value().value(), 3.14);
+  EXPECT_DOUBLE_EQ(*json.ratio, 3.14);
 }
 
 TYPED_TEST(DecodeJsonTest, OnceRejectsDuplicateMembers) {
@@ -147,8 +147,8 @@ TYPED_TEST(DecodeJsonTest, OnceRejectsDuplicateMembers) {
   ASSERT_FALSE(result.is_ok());
   EXPECT_EQ(result.code, ErrorCode::duplicate_member);
   EXPECT_EQ(result.detail, "store::once already has a value"sv);
-  ASSERT_TRUE(json.id.value().value().has_value());
-  EXPECT_EQ(*json.id.value().value(), 1);
+  ASSERT_TRUE(json.id->has_value());
+  EXPECT_EQ(**json.id, 1);
 }
 
 TYPED_TEST(DecodeJsonTest, FirstWinsKeepsFirstDuplicateMember) {
@@ -157,6 +157,6 @@ TYPED_TEST(DecodeJsonTest, FirstWinsKeepsFirstDuplicateMember) {
   const auto result = decode_into<TypeParam>(json, R"({"id":1,"id":2})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  ASSERT_TRUE(json.id.value().value().has_value());
-  EXPECT_EQ(*json.id.value().value(), 1);
+  ASSERT_TRUE(json.id->has_value());
+  EXPECT_EQ(**json.id, 1);
 }

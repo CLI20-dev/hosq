@@ -113,7 +113,7 @@ void compare_member(std::string_view text) {
     EXPECT_EQ(ae.offset, be.offset);
     EXPECT_EQ(ae.detail, be.detail);
   }
-  same_value(x.id.value().value(), y.id.value().value());
+  same_value(*x.id, *y.id);
   same_state(a, b);
 }
 template <auto Value, json::InputPadding P>
@@ -179,7 +179,7 @@ TEST(ReaderViewSpecialization, MemberStringPreservesConstOverloadSelection) {
   Record<V> e;
   OverloadedStore::const_calls = OverloadedStore::mutable_calls = 0;
   EXPECT_TRUE(decode_into<json::FastReader<>>(e, R"({"id":"text"})").is_ok());
-  EXPECT_EQ(e.id.value().value(), "text");
+  EXPECT_EQ(*e.id, "text");
   EXPECT_EQ(OverloadedStore::const_calls, 1);
   EXPECT_EQ(OverloadedStore::mutable_calls, 0);
 }
@@ -206,7 +206,7 @@ TEST(ReaderViewSpecialization, DerivedUserStepIsNotMistakenForBuiltinNumber) {
       Elem<scan::scalar | step<CustomNumber> | store::assign, noop_encoder>;
   Record<M> member;
   EXPECT_TRUE(decode_into<json::FastReader<>>(member, "{\"id\":123}").is_ok());
-  EXPECT_EQ(member.id.value().value(), 17);
+  EXPECT_EQ(*member.id, 17);
   EXPECT_EQ(CustomNumber::calls, 3);
 }
 TEST(ReaderViewSpecialization, CustomReaderNumberExtensionStillRuns) {
@@ -217,7 +217,7 @@ TEST(ReaderViewSpecialization, CustomReaderNumberExtensionStillRuns) {
   EXPECT_EQ(v.value(), 77);
   Record<V> member;
   EXPECT_TRUE(decode_into<CustomNumberReader>(member, "{\"id\":12}").is_ok());
-  EXPECT_EQ(member.id.value().value(), 77);
+  EXPECT_EQ(*member.id, 77);
 }
 }  // namespace
 
@@ -359,7 +359,7 @@ TEST(ReaderViewSpecialization, MemberNumberIntoPreservesOutputOnFailure) {
     OrdinaryReader<> plain;
     Fast::state_type a, b;
     Record<V> x, y;
-    x.id.value().value() = y.id.value().value() = 77;
+    *x.id = *y.id = 77;
     fast.reset(a, input);
     plain.reset(b, input);
     ASSERT_TRUE(fast.next_token(a));
@@ -367,7 +367,7 @@ TEST(ReaderViewSpecialization, MemberNumberIntoPreservesOutputOnFailure) {
     auto ae = Decoder<Fast>::decode_nested(x, fast, a);
     auto be = Decoder<OrdinaryReader<>>::decode_nested(y, plain, b);
     EXPECT_EQ(ae.code, be.code);
-    same_value(x.id.value().value(), y.id.value().value());
+    same_value(*x.id, *y.id);
     same_state(a, b);
   }
 }

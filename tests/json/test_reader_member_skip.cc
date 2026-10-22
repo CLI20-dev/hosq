@@ -63,7 +63,7 @@ void examples() {
     input.append(8, '\0');
     Fields f;
     EXPECT_TRUE(decode_into<R>(f, {input.data(), size}).is_ok());
-    EXPECT_EQ(f.id.value().value(), 7);
+    EXPECT_EQ(*f.id, 7);
   }
 }
 }  // namespace
@@ -87,7 +87,7 @@ TEST(ReaderMemberSkip, CustomFallbackStillObservesEveryUnknownMember) {
                   f, R"({"a":1,"b":true,"id":7,"c":null,"d":"text"})")
                   .is_ok());
   EXPECT_EQ(ObserveKey::calls, 4);
-  EXPECT_EQ(f.id.value().value(), 7);
+  EXPECT_EQ(*f.id, 7);
 }
 
 TEST(ReaderMemberSkip, KnownKeyHandlerIsReachedWithoutIntermediateScalarTokens) {
@@ -118,5 +118,5 @@ TEST(ReaderMemberSkip, CustomSkipAdapterIsNotBypassed) {
                   f, R"({"a":1,"b":true,"id":7,"c":null,"d":"text"})")
                   .is_ok());
   EXPECT_EQ(member_skip_test::value_calls, 4);
-  EXPECT_EQ(f.id.value().value(), 7);
+  EXPECT_EQ(*f.id, 7);
 }

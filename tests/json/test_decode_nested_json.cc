@@ -78,12 +78,11 @@ TYPED_TEST(DecodeNestedJsonTest, DecodesNestedObjectValue) {
       R"({"id":7,"name":"Alice","address":{"city":"Tokyo","zip":100},"profile":{"display_name":"alice"}})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  EXPECT_EQ(user.id.value().value(), 7);
-  EXPECT_EQ(user.name.value().value(), "Alice"sv);
-  EXPECT_EQ(user.address.value().value().city.value().value(), "Tokyo"sv);
-  EXPECT_EQ(user.address.value().value().zip.value().value(), 100);
-  EXPECT_EQ(user.profile.value().value().display_name.value().value(),
-            "alice"sv);
+  EXPECT_EQ(*user.id, 7);
+  EXPECT_EQ(*user.name, "Alice"sv);
+  EXPECT_EQ(*user.address->city, "Tokyo"sv);
+  EXPECT_EQ(*user.address->zip, 100);
+  EXPECT_EQ(*user.profile->display_name, "alice"sv);
 }
 
 TYPED_TEST(DecodeNestedJsonTest, DecodesNestedFieldsInReverseOrder) {
@@ -94,11 +93,11 @@ TYPED_TEST(DecodeNestedJsonTest, DecodesNestedFieldsInReverseOrder) {
       R"({"profile":{"display_name":"bob"},"address":{"zip":150,"city":"Osaka"},"name":"Bob","id":8})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  EXPECT_EQ(user.id.value().value(), 8);
-  EXPECT_EQ(user.name.value().value(), "Bob"sv);
-  EXPECT_EQ(user.address.value().value().city.value().value(), "Osaka"sv);
-  EXPECT_EQ(user.address.value().value().zip.value().value(), 150);
-  EXPECT_EQ(user.profile.value().value().display_name.value().value(), "bob"sv);
+  EXPECT_EQ(*user.id, 8);
+  EXPECT_EQ(*user.name, "Bob"sv);
+  EXPECT_EQ(*user.address->city, "Osaka"sv);
+  EXPECT_EQ(*user.address->zip, 150);
+  EXPECT_EQ(*user.profile->display_name, "bob"sv);
 }
 
 TYPED_TEST(DecodeNestedJsonTest, DecodesMultipleNestedObjectLevels) {
@@ -109,22 +108,12 @@ TYPED_TEST(DecodeNestedJsonTest, DecodesMultipleNestedObjectLevels) {
       R"({"name":"Acme","owner":{"id":1,"name":"Carol","address":{"city":"Kyoto","zip":600},"profile":{"display_name":"ceo"}}})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  EXPECT_EQ(company.name.value().value(), "Acme"sv);
-  EXPECT_EQ(company.owner.value().value().id.value().value(), 1);
-  EXPECT_EQ(company.owner.value().value().name.value().value(), "Carol"sv);
-  EXPECT_EQ(
-      company.owner.value().value().address.value().value().city.value().value(),
-      "Kyoto"sv);
-  EXPECT_EQ(
-      company.owner.value().value().address.value().value().zip.value().value(),
-      600);
-  EXPECT_EQ(company.owner.value()
-                .value()
-                .profile.value()
-                .value()
-                .display_name.value()
-                .value(),
-            "ceo"sv);
+  EXPECT_EQ(*company.name, "Acme"sv);
+  EXPECT_EQ(*company.owner->id, 1);
+  EXPECT_EQ(*company.owner->name, "Carol"sv);
+  EXPECT_EQ(*company.owner->address->city, "Kyoto"sv);
+  EXPECT_EQ(*company.owner->address->zip, 600);
+  EXPECT_EQ(*company.owner->profile->display_name, "ceo"sv);
 }
 
 TYPED_TEST(DecodeNestedJsonTest, RejectsUnknownNestedField) {
@@ -156,6 +145,6 @@ TYPED_TEST(DecodeNestedJsonTest, SkipIgnoresUnknownScalarObjectAndArrayValues) {
       R"({"ignored_scalar":1,"name":"Alice","ignored_object":{"a":[1,2,3]},"id":7,"ignored_array":[{"x":1},2,3]})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  EXPECT_EQ(user.id.value().value(), 7);
-  EXPECT_EQ(user.name.value().value(), "Alice"sv);
+  EXPECT_EQ(*user.id, 7);
+  EXPECT_EQ(*user.name, "Alice"sv);
 }

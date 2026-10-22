@@ -70,9 +70,9 @@ TEST(TypeContainers, RecordUnorderedRequiredUnknownAndDuplicate) {
   ASSERT_TRUE(read<json::SimpleReader>(
                   value, R"({"child":{"n":3},"matrix":[[1,2]],"title":"t"})")
                   .is_ok());
-  EXPECT_EQ(value.value().title.value().value(), "t");
-  EXPECT_EQ(value.value().child.value().value().n.value().value(), 3);
-  EXPECT_FALSE(value.value().note.value().value());
+  EXPECT_EQ(*value.value().title, "t");
+  EXPECT_EQ(*value.value().child->n, 3);
+  EXPECT_FALSE(*value.value().note);
   EXPECT_EQ(read<json::SimpleReader>(value, R"({"title":"t","matrix":[]})").code,
             EC::missing_required);
   EXPECT_EQ(
@@ -100,7 +100,7 @@ TEST(TypeContainers, MissingNullAndEmptyOptionalAreDifferent) {
   };
   t::Record<S> value;
   ASSERT_TRUE(read<json::SimpleReader>(value, R"({"null":null})").is_ok());
-  EXPECT_FALSE(value.value().optional.value().value());
+  EXPECT_FALSE(*value.value().optional);
   EXPECT_EQ(write<json::CompactWriter<>>(value), R"({"null":null})");
   EXPECT_EQ(read<json::SimpleReader>(value, "{}").code, EC::missing_required);
   EXPECT_EQ(
@@ -108,8 +108,8 @@ TEST(TypeContainers, MissingNullAndEmptyOptionalAreDifferent) {
       EC::type_mismatch);
   ASSERT_TRUE(
       read<json::SimpleReader>(value, R"({"null":null,"optional":""})").is_ok());
-  ASSERT_TRUE(value.value().optional.value().value());
-  EXPECT_EQ(*value.value().optional.value().value(), "");
+  ASSERT_TRUE(*value.value().optional);
+  EXPECT_EQ(**value.value().optional, "");
   EXPECT_EQ(write<json::CompactWriter<>>(value),
             R"({"null":null,"optional":""})");
   t::Optional<t::Text> absent;
@@ -121,7 +121,7 @@ TEST(TypeContainers, MissingNullAndEmptyOptionalAreDifferent) {
   EXPECT_TRUE(null.value().has_value());
   EXPECT_EQ(write<json::CompactWriter<>>(null), "null");
   ASSERT_TRUE(read<json::SimpleReader>(value, R"({"null":null})").is_ok());
-  EXPECT_FALSE(value.value().optional.value().value());
+  EXPECT_FALSE(*value.value().optional);
   struct RequiredOptional {
     Entry<Key<"x">, t::Optional<t::Text>> x;
   };
@@ -182,23 +182,23 @@ void roundtrip(const Record& original) {
   Record decoded;
   const auto error = read<R>(decoded, encoded);
   ASSERT_TRUE(error.is_ok()) << error.detail;
-  EXPECT_EQ(decoded.value().title.value().value(), "hello\nworld");
-  EXPECT_EQ(decoded.value().matrix.value().value(),
+  EXPECT_EQ(*decoded.value().title, "hello\nworld");
+  EXPECT_EQ(*decoded.value().matrix,
             (std::vector<std::vector<int>>{{1, 2}, {}, {3}}));
-  EXPECT_EQ(decoded.value().child.value().value().n.value().value(), 7);
-  ASSERT_TRUE(decoded.value().note.value().value());
-  EXPECT_EQ(*decoded.value().note.value().value(), "note");
+  EXPECT_EQ(*decoded.value().child->n, 7);
+  ASSERT_TRUE(*decoded.value().note);
+  EXPECT_EQ(**decoded.value().note, "note");
   const auto json = write<json::CompactWriter<>>(decoded);
   Record converted;
   ASSERT_TRUE(read<json::SimpleReader>(converted, json).is_ok());
-  EXPECT_EQ(converted.value().title.value().value(), "hello\nworld");
+  EXPECT_EQ(*converted.value().title, "hello\nworld");
 }
 TEST(TypeContainers, SameAndCrossFormatNestedRoundTrips) {
   Record original;
-  original.value().title.value().value() = "hello\nworld";
-  original.value().matrix.value().value() = {{1, 2}, {}, {3}};
-  original.value().child.value().value().n.value().value() = 7;
-  original.value().note.value().value() = "note";
+  *original.value().title = "hello\nworld";
+  *original.value().matrix = {{1, 2}, {}, {3}};
+  *original.value().child->n = 7;
+  *original.value().note = "note";
   roundtrip<json::CompactWriter<>, json::SimpleReader>(original);
   roundtrip<bson::Writer<>, bson::Reader<>>(original);
   roundtrip<msgpack::Writer<>, msgpack::Reader<>>(original);
@@ -209,7 +209,7 @@ TEST(TypeContainers, TupleEmptySchemasAndEscapedTomlKeys) {
                        Try<Entry<Key<"y">, t::Optional<t::Text>>>>;
   t::Record<S> tuple;
   ASSERT_TRUE(read<toml::Reader<>>(tuple, "\"\\u0078\"=42").is_ok());
-  EXPECT_EQ(std::get<0>(tuple.value()).value().value(), 42);
+  EXPECT_EQ(*std::get<0>(tuple.value()), 42);
   EXPECT_EQ(write<json::CompactWriter<>>(tuple), R"({"x":42})");
   struct Empty {};
   t::Object<Empty> empty;
@@ -282,7 +282,7 @@ TEST(TypeContainers, ReaderOnlyNestedElementsCannotDisappearDuringEncoding) {
     Entry<Key<"x">, ReaderOnly> x;
   };
   t::Record<S> record;
-  record.value().x.value().value() = 42;
+  *record.value().x = 42;
   (void)write<msgpack::Writer<>>(record, &error);
   EXPECT_EQ(error.code, EC::unsupported_type);
 }

@@ -111,9 +111,9 @@ TYPED_TEST(DecodeVectorTest, DecodesObjectMemberArrayValues) {
   const auto result = decode_into<TypeParam>(document, R"({"ids":[4,5]})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  ASSERT_EQ(document.ids.value().value().size(), 2U);
-  EXPECT_EQ(document.ids.value().value()[0], 4);
-  EXPECT_EQ(document.ids.value().value()[1], 5);
+  ASSERT_EQ(document.ids->size(), 2U);
+  EXPECT_EQ((*document.ids)[0], 4);
+  EXPECT_EQ((*document.ids)[1], 5);
 }
 
 TYPED_TEST(DecodeVectorTest, DecodesObjectMemberArrayValuesWithReorderedKeys) {
@@ -131,10 +131,10 @@ TYPED_TEST(DecodeVectorTest, DecodesObjectMemberArrayValuesWithReorderedKeys) {
       decode_into<TypeParam>(document, R"({"version":2,"ids":[7,8]})"sv);
 
   ASSERT_TRUE(result.is_ok());
-  EXPECT_EQ(document.version.value().value(), 2);
-  ASSERT_EQ(document.ids.value().value().size(), 2U);
-  EXPECT_EQ(document.ids.value().value()[0], 7);
-  EXPECT_EQ(document.ids.value().value()[1], 8);
+  EXPECT_EQ(*document.version, 2);
+  ASSERT_EQ(document.ids->size(), 2U);
+  EXPECT_EQ((*document.ids)[0], 7);
+  EXPECT_EQ((*document.ids)[1], 8);
 }
 
 TYPED_TEST(DecodeVectorTest, RequiresArrayBegin) {

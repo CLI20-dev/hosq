@@ -24,8 +24,8 @@ TYPED_TEST(ConstEntryTest, OrderedConstantsAndQuotedNumbers) {
        {R"({"id":12,"count":34})", R"({ "id" : "12", "count" : 34 })"}) {
     Ordered out;
     ASSERT_TRUE(decode_into<TypeParam>(out, input).is_ok());
-    EXPECT_EQ(out.id.value().value(), 12);
-    EXPECT_EQ(out.count.value().value(), 34);
+    EXPECT_EQ(*out.id, 12);
+    EXPECT_EQ(*out.count, 34);
   }
 }
 TYPED_TEST(ConstEntryTest, RejectsWrongKeysMissingValuesAndTruncation) {

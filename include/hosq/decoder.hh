@@ -10,6 +10,7 @@
 #include "hosq/detail/as_tuple.hh"
 #include "hosq/detail/compiler.hh"
 #include "hosq/detail/type_traits.hh"
+#include "hosq/entry.hh"
 #include "hosq/meta_match.hh"
 #include "hosq/pipeline/decode.hh"
 #include "hosq/pipeline/scan.hh"
@@ -196,10 +197,11 @@ class Decoder<R> {
                                               StateT& reader_state) -> bool {
     if constexpr (detail::ConstKeyEntryT<T> && requires {
                     ext::EntryInput<ReaderT>{}.template decode<T::key()>(
-                        t.value(), reader, reader_state);
+                        ::hosq::detail::EntryAccess::elem(t), reader,
+                        reader_state);
                   }) {
-      if (ext::EntryInput<ReaderT>{}.template decode<T::key()>(t.value(), reader,
-                                                               reader_state))
+      if (ext::EntryInput<ReaderT>{}.template decode<T::key()>(
+              ::hosq::detail::EntryAccess::elem(t), reader, reader_state))
         return true;
     }
     bool ready = false;
@@ -212,8 +214,9 @@ class Decoder<R> {
       }
     }
     if (!ready && !read_entry_key(t, reader, reader_state)) return false;
-    auto value_ctx = make_decode_context(t.value(), reader, reader_state);
-    t.value().decode(value_ctx);
+    auto value_ctx = make_decode_context(::hosq::detail::EntryAccess::elem(t),
+                                         reader, reader_state);
+    ::hosq::detail::EntryAccess::elem(t).decode(value_ctx);
     return true;
   }
 
@@ -450,7 +453,7 @@ class Decoder<R> {
               return;
             }
 
-            auto& value = entry.value();
+            auto& value = ::hosq::detail::EntryAccess::elem(entry);
             auto value_ctx = make_decode_context<value_type, TryPhase::first>(
                 value, reader, reader_state);
 
@@ -475,11 +478,13 @@ class Decoder<R> {
             if constexpr (requires {
                             ext::EntryInput<R>{}
                                 .template decode_matched<entry_type::key()>(
-                                    entry.value(), reader, reader_state);
+                                    ::hosq::detail::EntryAccess::elem(entry),
+                                    reader, reader_state);
                           }) {
               if (ext::EntryInput<R>{}
                       .template decode_matched<entry_type::key()>(
-                          entry.value(), reader, reader_state)) {
+                          ::hosq::detail::EntryAccess::elem(entry), reader,
+                          reader_state)) {
                 decoded = true;
                 return;
               }
@@ -490,7 +495,7 @@ class Decoder<R> {
               return;
             }
 
-            auto& value = entry.value();
+            auto& value = ::hosq::detail::EntryAccess::elem(entry);
             auto value_ctx = make_decode_context<value_type, TryPhase::first>(
                 value, reader, reader_state);
 
@@ -577,7 +582,7 @@ class Decoder<R> {
                 return false;
               }
 
-              auto& value_elem = entry.value();
+              auto& value_elem = ::hosq::detail::EntryAccess::elem(entry);
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
                       value_elem, reader, reader_state);
@@ -593,7 +598,7 @@ class Decoder<R> {
                       reader, reader_state)) [[unlikely]] {
                 return false;
               }
-              auto& value_elem = entry.value();
+              auto& value_elem = ::hosq::detail::EntryAccess::elem(entry);
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
                       value_elem, reader, reader_state);
@@ -623,7 +628,7 @@ class Decoder<R> {
               return false;
             }
 
-            auto& value_elem = entry.value();
+            auto& value_elem = ::hosq::detail::EntryAccess::elem(entry);
             auto value_ctx =
                 make_decode_context<value_elem_type, TryPhase::first>(
                     value_elem, reader, reader_state);

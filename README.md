@@ -44,8 +44,8 @@ int main() {
   const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
       user, R"({"name":"a\nb","id":42})");
   if (error) return 1;  // error.code, error.offset, and error.detail explain it.
-  assert(user.value().id.value().value() == 42);
-  assert(user.value().name.value().value() == "a\nb");
+  assert(*user.value().id == 42);
+  assert(*user.value().name == "a\nb");
 }
 ```
 
@@ -84,11 +84,11 @@ int main() {
       profile, R"({"tags":["cpp"],"scores":{"tests":3},
                    "address":{"city":"Kyoto"}})");
   if (error) return 1;
-  assert(profile.value().address.value().value().city.value().value() == "Kyoto");
-  assert(profile.value().tags.value().value().at(0) == "cpp");
-  const auto& scores = profile.value().scores.value().value();
+  assert(*profile.value().address->city == "Kyoto");
+  assert(profile.value().tags->at(0) == "cpp");
+  const auto& scores = *profile.value().scores;
   assert(scores.keys().at(0) == "tests" && scores.values().at(0) == 3);
-  assert(!profile.value().nickname.value().value());
+  assert(!*profile.value().nickname);
 }
 ```
 
@@ -282,8 +282,8 @@ struct User {
 
 int main() {
   v::Record<User> user;
-  user.value().id.value().value() = 42;
-  user.value().name.value().value() = "Ada";
+  *user.value().id = 42;
+  *user.value().name = "Ada";
   std::string output;
   hosq::msgpack::Writer writer{output};
   if (!hosq::encode_into(user, writer)) {
@@ -294,8 +294,8 @@ int main() {
   const auto error = hosq::decode_document_into<hosq::msgpack::Reader<>>(
       decoded, output);
   if (error) return 1;
-  assert(decoded.value().name.value().value() == "Ada");
-  assert(decoded.value().id.value().value() == 42);
+  assert(*decoded.value().name == "Ada");
+  assert(*decoded.value().id == 42);
 }
 ```
 
@@ -472,9 +472,9 @@ int main() {
   const auto error = decode_into<json::FastReader<>>(
       record, R"({"ok":true,"name":"Ada","n":42})");
   if (error) return 1;
-  assert(record.n.value().value() == 42);
-  assert(record.name.value().value() == "Ada");
-  assert(record.ok.value().value());
+  assert(*record.n == 42);
+  assert(*record.name == "Ada");
+  assert(*record.ok);
   std::string output;
   msgpack::Writer writer{output};
   if (!encode_into(record, writer)) return 1;
