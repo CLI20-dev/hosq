@@ -24,10 +24,10 @@ namespace hosq {
  * Plain values are forwarded directly to the next pipeline step.
  * Terminal plain values are preserved as the pipeline result.
  *
- * If a step returns a `MatchResult` that is empty (mismatch), the pipeline
- * short-circuits and returns `false` immediately. If the result holds a value
- * (match), the inner value is unwrapped and forwarded to the next step.
- * A terminal `MatchResult` step yields `bool`.
+ * A `MatchResult` marks candidate control flow. A mismatch short-circuits;
+ * a match forwards its payload to subsequent steps. The final result retains
+ * `MatchResult<Payload>` or `MatchResult<void>` even after ordinary steps.
+ * Plain bool values remain ordinary data and do not control matching.
  *
  * Pipelines do not propagate hard errors through return values.
  * Instead, pipeline steps may report hard errors through the decoding
@@ -117,8 +117,9 @@ struct Pipeline {
    *
    * Plain return values are forwarded directly. If a step returns `void`,
    * the next step is invoked without an explicit input value. If a step
-   * returns a `MatchResult` that is empty, the pipeline short-circuits and
-   * returns `false`; otherwise the inner value is unwrapped and forwarded.
+   * returns a mismatched `MatchResult`, the pipeline short-circuits with the
+   * final result's match type. Otherwise its payload is unwrapped and forwarded.
+   * Matching remains represented in the final `MatchResult<Payload/void>`.
    *
    * Pipeline invocation does not propagate hard errors through return values.
    * Steps that encounter hard errors should report them through the context
@@ -129,8 +130,8 @@ struct Pipeline {
    * @tparam Context Context type, deduced with cv-qualification.
    * @param input Input value consumed by the first step.
    * @param ctx Pipeline context (mutable or const).
-   * @return The final pipeline result. Terminal plain values are returned
-   *         as-is; a terminal `MatchResult` step yields `bool`.
+   * @return The final plain value, or `MatchResult<Payload/void>` when any
+   *         step performs candidate matching.
    */
   template <class Arg, class Context>
   [[nodiscard]]
@@ -192,8 +193,9 @@ struct Pipeline {
    *
    * Plain return values are forwarded directly. If a step returns `void`,
    * the next step is invoked without an explicit input value. If a step
-   * returns a `MatchResult` that is empty, the pipeline short-circuits and
-   * returns `false`; otherwise the inner value is unwrapped and forwarded.
+   * returns a mismatched `MatchResult`, the pipeline short-circuits with the
+   * final result's match type. Otherwise its payload is unwrapped and forwarded.
+   * Matching remains represented in the final `MatchResult<Payload/void>`.
    *
    * Pipeline invocation does not propagate hard errors through return values.
    * Steps that encounter hard errors should report them through the context
@@ -202,8 +204,8 @@ struct Pipeline {
    *
    * @tparam Context Context type, deduced with cv-qualification.
    * @param ctx Pipeline context (mutable or const).
-   * @return The final pipeline result. Terminal plain values are returned
-   *         as-is; a terminal `MatchResult` step yields `bool`.
+   * @return The final plain value, or `MatchResult<Payload/void>` when any
+   *         step performs candidate matching.
    */
   template <class Context>
   [[nodiscard]]
@@ -234,7 +236,19 @@ struct Pipeline {
     using Result = std::invoke_result_t<F>;
     if constexpr (sizeof...(Tail) == 0) {
       if constexpr (detail::MatchResultT<Result>) {
-        return bool(std::forward<F>(fn)());
+        using Payload = typename std::remove_cvref_t<Result>::value_type;
+        if constexpr (std::same_as<Payload, void>) {
+          return std::forward<F>(fn)();
+        } else {
+          using Ordinary = detail::step_input_t<Payload, void, Context>;
+          using Return = MatchResult<Ordinary>;
+          auto result = std::forward<F>(fn)();
+          if (!result) return Return{std::nullopt};
+          auto input = std::move(result).value();
+          return Return{
+              true, std::move(ext::InputView<Payload>::template get<void>(input,
+                                                                          ctx))};
+        }
       } else {
         return detail::invoke_terminal(ctx, std::forward<F>(fn));
       }
@@ -242,20 +256,34 @@ struct Pipeline {
       std::forward<F>(fn)();
       return Pipeline<Tail...>::invoke(ctx);
     } else if constexpr (detail::MatchResultT<Result>) {
-      auto ret = std::forward<F>(fn)();
-      if (!ret) return false;
-      using Pipe = Pipeline<Tail...>;
-      if constexpr (std::same_as<decltype(Pipe::invoke(std::move(ret).value(),
-                                                       ctx)),
-                                 void>) {
-        Pipe::invoke(std::move(ret).value(), ctx);
-        return true;
-      } else {
-        return Pipe::invoke(std::move(ret).value(), ctx);
-      }
+      auto result = std::forward<F>(fn)();
+      using Payload = typename std::remove_cvref_t<Result>::value_type;
+      auto continue_match = [&]() HOSQ_ALWAYS_INLINE_ATTR -> decltype(auto) {
+        if constexpr (std::same_as<Payload, void>)
+          return Pipeline<Tail...>::invoke(ctx);
+        else
+          return Pipeline<Tail...>::invoke(std::move(result).value(), ctx);
+      };
+      using After = std::invoke_result_t<decltype(continue_match)>;
+      using Return = MatchResult<detail::pipeline_after_t<After>>;
+      if (!result) return Return{std::nullopt};
+      return invoke_matched_tail<Return>(continue_match);
     } else {
       return Pipeline<Tail...>::invoke(std::forward<F>(fn)(), ctx);
     }
+  }
+
+  template <class Return, class F>
+  HOSQ_ALWAYS_INLINE static constexpr auto invoke_matched_tail(F&& fn)
+      -> Return {
+    using After = std::invoke_result_t<F>;
+    if constexpr (detail::MatchResultT<After>)
+      return std::forward<F>(fn)();
+    else if constexpr (std::same_as<After, void>) {
+      std::forward<F>(fn)();
+      return Return{true};
+    } else
+      return Return{true, std::forward<F>(fn)()};
   }
 };
 

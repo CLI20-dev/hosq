@@ -13,12 +13,13 @@
 #include <variant>
 
 #include "hosq/bytes_view.hh"
-#include "hosq/detail/raw_text.hh"
 #include "hosq/detail/type_traits.hh"
 #include "hosq/detail/utf8.hh"
 #include "hosq/extended_value_types.hh"
 #include "hosq/fwd.hh"
 #include "hosq/map.hh"
+#include "hosq/mapping_value.hh"
+#include "hosq/value_types.hh"
 #include "hosq/writer_base.hh"
 
 namespace hosq::detail {
@@ -37,18 +38,13 @@ struct IsEncodeMap<Map<K, V>> : std::true_type {};
 
 template <class W>
 auto encode_error(W& writer, ErrorCode code, std::string_view why) -> bool {
-  if constexpr (requires { writer.report_error(Error{}); })
-    writer.report_error({code, writer.output().size(), why});
-  else {
-    // Preserve the original WriterConcept; legacy writers need no new method.
-    (void)writer.write({0, TokenType::Error, 0});
-  }
+  report_writer_error(writer, {code, writer.output().size(), why});
   return false;
 }
 template <class W>
 auto encode_token(W& writer, TokenType type) -> bool {
   (void)writer.write({0, type, 0});
-  return writer.error().is_ok();
+  return ::hosq::detail::writer_error(writer).is_ok();
 }
 // Legacy JSON writers accept encoded bytes through WriteRequest. This fallback
 // leaves encode::number/boolean/string_view and custom pipelines unchanged.
@@ -58,7 +54,7 @@ auto encode_json_scalar(W& writer, std::string_view value, bool string) -> bool 
       {value.size(), TokenType::Scalar,
        static_cast<std::uint8_t>(string ? JsonTokenContext::string
                                         : JsonTokenContext::literal)});
-  if (writer.error()) return false;
+  if (::hosq::detail::writer_error(writer)) return false;
   std::copy(value.begin(), value.end(), buffer.data());
   return writer.commit(value.size());
 }
@@ -103,7 +99,7 @@ inline auto escaped_string_body(std::string_view value) -> std::string {
 template <class T, class W>
 auto encode_native_value(const T& value, W& writer) -> bool {
   using V = std::remove_cvref_t<T>;
-  if (writer.error()) return false;
+  if (::hosq::detail::writer_error(writer)) return false;
   if constexpr (IsEncodeOptional<V>::value) {
     if (!value)
       return encode_error(
@@ -132,12 +128,6 @@ auto encode_native_value(const T& value, W& writer) -> bool {
       return writer.write_semantic(value);
     return encode_error(writer, ErrorCode::unsupported_type,
                         "this format has no codec for this semantic type");
-  } else if constexpr (std::same_as<V, RawTextValue>) {
-    std::string text;
-    if (!resolve_raw_text(value, text))
-      return encode_error(writer, ErrorCode::invalid_escape,
-                          "invalid raw string representation");
-    return encode_native_value(text, writer);
   } else if constexpr (std::same_as<V, BytesValue>) {
     const BytesView bytes(
         reinterpret_cast<const std::uint8_t*>(value.value.data()),
@@ -206,6 +196,13 @@ auto encode_native_value(const T& value, W& writer) -> bool {
   } else if constexpr (std::same_as<V, BytesView>) {
     if constexpr (requires { writer.write_binary(value); })
       return writer.write_binary(value);
+  } else if constexpr (IsMappingValue<V>::value) {
+    if (!encode_token(writer, TokenType::ObjectBegin)) return false;
+    for (const auto& [key, item] : value.entries())
+      if (!encode_native_value(key, writer) ||
+          !encode_native_value(item, writer))
+        return false;
+    return encode_token(writer, TokenType::ObjectEnd);
   } else if constexpr (IsEncodeMap<V>::value) {
     if constexpr (std::ranges::sized_range<decltype(value.keys())> &&
                   std::ranges::sized_range<decltype(value.values())>) {

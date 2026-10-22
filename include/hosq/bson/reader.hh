@@ -10,6 +10,7 @@ template <std::size_t MaxDepth = 64>
 class Reader : public ReaderBase<Reader<MaxDepth>>,
                public detail::NativeReaderAccess {
  public:
+  using detail::NativeReaderAccess::read_semantic;
   auto next_token_impl(state_type& s) const -> bool {
     if (s.failure) return false;
     if (!s.started) {
@@ -102,19 +103,22 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
         s.token.context !=
             static_cast<std::uint8_t>(detail::NativeContext::extension) ||
         s.scalar_marker != marker) {
-      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                       "expected matching BSON semantic type"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::type_mismatch, s.token.offset,
+                                   "expected matching BSON semantic type"});
       return false;
     }
     if (s.token.length != width) {
-      report_error(s, {ErrorCode::invalid_length, s.token.offset,
-                       "invalid BSON semantic payload length"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::invalid_length, s.token.offset,
+                                   "invalid BSON semantic payload length"});
       return false;
     }
     if (s.token.offset > s.input.size() ||
         width > s.input.size() - s.token.offset) {
-      report_error(s, {ErrorCode::unexpected_eof, s.token.offset,
-                       "truncated BSON semantic payload"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::unexpected_eof, s.token.offset,
+                                   "truncated BSON semantic payload"});
       return false;
     }
     return true;

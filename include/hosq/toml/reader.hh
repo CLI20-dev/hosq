@@ -7,6 +7,8 @@
 #include "hosq/detail/native_reader.hh"
 #include "hosq/detail/temporal.hh"
 #include "hosq/meta_match.hh"
+#include "hosq/pipeline/string.hh"
+#include "hosq/toml/string_codec.hh"
 
 namespace hosq::toml {
 // TOML 1.0.0. A structural index reconciles dotted keys and out-of-order table
@@ -39,6 +41,7 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
   };
 
  public:
+  using detail::NativeReaderAccess::read_semantic;
   struct state_type : detail::NativeState {
     std::vector<Node> nodes;
     std::vector<Event> events;
@@ -64,7 +67,8 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     s.input = in;
     const auto invalid = detail::invalid_utf8_offset(in);
     if (invalid != in.size()) {
-      s.failure = {ErrorCode::invalid_utf8, invalid, "invalid TOML UTF-8"};
+      s.failure = detail::ErrorInfo{ErrorCode::invalid_utf8, invalid,
+                                    "invalid TOML UTF-8"};
       return;
     }
     if (MaxDepth == 0) {
@@ -125,6 +129,34 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
       s.token = {node.end, 0, e.type, 0};
     return true;
   }
+  // Preserve the quote kind and multiline syntax for an explicit conversion.
+  auto read_string_source(const state_type& s, std::string_view& output) const
+      -> bool {
+    output = {};
+    if (s.failure) return false;
+    if (s.current == absent || s.token.type != TokenType::Scalar ||
+        s.token.context !=
+            static_cast<std::uint8_t>(detail::NativeContext::string)) {
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
+      return false;
+    }
+    const auto& node = s.nodes[s.current];
+    const auto start = node.source;
+    if (!node.children.empty() && s.input[start] != '"' &&
+        s.input[start] != '\'') {
+      output = s.input.substr(s.token.offset, s.token.length);
+      return true;
+    }
+    string_codec::Cursor cursor{s.input, start};
+    if (!string_codec::parse(cursor)) {
+      detail::report_reader_error(*this, s, cursor.failure);
+      return false;
+    }
+    output = s.input.substr(start, cursor.pos - start);
+    return true;
+  }
   // Owned semantic strings resolve escapes and multiline continuations. The
   // borrowed decode::string_view API deliberately retains original raw bytes.
   auto read_string(const state_type& s, std::string& output) const -> bool {
@@ -133,8 +165,9 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     if (s.current == absent || s.token.type != TokenType::Scalar ||
         s.token.context !=
             static_cast<std::uint8_t>(detail::NativeContext::string)) {
-      report_error(
-          s, {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
       return false;
     }
     const auto& node = s.nodes[s.current];
@@ -147,38 +180,9 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     cursor.pos = node.source;
     if (!string(cursor, &output)) {
       output.clear();
-      report_error(s, cursor.failure);
+      detail::report_reader_error(*this, s, cursor.failure);
       return false;
     }
-    return true;
-  }
-  // Preserve quote kind, escapes, and multiline continuations in a view of the
-  // caller's input. Bare keys already contain semantic UTF-8 bytes.
-  auto read_raw_text(const state_type& s, RawTextValue& output) const -> bool {
-    output = {};
-    if (s.failure) return false;
-    if (s.current == absent || s.token.type != TokenType::Scalar ||
-        s.token.context !=
-            static_cast<std::uint8_t>(detail::NativeContext::string)) {
-      report_error(
-          s, {ErrorCode::type_mismatch, s.token.offset, "expected TOML string"});
-      return false;
-    }
-    const auto& node = s.nodes[s.current];
-    const auto start = node.source;
-    if (!node.children.empty() && s.input[start] != '"' &&
-        s.input[start] != '\'') {
-      output = {s.input.substr(s.token.offset, s.token.length), Format::unknown};
-      return true;
-    }
-    state_type cursor;
-    cursor.input = s.input;
-    cursor.pos = start;
-    if (!string(cursor)) {
-      report_error(s, cursor.failure);
-      return false;
-    }
-    output = {s.input.substr(start, cursor.pos - start), Format::toml};
     return true;
   }
   auto read_semantic(const state_type& s, LocalDateValue& output) const -> bool {
@@ -206,8 +210,9 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     OffsetDateTimeValue offset;
     if (!read_semantic(s, offset)) return false;
     if (!detail::offset_to_instant(offset, output)) {
-      report_error(s, {ErrorCode::conversion_error, s.token.offset,
-                       "TOML date-time cannot identify an Instant"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::conversion_error, s.token.offset,
+                                   "TOML date-time cannot identify an Instant"});
       return false;
     }
     return true;
@@ -230,26 +235,32 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     if (s.current == absent || s.token.type != TokenType::Scalar ||
         s.token.context !=
             static_cast<std::uint8_t>(detail::NativeContext::datetime)) {
-      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                       "expected native TOML date/time"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::type_mismatch, s.token.offset,
+                                   "expected native TOML date/time"});
       return false;
     }
     if (s.current >= s.nodes.size() || s.token.offset > s.input.size() ||
         s.token.length > s.input.size() - s.token.offset) {
-      report_error(s, {ErrorCode::invalid_state, s.token.offset,
-                       "invalid TOML date/time token span"});
+      detail::report_reader_error(*this, s,
+                                  {ErrorCode::invalid_state, s.token.offset,
+                                   "invalid TOML date/time token span"});
       return false;
     }
     const auto text = s.input.substr(s.token.offset, s.token.length);
     if (detail::classify_temporal(text) != kind) {
-      report_error(s, {ErrorCode::type_mismatch, s.token.offset,
-                       "TOML date/time category does not match schema"});
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::type_mismatch, s.token.offset,
+           "TOML date/time category does not match schema"});
       return false;
     }
     Value parsed;
     if (!parse(text, parsed)) {
-      report_error(s, {ErrorCode::conversion_error, s.token.offset,
-                       "TOML date/time is not representable without loss"});
+      detail::report_reader_error(
+          *this, s,
+          {ErrorCode::conversion_error, s.token.offset,
+           "TOML date/time is not representable without loss"});
       return false;
     }
     output = parsed;
@@ -439,137 +450,15 @@ class Reader : public ReaderBase<Reader<MaxDepth>>,
     ++s.pos;
     return true;
   }
-  static void append_utf8(std::string& text, std::uint32_t code) {
-    if (code < 0x80)
-      text += static_cast<char>(code);
-    else if (code < 0x800) {
-      text += static_cast<char>(0xc0 | (code >> 6));
-      text += static_cast<char>(0x80 | (code & 63));
-    } else if (code < 0x10000) {
-      text += static_cast<char>(0xe0 | (code >> 12));
-      text += static_cast<char>(0x80 | ((code >> 6) & 63));
-      text += static_cast<char>(0x80 | (code & 63));
-    } else {
-      text += static_cast<char>(0xf0 | (code >> 18));
-      text += static_cast<char>(0x80 | ((code >> 12) & 63));
-      text += static_cast<char>(0x80 | ((code >> 6) & 63));
-      text += static_cast<char>(0x80 | (code & 63));
-    }
-  }
   static auto string(state_type& s, std::string* decoded = nullptr,
                      bool is_key = false) -> bool {
-    const char quote = s.input[s.pos++];
-    const bool multiline = s.input.substr(s.pos, 2) == std::string(2, quote);
-    if (multiline && is_key)
-      return fail(s, ErrorCode::invalid_token,
-                  "multiline TOML keys are forbidden");
-    if (multiline) {
-      s.pos += 2;
-      if (at(s, '\r')) {
-        ++s.pos;
-        if (!at(s, '\n'))
-          return fail(s, ErrorCode::invalid_token, "bare TOML carriage return");
-        ++s.pos;
-      } else if (at(s, '\n'))
-        ++s.pos;
-    }
-    const auto start = s.pos;
-    while (s.pos < s.input.size()) {
-      if (at(s, quote)) {
-        const auto quotes = s.pos;
-        while (at(s, quote)) ++s.pos;
-        const auto n = s.pos - quotes;
-        if (!multiline) {
-          s.pos = quotes + 1;
-          s.token = {start, quotes - start, TokenType::Scalar,
-                     static_cast<std::uint8_t>(detail::NativeContext::string)};
-          return true;
-        }
-        if (n >= 3) {
-          if (n > 5)
-            return fail(s, ErrorCode::invalid_token,
-                        "too many closing TOML quotes");
-          if (decoded) decoded->append(n - 3, quote);
-          s.token = {start, quotes - start + n - 3, TokenType::Scalar,
-                     static_cast<std::uint8_t>(detail::NativeContext::string)};
-          return true;
-        }
-        if (decoded) decoded->append(n, quote);
-        continue;
-      }
-      const unsigned c = static_cast<unsigned char>(s.input[s.pos++]);
-      if ((c < 0x20 && c != '\t' && !(multiline && (c == '\n' || c == '\r'))) ||
-          c == 0x7f)
-        return fail(s, ErrorCode::invalid_token, "control byte in TOML string");
-      if (c == '\r') {
-        if (!at(s, '\n'))
-          return fail(s, ErrorCode::invalid_token, "bare TOML carriage return");
-        ++s.pos;
-        if (decoded) *decoded += '\n';
-        continue;
-      }
-      if (quote == '"' && c == '\\') {
-        if (!need(s, 1, s.input.size())) return false;
-        const auto escape_start = s.pos;
-        if (multiline) {
-          whitespace(s, false);
-          if (at(s, '\r') || at(s, '\n')) {
-            if (at(s, '\r')) {
-              ++s.pos;
-              if (!at(s, '\n'))
-                return fail(s, ErrorCode::invalid_escape,
-                            "invalid TOML line continuation");
-            }
-            ++s.pos;
-            // Trim whitespace, but comments are string content here.
-            while (s.pos < s.input.size()) {
-              if (at(s, ' ') || at(s, '\t') || at(s, '\n'))
-                ++s.pos;
-              else if (at(s, '\r')) {
-                ++s.pos;
-                if (!at(s, '\n'))
-                  return fail(s, ErrorCode::invalid_escape,
-                              "invalid TOML line continuation");
-                ++s.pos;
-              } else
-                break;
-            }
-            continue;
-          }
-          s.pos = escape_start;
-        }
-        const char escape = s.input[s.pos++];
-        if (escape == 'u' || escape == 'U') {
-          const unsigned count = escape == 'u' ? 4 : 8;
-          if (!need(s, count, s.input.size())) return false;
-          std::uint32_t code = 0;
-          for (unsigned i = 0; i < count; ++i) {
-            const char h = s.input[s.pos++];
-            unsigned v;
-            if (h >= '0' && h <= '9')
-              v = h - '0';
-            else if (h >= 'a' && h <= 'f')
-              v = h - 'a' + 10;
-            else if (h >= 'A' && h <= 'F')
-              v = h - 'A' + 10;
-            else
-              return fail(s, ErrorCode::invalid_escape,
-                          "invalid TOML Unicode escape");
-            code = (code << 4) | v;
-          }
-          if (code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff))
-            return fail(s, ErrorCode::invalid_escape, "invalid Unicode scalar");
-          if (decoded) append_utf8(*decoded, code);
-        } else {
-          const auto index = std::string_view("btnfr\"\\").find(escape);
-          if (index == std::string_view::npos)
-            return fail(s, ErrorCode::invalid_escape, "invalid TOML escape");
-          if (decoded) *decoded += std::string_view("\b\t\n\f\r\"\\")[index];
-        }
-      } else if (decoded)
-        *decoded += static_cast<char>(c);
-    }
-    return fail(s, ErrorCode::unexpected_eof, "unterminated TOML string");
+    string_codec::Cursor cursor{s.input, s.pos};
+    const bool valid = string_codec::parse(cursor, decoded, is_key);
+    s.pos = cursor.pos;
+    if (!valid) return fail(s, cursor.failure.code, cursor.failure.detail);
+    s.token = cursor.token;
+    s.token.context = static_cast<std::uint8_t>(detail::NativeContext::string);
+    return true;
   }
   static auto key_path(state_type& s, std::vector<KeyPart>& parts) -> bool {
     do {
@@ -866,3 +755,27 @@ struct DecodeStringView<toml::Reader<N>> : detail::NativeDecodeStringView {};
 }  // namespace ext
 static_assert(ReaderConcept<toml::Reader<>>);
 }  // namespace hosq
+
+namespace hosq::ext {
+template <std::size_t Depth>
+struct UnescapeString<toml::Reader<Depth>, Format::toml> {
+  template <class Context>
+  auto operator()(std::string input, const Context& ctx) const -> std::string {
+    // Bare keys already consist of their semantic bytes.
+    if (input.empty() || (input.front() != '"' && input.front() != '\''))
+      return input;
+    std::string output;
+    toml::string_codec::Cursor cursor{input};
+    if (!toml::string_codec::parse(cursor, &output) ||
+        cursor.pos != input.size()) {
+      detail::report_reader_error(
+          ctx.reader(), ctx.reader_state(),
+          {ErrorCode::invalid_escape,
+           ctx.reader().current_token(ctx.reader_state()).offset,
+           "invalid TOML string representation"});
+      return {};
+    }
+    return output;
+  }
+};
+}  // namespace hosq::ext

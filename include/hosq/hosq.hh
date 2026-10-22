@@ -2,6 +2,7 @@
 
 #include "hosq/bytes_view.hh"
 #include "hosq/context.hh"
+#include "hosq/decode_outcome.hh"
 #include "hosq/decoder.hh"
 #include "hosq/element.hh"
 #include "hosq/encoder.hh"
@@ -9,6 +10,7 @@
 #include "hosq/error.hh"
 #include "hosq/field_access.hh"
 #include "hosq/map.hh"
+#include "hosq/mapping_value.hh"
 #include "hosq/match_result.hh"
 #include "hosq/meta_match.hh"
 #include "hosq/pipeline.hh"
@@ -17,6 +19,7 @@
 #include "hosq/pipeline/match.hh"
 #include "hosq/pipeline/scan.hh"
 #include "hosq/pipeline/store.hh"
+#include "hosq/pipeline/string.hh"
 #include "hosq/pipeline/unknown.hh"
 #include "hosq/pipeline/validate.hh"
 #include "hosq/pipeline_util.hh"

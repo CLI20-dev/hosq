@@ -28,6 +28,31 @@ concept WriterConcept =
       { ct.output() } -> std::same_as<typename T::output_type>;
     };
 
+namespace detail {
+template <class W>
+struct WriterErrorAccess {
+  static auto get(const W& writer) -> ErrorState {
+    return {const_cast<W&>(writer).error().code};
+  }
+};
+template <class W>
+HOSQ_ALWAYS_INLINE auto writer_error(const W& writer) -> ErrorState {
+  return WriterErrorAccess<std::remove_cvref_t<W>>::get(writer);
+}
+template <class W>
+void report_writer_error(W& writer, ErrorInfo error) {
+  using Access = WriterErrorAccess<std::remove_cvref_t<W>>;
+  if constexpr (requires { Access::report(writer, error); })
+    Access::report(writer, error);
+  else if constexpr (requires {
+                       writer.report_error(static_cast<hosq::Error>(error));
+                     })
+    writer.report_error(static_cast<hosq::Error>(error));
+  else
+    (void)writer.write({0, TokenType::Error, 0});
+}
+}  // namespace detail
+
 template <class W>
 struct WriterTraits {
   static constexpr Format format = Format::unknown;

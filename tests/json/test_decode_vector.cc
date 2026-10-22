@@ -29,9 +29,6 @@ using NumberObjectValue =
          noop_encoder>;
 
 struct EvenPushImpl {
-  template <class Input>
-  using storage_type = std::remove_cvref_t<Input>;
-
   template <class Input, class Context>
   auto operator()(Input value, Context& ctx) const -> bool {
     const auto is_even = value % 2 == 0;
@@ -40,7 +37,8 @@ struct EvenPushImpl {
   }
 };
 
-inline constexpr auto even_push = step<EvenPushImpl>;
+inline constexpr auto even_push =
+    match::predicate<EvenPushImpl{}> | store::assign;
 
 template <class Reader, auto Pipeline, class Storage>
 auto invoke_pipeline(std::string_view input, Storage& storage) {
@@ -166,7 +164,7 @@ TYPED_TEST(DecodeVectorTest, CollectsEmptyArrayValues) {
   EXPECT_TRUE(ids.value().empty());
 }
 
-TYPED_TEST(DecodeVectorTest, EachAggregatesBoolAcrossElements) {
+TYPED_TEST(DecodeVectorTest, EachAggregatesMatchResultsAcrossElements) {
   constexpr auto pipeline =
       scan::array | decode::each<scan::scalar | decode::number<int> | even_push>;
 
@@ -174,18 +172,20 @@ TYPED_TEST(DecodeVectorTest, EachAggregatesBoolAcrossElements) {
   const auto result =
       invoke_pipeline<TypeParam, pipeline>("[2,4,5,8]"sv, values);
 
-  EXPECT_FALSE(result);
+  static_assert(
+      std::same_as<std::remove_cvref_t<decltype(result)>, MatchResult<void>>);
+  EXPECT_FALSE(result.matched());
   EXPECT_TRUE(values.empty());
 }
 
-TYPED_TEST(DecodeVectorTest, EachBoolReturnsTrueForEmptyArray) {
+TYPED_TEST(DecodeVectorTest, EachMatchesEmptyArray) {
   constexpr auto pipeline =
       scan::array | decode::each<scan::scalar | decode::number<int> | even_push>;
 
   auto values = std::vector<int>{};
   const auto result = invoke_pipeline<TypeParam, pipeline>("[]"sv, values);
 
-  EXPECT_TRUE(result);
+  EXPECT_TRUE(result.matched());
   EXPECT_TRUE(values.empty());
 }
 
@@ -231,12 +231,12 @@ TYPED_TEST(DecodeVectorTest, CollectsEmptyObject) {
   EXPECT_TRUE(object.value().values().empty());
 }
 
-TYPED_TEST(DecodeVectorTest, AggregatesBoolAcrossMembers) {
+TYPED_TEST(DecodeVectorTest, AggregatesMatchResultsAcrossMembers) {
   constexpr auto pipeline =
       scan::object |
       decode::each<scan::scalar | decode::string_view | store::assign,
                    scan::scalar | decode::number<int> |
-                       decode::custom<[](int value) constexpr -> bool {
+                       match::predicate<[](int value) constexpr -> bool {
                          return value > 0;
                        }>>;
 
@@ -245,7 +245,7 @@ TYPED_TEST(DecodeVectorTest, AggregatesBoolAcrossMembers) {
   const auto result = invoke_pipeline<TypeParam, pipeline>(
       R"({"x":1,"y":-2,"z":3})"sv, object_state);
 
-  EXPECT_FALSE(result);
+  EXPECT_FALSE(result.matched());
   EXPECT_TRUE(object_state.keys().empty());
   EXPECT_TRUE(object_state.values().empty());
 }

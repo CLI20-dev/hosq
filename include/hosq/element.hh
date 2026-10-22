@@ -47,7 +47,7 @@ struct Elem<Decoder, Encoder> {
       !(std::same_as<decoder_terminal, void> &&
         std::same_as<storage_type, detail::NoStorage>),
       "Decoder pipeline with void terminal must declare a storage_type<Input>; "
-      "a no-storage decoder pipeline must have bool terminal");
+      "a no-storage decoder pipeline must have MatchResult terminal");
 
   using encoder_info =
       detail::pipeline_analysis_t<detail::PipelineVerificationMode::no_storage,
@@ -58,9 +58,10 @@ struct Elem<Decoder, Encoder> {
   static_assert(std::same_as<encoder_terminal, void>,
                 "Encoder pipeline must have a void terminal type");
 
-  static_assert(std::same_as<decoder_terminal, void> ||
-                    std::same_as<decoder_terminal, bool>,
-                "Decoder pipeline must have a terminal type of void or bool");
+  static_assert(
+      std::same_as<decoder_terminal, void> ||
+          detail::MatchResultT<decoder_terminal>,
+      "Decoder pipeline must have a terminal type of void or MatchResult");
 
   /// True when the decoder pipeline can be invoked with `const Context&`.
   template <class Context>
@@ -117,18 +118,22 @@ struct Elem<Decoder, Encoder> {
 
   template <ReaderConcept R, TryPhase Phase>
   HOSQ_ALWAYS_INLINE auto decode(DecodeContext<storage_type, R, Phase>& ctx) {
+    using context_type = DecodeContext<storage_type, R, Phase>;
+    static constexpr bool use_const = decoder_const_invokable<context_type>;
+    using active_context =
+        std::conditional_t<use_const, const context_type, context_type>;
     using actual_decoder_info = detail::pipeline_analysis_t<
-        detail::PipelineVerificationMode::at_most_one_storage,
-        DecodeContext<storage_type, R, Phase>, void, decoder_type>;
+        detail::PipelineVerificationMode::at_most_one_storage, active_context,
+        void, decoder_type>;
 
     using actual_decoder_terminal =
         detail::pipeline_terminal_t<actual_decoder_info>;
-    static_assert(std::same_as<actual_decoder_terminal, void> ||
-                      std::same_as<actual_decoder_terminal, bool>,
-                  "Decoder pipeline must have a terminal type of void or bool "
-                  "for this Reader/Context");
-    if constexpr (decoder_const_invokable<
-                      DecodeContext<storage_type, R, Phase>>) {
+    static_assert(
+        std::same_as<actual_decoder_terminal, void> ||
+            detail::MatchResultT<actual_decoder_terminal>,
+        "Decoder pipeline must have a terminal type of void or MatchResult "
+        "for this Reader/Context");
+    if constexpr (use_const) {
       const auto& cctx = ctx;
       return decoder_type::invoke(cctx);
     } else {
@@ -140,6 +145,10 @@ struct Elem<Decoder, Encoder> {
     requires(decoder_const_invokable<DecodeContext<storage_type, R, Phase>>)
   HOSQ_ALWAYS_INLINE auto decode(
       const DecodeContext<storage_type, R, Phase>& ctx) {
+    using Terminal = typename decoder_type::template final_output_type<
+        void, const DecodeContext<storage_type, R, Phase>>;
+    static_assert(std::same_as<Terminal, void> || detail::MatchResultT<Terminal>,
+                  "decoder terminals must be void or MatchResult; bool is data");
     return decoder_type::invoke(ctx);
   }
 

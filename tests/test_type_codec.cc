@@ -52,7 +52,7 @@ TEST(TypeCodec, BsonBinarySubtypesRoundTripAndOwnPayload) {
     const std::string expected = input;
     Document<types::value::Bytes> decoded;
     ASSERT_TRUE(decode_into<bson::Reader<>>(decoded, input).is_ok());
-    const auto& bytes = *decoded.b;
+    const auto& bytes = decoded.b.value().value();
     EXPECT_EQ(bytes.subtype, subtype);
     EXPECT_EQ(bytes.value, (std::vector<std::byte>{std::byte{0}, std::byte{255},
                                                    std::byte{'z'}}));
@@ -102,14 +102,10 @@ TEST(TypeCodec, MessagePackSemanticTextRejectsInvalidUtf8) {
   for (const std::string& input :
        {octets({0xa2, 0xc0, 0xaf}), octets({0xa1, 0x80}),
         octets({0xa3, 0xed, 0xa0, 0x80}), octets({0xa1, 0xc3})}) {
-    types::value::Text text;
-    types::value::RawText raw;
+    types::value::String text;
     const auto text_error = decode_into<msgpack::Reader<>>(text, input);
-    const auto raw_error = decode_into<msgpack::Reader<>>(raw, input);
     EXPECT_EQ(text_error.code, ErrorCode::invalid_utf8);
-    EXPECT_EQ(raw_error.code, ErrorCode::invalid_utf8);
     EXPECT_EQ(text_error.offset, 1);
-    EXPECT_EQ(raw_error.offset, 1);
     // The original borrowed string pipeline retains its established behavior.
     Elem<scan::scalar | decode::string_view | store::assign, encode::value>
         legacy;
@@ -117,12 +113,9 @@ TEST(TypeCodec, MessagePackSemanticTextRejectsInvalidUtf8) {
     EXPECT_EQ(legacy.value(), std::string_view(input).substr(1));
   }
   const auto valid = octets({0xa2, 0xc3, 0xa9});
-  types::value::Text text;
-  types::value::RawText raw;
+  types::value::String text;
   ASSERT_TRUE(decode_into<msgpack::Reader<>>(text, valid).is_ok());
-  ASSERT_TRUE(decode_into<msgpack::Reader<>>(raw, valid).is_ok());
   EXPECT_EQ(text.value(), "é");
-  EXPECT_EQ(raw.value().value, "é");
 
   types::value::Bytes bytes;
   ASSERT_TRUE(
@@ -141,67 +134,60 @@ TEST(TypeCodec, OpaqueBsonValuesAreNotBytesOrText) {
            {0x0d, little(2) + "x" + '\0'}}) {
     const auto input = document(marker, payload);
     Document<types::value::Bytes> bytes;
-    Document<types::value::Text> text;
-    Document<types::value::RawText> raw;
+    Document<types::value::String> text;
     EXPECT_FALSE(decode_into<bson::Reader<>>(bytes, input).is_ok());
     EXPECT_FALSE(decode_into<bson::Reader<>>(text, input).is_ok());
-    EXPECT_FALSE(decode_into<bson::Reader<>>(raw, input).is_ok());
   }
 }
 
 TEST(TypeCodec, MessagePackExtensionsAndTomlDatetimeAreNotCommonScalars) {
   const auto extension = octets({0xd4, 1, 42});
   types::value::Bytes bytes;
-  types::value::Text text;
-  types::value::RawText raw;
+  types::value::String text;
   EXPECT_FALSE(decode_into<msgpack::Reader<>>(bytes, extension).is_ok());
   EXPECT_FALSE(decode_into<msgpack::Reader<>>(text, extension).is_ok());
-  EXPECT_FALSE(decode_into<msgpack::Reader<>>(raw, extension).is_ok());
   Document<types::value::Bytes> date_bytes;
-  Document<types::value::Text> date_text;
-  Document<types::value::RawText> date_raw;
+  Document<types::value::String> date_text;
   EXPECT_FALSE(decode_into<toml::Reader<>>(date_bytes, "b=1979-05-27").is_ok());
   EXPECT_FALSE(decode_into<toml::Reader<>>(date_text, "b=1979-05-27").is_ok());
-  EXPECT_FALSE(decode_into<toml::Reader<>>(date_raw, "b=1979-05-27").is_ok());
 }
 
-TEST(TypeCodec, TomlRawTextPreservesLexicalFormAndResolvesAcrossFormats) {
-  for (const std::string& literal :
-       {std::string("'a\\nb'"), std::string("\"a\\nb\""),
-        std::string("'''\na\nb'''"), std::string("\"\"\"\na\\\n  b\"\"\"")}) {
+TEST(TypeCodec, TomlTextResolvesStringsAcrossFormats) {
+  for (const auto& [literal, expected] :
+       std::vector<std::pair<std::string, std::string>>{
+           {"'a\\nb'", "a\\nb"},
+           {"\"a\\nb\"", "a\nb"},
+           {"'''\na\nb'''", "a\nb"},
+           {"\"\"\"\na\\\n  b\"\"\"", "ab"}}) {
     const auto input = "b = " + literal;
-    Document<types::value::RawText> raw;
-    Document<types::value::Text> semantic;
-    ASSERT_TRUE(decode_into<toml::Reader<>>(raw, input).is_ok());
+    Document<types::value::String> semantic;
     ASSERT_TRUE(decode_into<toml::Reader<>>(semantic, input).is_ok());
-    EXPECT_EQ(raw.b->value, literal);
-    EXPECT_EQ(raw.b->format, Format::toml);
-    EXPECT_EQ(raw.b->value.data(), input.data() + 4);
+    EXPECT_EQ(semantic.b.value().value(), expected);
     std::string output;
     json::CompactWriter writer(output);
-    ASSERT_TRUE(encode_into(raw, writer)) << writer.error().detail;
-    Document<types::value::Text> decoded;
+    ASSERT_TRUE(encode_into(semantic, writer)) << writer.error().detail;
+    Document<types::value::String> decoded;
     ASSERT_TRUE(decode_into<json::SimpleReader>(decoded, output).is_ok());
-    EXPECT_EQ(*decoded.b, *semantic.b);
+    EXPECT_EQ(decoded.b.value().value(), expected);
   }
 }
 
-TEST(TypeCodec, JsonRawTextDoesNotDoubleEscapeInBinaryFormats) {
+TEST(TypeCodec, JsonTextDoesNotDoubleEscapeInBinaryFormats) {
   const std::string input = R"("a\n\u65e5\\b")";
-  types::value::RawText raw;
-  ASSERT_TRUE(decode_into<json::SimpleReader>(raw, input).is_ok());
-  EXPECT_EQ(raw.value().value, R"(a\n\u65e5\\b)");
+  types::value::String original;
+  ASSERT_TRUE(decode_into<json::SimpleReader>(original, input).is_ok());
+  EXPECT_EQ(original.value(), "a\n日\\b");
   std::string output;
   msgpack::Writer writer(output);
-  ASSERT_TRUE(encode_into(raw, writer)) << writer.error().detail;
-  types::value::Text text;
+  ASSERT_TRUE(encode_into(original, writer)) << writer.error().detail;
+  types::value::String text;
   ASSERT_TRUE(decode_into<msgpack::Reader<>>(text, output).is_ok());
-  EXPECT_EQ(text.value(), "a\n日\\b");
+  EXPECT_EQ(text.value(), original.value());
 }
 
 TEST(TypeCodec, NativeScalarEncodingRespectsNumericAndRootLimits) {
   Document<types::value::Uint64> document;
-  *document.b = std::numeric_limits<std::uint64_t>::max();
+  document.b.value().value() = std::numeric_limits<std::uint64_t>::max();
   auto oversized = [&]<class W>() {
     std::string output;
     W writer(output);
@@ -306,34 +292,4 @@ TEST(TypeCodec, NativeDocumentKeysMustBeText) {
   check.template operator()<toml::Writer<>>();
 }
 
-TEST(TypeCodec, TomlRawKeysBorrowTheirOriginalQuotedSource) {
-  const std::string input = R"("b\u0061r" = 'x')";
-  toml::Reader<> reader;
-  toml::Reader<>::state_type state;
-  reader.reset(state, input);
-  ASSERT_TRUE(reader.next_token(state));
-  ASSERT_TRUE(reader.next_token(state));
-  RawTextValue key;
-  ASSERT_TRUE(reader.read_raw_text(state, key));
-  EXPECT_EQ(key.value, R"("b\u0061r")");
-  EXPECT_EQ(key.value.data(), input.data());
-  EXPECT_EQ(key.format, Format::toml);
-  std::string semantic;
-  ASSERT_TRUE(detail::resolve_raw_text(key, semantic));
-  EXPECT_EQ(semantic, "bar");
-}
-
-TEST(TypeCodec, InvalidRawTextCannotInjectStructuredValues) {
-  for (const RawTextValue value : {RawTextValue{R"(\q)", Format::json},
-                                   RawTextValue{"'x'\nb=1", Format::toml},
-                                   RawTextValue{"123", Format::toml}}) {
-    types::value::RawText raw;
-    raw.value() = value;
-    std::string output;
-    msgpack::Writer writer(output);
-    EXPECT_FALSE(encode_into(raw, writer));
-    EXPECT_EQ(writer.error().code, ErrorCode::invalid_escape);
-    EXPECT_TRUE(output.empty());
-  }
-}
 }  // namespace

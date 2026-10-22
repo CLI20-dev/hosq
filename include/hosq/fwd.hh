@@ -39,6 +39,9 @@ struct PipelineAnalysisReaderState;
 template <class Keys, class Values>
 struct Map;
 
+template <class Key, class Value>
+class MappingValue;
+
 template <class T, class R, TryPhase Phase>
 struct DecodeContext;
 

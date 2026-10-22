@@ -39,14 +39,16 @@ struct Fields {
 struct ObserveKey {
   static inline int calls = 0;
   template <class C>
-  bool operator()(const ScalarView&, const C&) const {
+  void operator()(const ScalarView&, const C&) const {
     ++calls;
-    return true;
   }
 };
 struct ObservedFields {
   Try<Entry<Key<"id">, Number>> id;
-  Try<Entry<Elem<scan::scalar | step<ObserveKey>, noop_encoder>, SkipValue>>
+  Try<Entry<Elem<scan::scalar | step<ObserveKey> |
+                     match::predicate<[] { return true; }>,
+                 noop_encoder>,
+            SkipValue>>
       skip;
 };
 
