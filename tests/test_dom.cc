@@ -62,7 +62,7 @@ TYPED_TEST(OwnedDomTest, ResolvesPointersEmptyKeysEscapesAndContainers) {
   EXPECT_EQ(dom["/ab"].source(), "9");
   DomRecord record;
   ASSERT_TRUE(dom["//a~1b/~0key/0"].decode_into(record).is_ok());
-  EXPECT_EQ(record.n.value().value(), 7);
+  EXPECT_EQ(*record.n, 7);
   using Pair =
       Elem<scan::array |
                decode::each<scan::scalar | decode::number<int> | store::assign>,
@@ -200,16 +200,16 @@ void check_typed_dom_containers() {
       R"({"array":[true,{"n":2},[3]],"mapping":{"x":null,"y":"a\nb"},"tail":9})";
   Document document;
   ASSERT_TRUE(decode_document_into<Reader>(document, source).is_ok());
-  const auto& array = document.array.value().value();
+  const auto& array = *document.array;
   ASSERT_EQ(array.size(), 3u);
   EXPECT_EQ(array[0].source(), "true");
   EXPECT_EQ(array[1]["/n"].source(), "2");
   EXPECT_EQ(array[2]["/0"].source(), "3");
-  const auto& entries = document.mapping.value().value().entries();
+  const auto& entries = document.mapping->entries();
   ASSERT_EQ(entries.size(), 2u);
   EXPECT_EQ(entries[0].second.source(), "null");
   EXPECT_EQ(entries[1].second.source(), R"("a\nb")");
-  EXPECT_EQ(document.tail.value().value(), 9);
+  EXPECT_EQ(*document.tail, 9);
   std::string output;
   json::CompactWriter writer{output};
   ASSERT_TRUE(encode_into(document, writer));
@@ -258,9 +258,8 @@ TEST(OwnedDomPipeline, CapturesAndEncodesBothKindsInsideSchema) {
       R"({"first":{"x":[true,null,"a\nb",18446744073709551615]},"second":[{"n":7},false]})";
   ASSERT_TRUE(
       decode_document_into<json::FastReader<>>(document, source).is_ok());
-  EXPECT_EQ(document.first.value().value()["/x/3"].source(),
-            "18446744073709551615");
-  EXPECT_EQ(document.second.value().value()["/0/n"].source(), "7");
+  EXPECT_EQ((*document.first)["/x/3"].source(), "18446744073709551615");
+  EXPECT_EQ((*document.second)["/0/n"].source(), "7");
   std::string output;
   json::CompactWriter writer{output};
   ASSERT_TRUE(encode_into(document, writer));

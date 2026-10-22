@@ -45,15 +45,16 @@ int main() {
   const auto error = hosq::decode_document_into<hosq::json::FastReader<>>(
       user, R"({"id":42,"name":"a\nb"})");
   if (error) return 1;  // Inspect error.code, offset, detail, and path.
-  assert(user.id.value().value() == 42);
-  assert(user.name.value().value() == "a\nb");
+  assert(*user.id == 42);
+  assert(*user.name == "a\nb");
 }
 ```
 
 `String` owns the decoded string and resolves escapes through its composed
 pipeline. `Uint64` checks the integer category and range; it does not accept
-`42.0` or `"42"` as an integer. An entry's first `.value()` accesses its Elem;
-the second accesses the stored C++ value.
+`42.0` or `"42"` as an integer. Read an entry's stored C++ value with `*entry` (or reach its members with
+`entry->`); `entry.key()` returns its key, and `hosq::field<"id">(user)` looks a
+field up by key.
 
 ## Basic schemas
 
@@ -85,16 +86,16 @@ int main() {
       profile, R"({"address":{"city":"Kyoto"},
                    "tags":["cpp"],"scores":{"tests":3}})");
   if (error) return 1;
-  assert(profile.address.value().value().city.value().value() == "Kyoto");
-  assert(profile.tags.value().value().at(0) == "cpp");
-  const auto& scores = profile.scores.value().value();
+  assert(*profile.address->city == "Kyoto");
+  assert(profile.tags->at(0) == "cpp");
+  const auto& scores = *profile.scores;
   assert(scores.entries().at(0).first == "tests" &&
          scores.entries().at(0).second == 3);
 }
 ```
 
-The first `.value()` still returns the Elem used by the Entry; the second
-returns the stored `Address`. Existing Elem arguments retain their exact
+`*profile.address` is the stored `Address`, and `profile.address->city` reaches
+its members. Existing Elem arguments retain their exact
 types. An array-shaped aggregate schema uses `scan::array` instead. Accepted
 schemas follow the existing Decoder contract: their fields must be Elems or
 Entries, or an aggregate with actual Try dispatch. Plain C++ data structures
@@ -478,8 +479,8 @@ struct User {
 
 int main() {
   User user;
-  user.id.value().value() = 42;
-  user.name.value().value() = "Ada";
+  *user.id = 42;
+  *user.name = "Ada";
   std::string output;
   hosq::msgpack::Writer writer{output};
   if (!hosq::encode_into(user, writer)) {
@@ -490,8 +491,8 @@ int main() {
   const auto error = hosq::decode_document_into<hosq::msgpack::Reader<>>(
       decoded, output);
   if (error) return 1;
-  assert(decoded.name.value().value() == "Ada");
-  assert(decoded.id.value().value() == 42);
+  assert(*decoded.name == "Ada");
+  assert(*decoded.id == 42);
 }
 ```
 
@@ -668,9 +669,9 @@ int main() {
   const auto error = decode_into<json::FastReader<>>(
       record, R"({"ok":true,"name":"Ada","n":42})");
   if (error) return 1;
-  assert(record.n.value().value() == 42);
-  assert(record.name.value().value() == "Ada");
-  assert(record.ok.value().value());
+  assert(*record.n == 42);
+  assert(*record.name == "Ada");
+  assert(*record.ok);
   std::string output;
   msgpack::Writer writer{output};
   if (!encode_into(record, writer)) return 1;

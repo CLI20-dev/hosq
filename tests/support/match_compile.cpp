@@ -401,7 +401,7 @@ int main() {
   } fast;
   const auto error =
       decode_document_into<json::FastReader<>>(fast, R"({"n":2})");
-  return !error.is_ok() || fast.value.value().value() != 2;
+  return !error.is_ok() || *fast.value != 2;
 #elif HOSQ_MATCH_CASE == 105
   struct Context {
   } ctx;
@@ -422,13 +422,13 @@ int main() {
   if (!decode_document_into<Reader>(value, "{}").is_ok()) return 1;
   const auto error =
       decode_document_into<json::FastReader<>>(value, R"({"n":2})");
-  return !error.is_ok() || value.value.value().value() != 2;
+  return !error.is_ok() || *value.value != 2;
 #elif HOSQ_MATCH_CASE == 108
   struct Schema {
     Try<Entry<Key<"n">, Candidate>> value;
   } value;
   const auto error = decode_document_into<Reader>(value, R"({"n":1})");
-  return !error.is_ok() || value.value.value().value() != 1;
+  return !error.is_ok() || *value.value != 1;
 #elif HOSQ_MATCH_CASE == 109
   struct Nested {
     Entry<Key<"n">, v::Int64> n;
@@ -438,7 +438,7 @@ int main() {
   } value;
   const auto error =
       decode_document_into<json::FastReader<>>(value, R"({"nested":{"n":2}})");
-  return !error.is_ok() || value.nested->n.value().value() != 2;
+  return !error.is_ok() || *value.nested->n != 2;
 #elif HOSQ_MATCH_CASE == 110
   struct Nested {
     Try<Entry<Key<"n">, Candidate>> n;
@@ -448,7 +448,7 @@ int main() {
   } value;
   const auto error =
       decode_document_into<json::FastReader<>>(value, R"({"nested":{"n":1}})");
-  return !error.is_ok() || value.nested->n.value().value() != 1;
+  return !error.is_ok() || *value.nested->n != 1;
 #elif HOSQ_MATCH_CASE == 111
   struct Nested {
     v::Int64 n;
@@ -467,7 +467,7 @@ int main() {
   } value;
   const auto error =
       decode_document_into<Reader>(value, R"({"nested":{"n":2}})");
-  return !error.is_ok() || value.nested->n.value().value() != 2;
+  return !error.is_ok() || *value.nested->n != 2;
 #elif HOSQ_MATCH_CASE == 113
   using Ones = Elem<scan::array | decode::collect<integer_match> | store::assign,
                     noop_encoder>;

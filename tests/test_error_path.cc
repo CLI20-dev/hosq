@@ -239,10 +239,10 @@ void check_binary() {
     Entry<Key<"items">, v::Array<v::Mapping<v::String, Object<WideLeaf>>>> items;
   };
   WideRoot wide;
-  wide.items.value().value().resize(1);
-  auto& map = wide.items.value().value()[0];
+  wide.items->resize(1);
+  auto& map = (*wide.items)[0];
   map.entries().emplace_back("binary", WideLeaf{});
-  map.entries()[0].second.count.value().value() = 128;
+  *map.entries()[0].second.count = 128;
   std::string bytes;
   W writer(bytes);
   ASSERT_TRUE(encode_into(wide, writer));
@@ -637,7 +637,7 @@ void check_prefailed_reader() {
   EXPECT_EQ(state.pos, position);
   EXPECT_EQ(reader.current_token(state).type, token.type);
   EXPECT_EQ(reader.current_token(state).offset, token.offset);
-  EXPECT_TRUE(value.items.value().value().empty());
+  EXPECT_TRUE(value.items->empty());
 }
 TEST(ErrorPath, PrefailedReaderPreservesMetadataAndPosition) {
   check_prefailed_reader<json::SimpleReader>();

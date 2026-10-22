@@ -54,7 +54,7 @@ TEST(SimpleReaderRootDelimiters, NestedAndCompleteDocumentsRemainValid) {
   } record;
   EXPECT_TRUE(
       decode_document_into<json::SimpleReader>(record, "{\"x\":1}").is_ok());
-  EXPECT_EQ(record.x.value().value(), 1);
+  EXPECT_EQ(*record.x, 1);
   types::value::Int<> integer;
   EXPECT_TRUE(decode_document_into<json::SimpleReader>(integer, "1 \n").is_ok());
 }

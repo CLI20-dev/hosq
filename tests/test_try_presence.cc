@@ -37,7 +37,7 @@ void check_legacy_presence() {
   v::Mapping<v::String, v::String> empty;
   const auto missing = wire<W>(empty);
   ASSERT_TRUE(decoder.decode_document(value, missing).is_ok());
-  EXPECT_FALSE(value.nickname.value().value());
+  EXPECT_FALSE(*value.nickname);
 
   // Missing optional storage cannot be silently encoded as null by a legacy
   // aggregate. Try itself does not omit members with missing storage.
@@ -49,27 +49,27 @@ void check_legacy_presence() {
   struct Present {
     t::String<"nickname"> nickname;
   } present;
-  present.nickname.value().value() = "a\nb";
+  *present.nickname = "a\nb";
   auto present_wire = wire<W>(present);
   ASSERT_TRUE(decoder.decode_document(value, present_wire).is_ok());
-  ASSERT_TRUE(value.nickname.value().value());
-  EXPECT_EQ(*value.nickname.value().value(), "a\nb");
+  ASSERT_TRUE(*value.nickname);
+  EXPECT_EQ(**value.nickname, "a\nb");
   struct IdOnly {
     t::Uint64<"id"> id;
   } id_only;
-  id_only.id.value().value() = 7;
+  *id_only.id = 7;
   auto id_wire = wire<W>(id_only);
   ASSERT_TRUE(decoder.decode_document(value, id_wire).is_ok());
-  ASSERT_TRUE(value.nickname.value().value());
-  EXPECT_EQ(*value.nickname.value().value(), "a\nb");
+  ASSERT_TRUE(*value.nickname);
+  EXPECT_EQ(**value.nickname, "a\nb");
   EXPECT_EQ(wire<json::CompactWriter<>>(value),
             R"({"id":7,"nickname":"a\nb","nil":null})");
 
   LegacyPresence roundtrip;
   auto encoded = wire<W>(value);
   ASSERT_TRUE(decoder.decode_document(roundtrip, encoded).is_ok());
-  EXPECT_EQ(roundtrip.nickname.value().value(), value.nickname.value().value());
-  EXPECT_EQ(roundtrip.nil.value().value(), nullptr);
+  EXPECT_EQ(*roundtrip.nickname, *value.nickname);
+  EXPECT_EQ(*roundtrip.nil, nullptr);
 
   struct NullNickname {
     t::Null<"nickname"> nickname;
@@ -79,12 +79,12 @@ void check_legacy_presence() {
             ErrorCode::type_mismatch);
   // A new decode clears the reader failure, but Try does not clear unrelated
   // saved fields. Empty text is present, unlike missing optional storage.
-  present.nickname.value().value().clear();
+  present.nickname->clear();
   present_wire = wire<W>(present);
   ASSERT_TRUE(decoder.decode_document(value, present_wire).is_ok());
-  ASSERT_TRUE(value.nickname.value().value());
-  EXPECT_TRUE(value.nickname.value().value()->empty());
-  EXPECT_EQ(value.id.value().value(), 7U);
+  ASSERT_TRUE(*value.nickname);
+  EXPECT_TRUE((*value.nickname)->empty());
+  EXPECT_EQ(*value.id, 7U);
   EXPECT_EQ(wire<json::CompactWriter<>>(value),
             R"({"id":7,"nickname":"","nil":null})");
 }
@@ -114,7 +114,7 @@ TEST(TryPresence, NestedArrayEncodesAfterMissingAndRecoversAfterRangeFailure) {
       R"({"rows":[{"id":1,"nickname":"a\nb","nil":null},{"id":2,"nickname":"","nil":null}]})";
   ASSERT_TRUE(decoder.decode_document(value, input).is_ok());
   ASSERT_TRUE(decoder.decode_document(value, "{}").is_ok());
-  ASSERT_EQ(value.rows.value().value().size(), 2U);
+  ASSERT_EQ(value.rows->size(), 2U);
 
   const auto msgpack = wire<msgpack::Writer<>>(value);
   NestedRows from_msgpack;
@@ -135,7 +135,7 @@ TEST(TryPresence, NestedArrayEncodesAfterMissingAndRecoversAfterRangeFailure) {
   // Failed storage is intentionally not asserted: no transaction is promised.
   // A subsequent valid array must replace it and encode a complete document.
   ASSERT_TRUE(decoder.decode_document(value, R"({"rows":[]})").is_ok());
-  EXPECT_TRUE(value.rows.value().value().empty());
+  EXPECT_TRUE(value.rows->empty());
   EXPECT_EQ(wire<json::CompactWriter<>>(value), R"({"rows":[]})");
 }
 }  // namespace

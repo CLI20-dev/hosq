@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string_view>
 #include <type_traits>
 
 #include "hosq/context.hh"
@@ -44,9 +45,17 @@ namespace hosq {
 template <class Key, class Value>
 struct Entry;
 
+namespace detail {
+/// Library-internal access to an Entry's key and value Elems. Users read the
+/// stored value with `*entry` / `entry->` and the key with `entry.key()`.
+struct EntryAccess;
+}  // namespace detail
+
 /// A key–value pair whose Key and Value are Elems or aggregate schemas.
 /// Aggregate schemas are stored in Elems built from the existing traversal,
 /// decode::to, assignment and value-encoding steps.
+///
+/// `*entry` and `entry->` reach the value's storage directly.
 ///
 /// `*_decoder_const_invokable` / `*_encoder_const_invokable` mirror the
 /// underlying Elem's flags and gate the const/mutable overloads of decode_key /
@@ -79,11 +88,11 @@ struct Entry<Key, Value> {
 
   Entry() = default;
 
-  [[nodiscard]] auto key() const -> const key_type& { return key_; }
-  [[nodiscard]] auto key() -> key_type& { return key_; }
-
-  [[nodiscard]] auto value() const -> const value_type& { return value_; }
-  [[nodiscard]] auto value() -> value_type& { return value_; }
+  /// The decoded key, as stored by the key Elem.
+  [[nodiscard]] auto key() const -> const typename key_type::storage_type& {
+    return *key_;
+  }
+  [[nodiscard]] auto key() -> typename key_type::storage_type& { return *key_; }
 
   [[nodiscard]] auto operator*() -> typename value_type::storage_type& {
     return *value_;
@@ -102,6 +111,7 @@ struct Entry<Key, Value> {
   }
 
  private:
+  friend struct detail::EntryAccess;
   key_type key_{};      // NOLINT
   value_type value_{};  // NOLINT
 };
@@ -130,10 +140,13 @@ struct Entry<std::integral_constant<decltype(Key), Key>, Value> {
 
   Entry() = default;
 
-  [[nodiscard]] static constexpr auto key() -> key_type { return Key; }
+  /// The key as a literal, for compile-time dispatch inside the library.
+  static constexpr key_type key_literal = Key;
 
-  [[nodiscard]] auto value() const -> const value_type& { return value_; }
-  [[nodiscard]] auto value() -> value_type& { return value_; }
+  /// The constant key as a string.
+  [[nodiscard]] static constexpr auto key() -> std::string_view {
+    return key_literal.view();
+  }
 
   [[nodiscard]] auto operator*() -> typename value_type::storage_type& {
     return *value_;
@@ -152,8 +165,32 @@ struct Entry<std::integral_constant<decltype(Key), Key>, Value> {
   }
 
  private:
+  friend struct detail::EntryAccess;
   value_type value_{};  // NOLINT
 };
+
+namespace detail {
+struct EntryAccess {
+  template <class K, class V>
+  [[nodiscard]] static auto value_elem(Entry<K, V>& e) -> auto& {
+    return e.value_;
+  }
+  template <class K, class V>
+  [[nodiscard]] static auto value_elem(const Entry<K, V>& e) -> const auto& {
+    return e.value_;
+  }
+  template <class K, class V>
+    requires(!Entry<K, V>::is_const_key)
+  [[nodiscard]] static auto key_elem(Entry<K, V>& e) -> auto& {
+    return e.key_;
+  }
+  template <class K, class V>
+    requires(!Entry<K, V>::is_const_key)
+  [[nodiscard]] static auto key_elem(const Entry<K, V>& e) -> const auto& {
+    return e.key_;
+  }
+};
+}  // namespace detail
 
 /**
  * @brief Prevents Entry from being decomposed as an aggregate schema.

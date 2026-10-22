@@ -52,7 +52,7 @@ TEST(TypeCodec, BsonBinarySubtypesRoundTripAndOwnPayload) {
     const std::string expected = input;
     Document<types::value::Bytes> decoded;
     ASSERT_TRUE(decode_into<bson::Reader<>>(decoded, input).is_ok());
-    const auto& bytes = decoded.b.value().value();
+    const auto& bytes = *decoded.b;
     EXPECT_EQ(bytes.subtype, subtype);
     EXPECT_EQ(bytes.value, (std::vector<std::byte>{std::byte{0}, std::byte{255},
                                                    std::byte{'z'}}));
@@ -162,13 +162,13 @@ TEST(TypeCodec, TomlTextResolvesStringsAcrossFormats) {
     const auto input = "b = " + literal;
     Document<types::value::String> semantic;
     ASSERT_TRUE(decode_into<toml::Reader<>>(semantic, input).is_ok());
-    EXPECT_EQ(semantic.b.value().value(), expected);
+    EXPECT_EQ(*semantic.b, expected);
     std::string output;
     json::CompactWriter writer(output);
     ASSERT_TRUE(encode_into(semantic, writer)) << writer.error().detail;
     Document<types::value::String> decoded;
     ASSERT_TRUE(decode_into<json::SimpleReader>(decoded, output).is_ok());
-    EXPECT_EQ(decoded.b.value().value(), expected);
+    EXPECT_EQ(*decoded.b, expected);
   }
 }
 
@@ -187,7 +187,7 @@ TEST(TypeCodec, JsonTextDoesNotDoubleEscapeInBinaryFormats) {
 
 TEST(TypeCodec, NativeScalarEncodingRespectsNumericAndRootLimits) {
   Document<types::value::Uint64> document;
-  document.b.value().value() = std::numeric_limits<std::uint64_t>::max();
+  *document.b = std::numeric_limits<std::uint64_t>::max();
   auto oversized = [&]<class W>() {
     std::string output;
     W writer(output);
