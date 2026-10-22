@@ -303,7 +303,7 @@ struct TypedRecordImpl {
               seen[I] = true;
               if (!hosq::next_token<Expect::member_value>(reader, state)) return;
               auto& field =
-                  ::hosq::detail::EntryAccess::elem(std::get<I>(fields));
+                  ::hosq::detail::EntryAccess::value_elem(std::get<I>(fields));
               hosq::detail::decode_container_into(field, reader, state);
             }(),
             ...);

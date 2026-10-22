@@ -182,8 +182,9 @@ class Decoder<R> {
           [[unlikely]]
         return false;
     } else {
-      auto key_ctx = make_decode_context(t.key(), reader, reader_state);
-      t.key().decode(key_ctx);
+      auto key_ctx = make_decode_context(
+          ::hosq::detail::EntryAccess::key_elem(t), reader, reader_state);
+      ::hosq::detail::EntryAccess::key_elem(t).decode(key_ctx);
       if (!hosq::next_token<Expect::member_value>(reader, reader_state))
           [[unlikely]]
         return false;
@@ -197,11 +198,11 @@ class Decoder<R> {
                                               StateT& reader_state) -> bool {
     if constexpr (detail::ConstKeyEntryT<T> && requires {
                     ext::EntryInput<ReaderT>{}.template decode<T::key()>(
-                        ::hosq::detail::EntryAccess::elem(t), reader,
+                        ::hosq::detail::EntryAccess::value_elem(t), reader,
                         reader_state);
                   }) {
       if (ext::EntryInput<ReaderT>{}.template decode<T::key()>(
-              ::hosq::detail::EntryAccess::elem(t), reader, reader_state))
+              ::hosq::detail::EntryAccess::value_elem(t), reader, reader_state))
         return true;
     }
     bool ready = false;
@@ -214,9 +215,9 @@ class Decoder<R> {
       }
     }
     if (!ready && !read_entry_key(t, reader, reader_state)) return false;
-    auto value_ctx = make_decode_context(::hosq::detail::EntryAccess::elem(t),
-                                         reader, reader_state);
-    ::hosq::detail::EntryAccess::elem(t).decode(value_ctx);
+    auto value_ctx = make_decode_context(
+        ::hosq::detail::EntryAccess::value_elem(t), reader, reader_state);
+    ::hosq::detail::EntryAccess::value_elem(t).decode(value_ctx);
     return true;
   }
 
@@ -453,7 +454,7 @@ class Decoder<R> {
               return;
             }
 
-            auto& value = ::hosq::detail::EntryAccess::elem(entry);
+            auto& value = ::hosq::detail::EntryAccess::value_elem(entry);
             auto value_ctx = make_decode_context<value_type, TryPhase::first>(
                 value, reader, reader_state);
 
@@ -478,12 +479,13 @@ class Decoder<R> {
             if constexpr (requires {
                             ext::EntryInput<R>{}
                                 .template decode_matched<entry_type::key()>(
-                                    ::hosq::detail::EntryAccess::elem(entry),
+                                    ::hosq::detail::EntryAccess::value_elem(
+                                        entry),
                                     reader, reader_state);
                           }) {
               if (ext::EntryInput<R>{}
                       .template decode_matched<entry_type::key()>(
-                          ::hosq::detail::EntryAccess::elem(entry), reader,
+                          ::hosq::detail::EntryAccess::value_elem(entry), reader,
                           reader_state)) {
                 decoded = true;
                 return;
@@ -495,7 +497,7 @@ class Decoder<R> {
               return;
             }
 
-            auto& value = ::hosq::detail::EntryAccess::elem(entry);
+            auto& value = ::hosq::detail::EntryAccess::value_elem(entry);
             auto value_ctx = make_decode_context<value_type, TryPhase::first>(
                 value, reader, reader_state);
 
@@ -560,7 +562,7 @@ class Decoder<R> {
               decode_raw_result_t<value_is_const_decodable, value_elem_type,
                                   value_elem_context_type>;
 
-          auto& key_elem = entry.key();
+          auto& key_elem = ::hosq::detail::EntryAccess::key_elem(entry);
           auto key_ctx = make_decode_context<key_elem_type, phase>(
               key_elem, reader, reader_state);
           if constexpr (key_is_const_decodable) {
@@ -582,7 +584,7 @@ class Decoder<R> {
                 return false;
               }
 
-              auto& value_elem = ::hosq::detail::EntryAccess::elem(entry);
+              auto& value_elem = ::hosq::detail::EntryAccess::value_elem(entry);
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
                       value_elem, reader, reader_state);
@@ -598,7 +600,7 @@ class Decoder<R> {
                       reader, reader_state)) [[unlikely]] {
                 return false;
               }
-              auto& value_elem = ::hosq::detail::EntryAccess::elem(entry);
+              auto& value_elem = ::hosq::detail::EntryAccess::value_elem(entry);
               auto value_ctx =
                   make_decode_context<value_elem_type, TryPhase::first>(
                       value_elem, reader, reader_state);
@@ -628,7 +630,7 @@ class Decoder<R> {
               return false;
             }
 
-            auto& value_elem = ::hosq::detail::EntryAccess::elem(entry);
+            auto& value_elem = ::hosq::detail::EntryAccess::value_elem(entry);
             auto value_ctx =
                 make_decode_context<value_elem_type, TryPhase::first>(
                     value_elem, reader, reader_state);

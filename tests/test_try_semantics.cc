@@ -234,7 +234,7 @@ void check_named_checkpoint(std::string_view input) {
   const auto result = Decoder<R>::decode_nested(soft, reader, state);
   EXPECT_EQ(*soft.failed, 99);
   ASSERT_TRUE(result.is_ok()) << result.detail;
-  EXPECT_EQ(soft.fallback.key().value(), "n");
+  EXPECT_EQ(soft.fallback.key(), "n");
   EXPECT_EQ(*soft.fallback, 7);
 
   NamedRejecting<true> hard;
@@ -246,7 +246,7 @@ void check_named_checkpoint(std::string_view input) {
   EXPECT_EQ(hard_result.detail, "injected Try candidate error");
   EXPECT_EQ(*hard.failed, 99);
   EXPECT_EQ(reader.error(state).code, EC::validation_failed);
-  EXPECT_TRUE(hard.fallback.key().value().empty());
+  EXPECT_TRUE(hard.fallback.key().empty());
   EXPECT_EQ(*hard.fallback, 0);
 }
 
@@ -382,7 +382,7 @@ void check_named_hard_terminal() {
   later_calls = 0;
   expect_original_terminal_error(decode_into<R>(value, R"({"n":7,"m":8})"));
   EXPECT_EQ(*value.named, 7);
-  EXPECT_TRUE(value.fallback.key().value().empty());
+  EXPECT_TRUE(value.fallback.key().empty());
   EXPECT_EQ(*value.fallback, 17);
   EXPECT_EQ(later_calls, 0);
 }
@@ -410,9 +410,9 @@ void check_dynamic_hard_terminal() {
   *value.later = 17;
   later_calls = 0;
   expect_original_terminal_error(decode_into<R>(value, R"({"n":7})"));
-  EXPECT_EQ(value.first.key().value(), "n");
+  EXPECT_EQ(value.first.key(), "n");
   EXPECT_EQ(*value.first, KeyError ? 19 : 7);
-  EXPECT_TRUE(value.later.key().value().empty());
+  EXPECT_TRUE(value.later.key().empty());
   EXPECT_EQ(*value.later, 17);
   EXPECT_EQ(later_calls, 0);
 }
@@ -492,9 +492,9 @@ void check_dynamic_soft_fallback() {
   *value.rejected = 19;
   const auto error = decode_into<R>(value, R"({"n":7,"m":8})");
   ASSERT_TRUE(error.is_ok()) << error.detail;
-  EXPECT_EQ(value.rejected.key().value(), "m");
+  EXPECT_EQ(value.rejected.key(), "m");
   EXPECT_EQ(*value.rejected, RejectKey ? 19 : 99);
-  EXPECT_EQ(value.fallback.key().value(), "m");
+  EXPECT_EQ(value.fallback.key(), "m");
   EXPECT_EQ(*value.fallback, 8);
 }
 
@@ -519,7 +519,7 @@ void check_string_soft_fallback() {
   // Key and value have the same Scalar/string kind. Their offsets, rather than
   // just token categories or cached lengths, distinguish the rollback target.
   ASSERT_TRUE(decode_document_into<R>(value, R"({"n":"","n":"a\nb"})").is_ok());
-  EXPECT_EQ(value.fallback.key().value(), "n");
+  EXPECT_EQ(value.fallback.key(), "n");
   EXPECT_EQ(*value.fallback, "a\nb");
 }
 
@@ -560,7 +560,7 @@ TEST(TrySemantics, PrefailedReadersKeepOriginalErrorBeforeTryShapeValidation) {
   check_prefailed_try<json::FastReader<>>(dynamic, R"({"n":7})");
   EXPECT_EQ(array.candidate.value(), 0);
   EXPECT_EQ(*named.candidate, 0);
-  EXPECT_TRUE(dynamic.candidate.key().value().empty());
+  EXPECT_TRUE(dynamic.candidate.key().empty());
   EXPECT_EQ(*dynamic.candidate, 0);
 }
 }  // namespace

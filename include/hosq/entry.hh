@@ -52,8 +52,10 @@ struct Entry<Key, Value> {
 
   Entry() = default;
 
-  [[nodiscard]] auto key() const -> const key_type& { return key_; }
-  [[nodiscard]] auto key() -> key_type& { return key_; }
+  /// The decoded key, as stored by the key Elem.
+  [[nodiscard]] auto key() const -> const typename key_type::storage_type& {
+    return *key_;
+  }
 
   [[nodiscard]] auto operator*() -> typename value_type::storage_type& {
     return *value_;
@@ -127,12 +129,20 @@ struct Entry<std::integral_constant<decltype(Key), Key>, Value> {
 namespace detail {
 struct EntryAccess {
   template <class K, class V>
-  [[nodiscard]] static auto elem(Entry<K, V>& e) -> V& {
+  [[nodiscard]] static auto value_elem(Entry<K, V>& e) -> V& {
     return e.value_;
   }
   template <class K, class V>
-  [[nodiscard]] static auto elem(const Entry<K, V>& e) -> const V& {
+  [[nodiscard]] static auto value_elem(const Entry<K, V>& e) -> const V& {
     return e.value_;
+  }
+  template <detail::ElemT K, class V>
+  [[nodiscard]] static auto key_elem(Entry<K, V>& e) -> K& {
+    return e.key_;
+  }
+  template <detail::ElemT K, class V>
+  [[nodiscard]] static auto key_elem(const Entry<K, V>& e) -> const K& {
+    return e.key_;
   }
 };
 }  // namespace detail
