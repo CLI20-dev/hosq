@@ -59,7 +59,7 @@ auto run_hosq() -> std::uint64_t {
   if (!result.is_ok()) std::abort();
 
   std::uint64_t checksum{};
-  for (const auto& row : root.value()) checksum += row.id.value().value();
+  for (const auto& row : root.value()) checksum += *row.id;
   return checksum;
 }
 
