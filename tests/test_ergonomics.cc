@@ -24,10 +24,11 @@ struct User {
 
 TEST(Ergonomics, DereferenceAndArrowReachStorage) {
   v::Record<User> user;
-  ASSERT_TRUE(hosq::decode_document_into<hosq::json::FastReader<>>(
-                  user,
-                  R"({"id":42,"ids":[1,2],"address":{"city":"Tokyo"},"nickname":"g"})")
-                  .is_ok());
+  ASSERT_TRUE(
+      hosq::decode_document_into<hosq::json::FastReader<>>(
+          user,
+          R"({"id":42,"ids":[1,2],"address":{"city":"Tokyo"},"nickname":"g"})")
+          .is_ok());
 
   EXPECT_EQ(*user->id, 42U);
   EXPECT_EQ(user->ids->size(), 2U);
@@ -71,7 +72,8 @@ TEST(Ergonomics, FieldLookupByKey) {
   *hosq::field<"id">(user) = 10;
   const auto& cuser = user;
   EXPECT_EQ(*hosq::field<"id">(cuser), 10U);
-  static_assert(std::same_as<decltype(hosq::field<"id">(user)), t::Uint64<"id">&>);
+  static_assert(
+      std::same_as<decltype(hosq::field<"id">(user)), t::Uint64<"id">&>);
   static_assert(std::is_const_v<
                 std::remove_reference_t<decltype(hosq::field<"id">(cuser))>>);
 
