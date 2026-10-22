@@ -12,19 +12,20 @@
 namespace hosq::match {
 namespace detail {
 
+// A StringLiteral NTTP matches std::string_view input. It is branched on inside
+// the primary template: a partial specialization on StringLiteral is not more
+// specialized than `template <auto V>` and is rejected by Clang 22.
 template <auto V>
 struct LiteralMatchImpl {
   using value_type = std::remove_cvref_t<decltype(V)>;
+  using input_type = std::conditional_t<is_string_literal_v<value_type>,
+                                        std::string_view, value_type>;
 
-  constexpr auto operator()(const value_type& input) const {
-    return MatchResult<value_type>{input == V, input};
-  }
-};
-
-template <StringLiteral Str>
-struct LiteralMatchImpl<Str> {
-  constexpr auto operator()(std::string_view input) const {
-    return MatchResult<std::string_view>{input == Str.view(), input};
+  constexpr auto operator()(const input_type& input) const {
+    if constexpr (is_string_literal_v<value_type>)
+      return MatchResult<std::string_view>{input == V.view(), input};
+    else
+      return MatchResult<value_type>{input == V, input};
   }
 };
 

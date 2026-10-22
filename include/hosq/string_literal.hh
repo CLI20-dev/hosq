@@ -88,4 +88,9 @@ template <std::size_t N>
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays)
 StringLiteral(const char (&)[N]) -> StringLiteral<N>;
 
+template <class T>
+inline constexpr bool is_string_literal_v = false;
+template <std::size_t N>
+inline constexpr bool is_string_literal_v<StringLiteral<N>> = true;
+
 }  // namespace hosq

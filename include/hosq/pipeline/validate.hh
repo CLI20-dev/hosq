@@ -26,25 +26,23 @@ void report_validation_error(Context& ctx, ErrorCode code,
       });
 }
 
+// StringLiteral values compare as string views. This is branched on inside the
+// primary template because a StringLiteral partial specialization is rejected
+// by Clang 22.
 template <auto V>
 struct MatchImpl {
   template <class T, class Context>
   auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
-    if (value != V) {
-      report_validation_error(ctx, ErrorCode::invalid_choice,
-                              "validate::match value mismatch");
-    }
-    return std::forward<T>(value);
-  }
-};
-
-template <StringLiteral V>
-struct MatchImpl<V> {
-  template <class T, class Context>
-  auto operator()(T&& value, Context& ctx) const -> decltype(auto) {
-    if (value != V.view()) {
-      report_validation_error(ctx, ErrorCode::invalid_choice,
-                              "validate::match string mismatch");
+    if constexpr (is_string_literal_v<std::remove_cvref_t<decltype(V)>>) {
+      if (value != V.view()) {
+        report_validation_error(ctx, ErrorCode::invalid_choice,
+                                "validate::match string mismatch");
+      }
+    } else {
+      if (value != V) {
+        report_validation_error(ctx, ErrorCode::invalid_choice,
+                                "validate::match value mismatch");
+      }
     }
     return std::forward<T>(value);
   }
