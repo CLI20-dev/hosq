@@ -25,7 +25,7 @@ class SimpleReader : public ReaderBase<SimpleReader> {
     ArrayValue = 0b0000'0010,
     ArrayValue2 = 0b0000'0011,
     ObjectKey = 0b0000'0100,
-    ObjectVlaue = 0b0000'0101,
+    ObjectValue = 0b0000'0101,
   };
 
   struct state_type {  // NOLINT

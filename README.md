@@ -56,6 +56,28 @@ pipeline. `Uint64` checks the integer category and range; it does not accept
 `entry->`); `entry.key()` returns its key, and `hosq::field<"id">(user)` looks a
 field up by key.
 
+### Reading fields
+
+A field's stored value is `*field`, its members are `field->member`, and its
+key is `field.key()`:
+
+```cpp
+assert(*user.id == 42);
+assert(user.name->size() == 3);
+assert(user.id.key() == "id");
+```
+
+`hosq::field<"key">(schema)` finds an entry by its constant key at compile
+time. It accepts the schema aggregate (or `std::tuple`) and an Elem or Entry
+that holds one, and returns the entry itself, so the stored value is
+`*hosq::field<"id">(user)`. It also finds `Try` and `Optional` fields. A key
+that is missing or appears twice is a compile-time error.
+
+```cpp
+*hosq::field<"id">(user) = 7;
+assert(*hosq::field<"name">(user) == "a\nb");
+```
+
 ## Basic schemas
 
 Named aliases take the key first; their element arguments come from `v`.
