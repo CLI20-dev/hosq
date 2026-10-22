@@ -146,7 +146,7 @@ class Encoder<W> {
   [[nodiscard]]
   HOSQ_ALWAYS_INLINE auto encode_entry_key(const Entry& entry) -> bool {
     if constexpr (detail::ConstKeyEntryT<Entry>) {
-      static constexpr auto name = std::remove_cvref_t<Entry>::key();
+      static constexpr auto name = std::remove_cvref_t<Entry>::key_literal;
       return ext::EncodeValue<W>{}(name.view(), writer());
     } else {
       return encode_element(::hosq::detail::EntryAccess::key_elem(entry));

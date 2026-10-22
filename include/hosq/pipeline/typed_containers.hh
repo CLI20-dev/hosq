@@ -46,7 +46,7 @@ template <class T>
 using record_entry_t = typename RecordEntry<std::remove_cvref_t<T>>::type;
 
 template <class Entry>
-inline constexpr auto record_key = Entry::key();
+inline constexpr auto record_key = Entry::key_literal;
 
 template <class Schema>
 struct RecordInfo {

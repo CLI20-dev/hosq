@@ -81,4 +81,12 @@ TEST(Ergonomics, FieldLookupByKey) {
   *hosq::field<"a">(tup) = 5;
   EXPECT_EQ(*std::get<0>(tup), 5);
 }
+
+TEST(Ergonomics, ConstKeyIsAStringView) {
+  t::Uint64<"id"> id;
+  const std::string_view key = id.key();
+  EXPECT_EQ(key, "id");
+  static_assert(t::Uint64<"id">::key() == "id");
+  static_assert(std::same_as<decltype(id.key()), std::string_view>);
+}
 }  // namespace

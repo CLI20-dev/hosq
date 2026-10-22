@@ -157,7 +157,7 @@ class Decoder<R> {
       auto scan_key = [&]() -> std::string_view {
         return (scan::scalar | decode::string_view).invoke(key_ctx);
       };
-      auto handlers = std::tuple{meta::make_handler<T::key()>([] {})};
+      auto handlers = std::tuple{meta::make_handler<T::key_literal>([] {})};
       bool matched;
       if constexpr (requires {
                       reader.match_const_key(reader_state, handlers, scan_key,
@@ -197,21 +197,22 @@ class Decoder<R> {
   static HOSQ_ALWAYS_INLINE auto decode_entry(T& t, ReaderT& reader,
                                               StateT& reader_state) -> bool {
     if constexpr (detail::ConstKeyEntryT<T> && requires {
-                    ext::EntryInput<ReaderT>{}.template decode<T::key()>(
+                    ext::EntryInput<ReaderT>{}.template decode<T::key_literal>(
                         ::hosq::detail::EntryAccess::value_elem(t), reader,
                         reader_state);
                   }) {
-      if (ext::EntryInput<ReaderT>{}.template decode<T::key()>(
+      if (ext::EntryInput<ReaderT>{}.template decode<T::key_literal>(
               ::hosq::detail::EntryAccess::value_elem(t), reader, reader_state))
         return true;
     }
     bool ready = false;
     if constexpr (detail::ConstKeyEntryT<T>) {
       if constexpr (requires {
-                      reader.template try_read_const_member<T::key()>(
+                      reader.template try_read_const_member<T::key_literal>(
                           reader_state);
                     }) {
-        ready = reader.template try_read_const_member<T::key()>(reader_state);
+        ready =
+            reader.template try_read_const_member<T::key_literal>(reader_state);
       }
     }
     if (!ready && !read_entry_key(t, reader, reader_state)) return false;
@@ -425,93 +426,92 @@ class Decoder<R> {
     };
 
     bool decoded = false;
-    auto handlers = std::tuple{hosq::meta::make_handler<detail::try_base_t<
-        std::remove_cvref_t<decltype(std::get<I>(tuple))>>::key()>(
-        [&]() HOSQ_ALWAYS_INLINE_ATTR -> void {
-          auto& entry = std::get<I>(tuple);
+    auto handlers = std::tuple{hosq::meta::make_handler<
+        detail::try_base_t<std::remove_cvref_t<decltype(std::get<I>(tuple))>>::
+            key_literal>([&]() HOSQ_ALWAYS_INLINE_ATTR -> void {
+      auto& entry = std::get<I>(tuple);
 
-          using try_entry_type = std::remove_cvref_t<decltype(entry)>;
-          using entry_type = typename try_entry_type::base_type;
-          using value_type = typename entry_type::value_type;
-          using value_storage_type = typename value_type::storage_type;
-          using value_context_type =
-              DecodeContext<value_storage_type, R, TryPhase::first>;
+      using try_entry_type = std::remove_cvref_t<decltype(entry)>;
+      using entry_type = typename try_entry_type::base_type;
+      using value_type = typename entry_type::value_type;
+      using value_storage_type = typename value_type::storage_type;
+      using value_context_type =
+          DecodeContext<value_storage_type, R, TryPhase::first>;
 
-          static constexpr bool value_is_const_decodable =
-              value_type::template decoder_const_invokable<value_context_type>;
+      static constexpr bool value_is_const_decodable =
+          value_type::template decoder_const_invokable<value_context_type>;
 
-          using value_raw_result_type =
-              decode_raw_result_t<value_is_const_decodable, value_type,
-                                  value_context_type>;
+      using value_raw_result_type =
+          decode_raw_result_t<value_is_const_decodable, value_type,
+                              value_context_type>;
 
-          if constexpr (std::same_as<value_raw_result_type, bool>) {
-            auto checkpoint = reader_state.checkpoint();
-            const auto key_token = reader.current_token(reader_state);
+      if constexpr (std::same_as<value_raw_result_type, bool>) {
+        auto checkpoint = reader_state.checkpoint();
+        const auto key_token = reader.current_token(reader_state);
 
-            if (!hosq::next_token<ReadPosition::member_value>(
-                    reader, reader_state)) [[unlikely]] {
-              decoded = false;
-              return;
-            }
+        if (!hosq::next_token<ReadPosition::member_value>(reader, reader_state))
+            [[unlikely]] {
+          decoded = false;
+          return;
+        }
 
-            auto& value = ::hosq::detail::EntryAccess::value_elem(entry);
-            auto value_ctx = make_decode_context<value_type, TryPhase::first>(
-                value, reader, reader_state);
+        auto& value = ::hosq::detail::EntryAccess::value_elem(entry);
+        auto value_ctx = make_decode_context<value_type, TryPhase::first>(
+            value, reader, reader_state);
 
-            bool ret = false;
-            if constexpr (value_is_const_decodable) {
-              const auto& const_value_ctx = value_ctx;
-              ret = value.decode(const_value_ctx);
-            } else {
-              ret = value.decode(value_ctx);
-            }
+        bool ret = false;
+        if constexpr (value_is_const_decodable) {
+          const auto& const_value_ctx = value_ctx;
+          ret = value.decode(const_value_ctx);
+        } else {
+          ret = value.decode(value_ctx);
+        }
 
-            if (!ret) {
-              rollback_try_entry_candidate(reader, reader_state,
-                                           std::move(checkpoint), key_token);
-              decoded = false;
-              return;
-            }
+        if (!ret) {
+          rollback_try_entry_candidate(reader, reader_state,
+                                       std::move(checkpoint), key_token);
+          decoded = false;
+          return;
+        }
 
-            decoded = true;
-            return;
-          } else {
-            if constexpr (requires {
-                            ext::EntryInput<R>{}
-                                .template decode_matched<entry_type::key()>(
-                                    ::hosq::detail::EntryAccess::value_elem(
-                                        entry),
-                                    reader, reader_state);
-                          }) {
-              if (ext::EntryInput<R>{}
-                      .template decode_matched<entry_type::key()>(
-                          ::hosq::detail::EntryAccess::value_elem(entry), reader,
-                          reader_state)) {
-                decoded = true;
-                return;
-              }
-            }
-            if (!hosq::next_token<ReadPosition::member_value>(
-                    reader, reader_state)) [[unlikely]] {
-              decoded = false;
-              return;
-            }
-
-            auto& value = ::hosq::detail::EntryAccess::value_elem(entry);
-            auto value_ctx = make_decode_context<value_type, TryPhase::first>(
-                value, reader, reader_state);
-
-            if constexpr (value_is_const_decodable) {
-              const auto& const_value_ctx = value_ctx;
-              value.decode(const_value_ctx);
-            } else {
-              value.decode(value_ctx);
-            }
-
+        decoded = true;
+        return;
+      } else {
+        if constexpr (requires {
+                        ext::EntryInput<R>{}
+                            .template decode_matched<entry_type::key_literal>(
+                                ::hosq::detail::EntryAccess::value_elem(entry),
+                                reader, reader_state);
+                      }) {
+          if (ext::EntryInput<R>{}
+                  .template decode_matched<entry_type::key_literal>(
+                      ::hosq::detail::EntryAccess::value_elem(entry), reader,
+                      reader_state)) {
             decoded = true;
             return;
           }
-        })...};
+        }
+        if (!hosq::next_token<ReadPosition::member_value>(reader, reader_state))
+            [[unlikely]] {
+          decoded = false;
+          return;
+        }
+
+        auto& value = ::hosq::detail::EntryAccess::value_elem(entry);
+        auto value_ctx = make_decode_context<value_type, TryPhase::first>(
+            value, reader, reader_state);
+
+        if constexpr (value_is_const_decodable) {
+          const auto& const_value_ctx = value_ctx;
+          value.decode(const_value_ctx);
+        } else {
+          value.decode(value_ctx);
+        }
+
+        decoded = true;
+        return;
+      }
+    })...};
 
     bool matched;
     if constexpr (requires {

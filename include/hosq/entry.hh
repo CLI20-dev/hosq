@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string_view>
 #include <type_traits>
 
 #include "hosq/context.hh"
@@ -103,7 +104,13 @@ struct Entry<std::integral_constant<decltype(Key), Key>, Value> {
 
   Entry() = default;
 
-  [[nodiscard]] static constexpr auto key() -> key_type { return Key; }
+  /// The key as a literal, for compile-time dispatch inside the library.
+  static constexpr key_type key_literal = Key;
+
+  /// The constant key as a string.
+  [[nodiscard]] static constexpr auto key() -> std::string_view {
+    return key_literal.view();
+  }
 
   [[nodiscard]] auto operator*() -> typename value_type::storage_type& {
     return *value_;
