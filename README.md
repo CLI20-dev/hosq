@@ -348,6 +348,91 @@ custom pipeline may observe or consume only part of the input; successful
 partial decoding does not establish that the entire document is valid. See
 [Advanced: custom pipelines](#advanced-custom-pipelines).
 
+## Owned arbitrary JSON and pipeline access
+
+Include `hosq/json/dom.hh` for two immutable, owned JSON representations:
+
+- `json::GenericDom<MaxDepth>` builds a sorted flat index from document-wide
+  JSON Pointer paths to source ranges, including containers and the root.
+- `json::DeferredDom<MaxDepth>` retains the source without a path index. Each
+  access searches the validated input for the selected value.
+
+Both validate every value before accepting the input: JSON structure, literal
+and number grammar, string escapes, UTF-8, surrogate pairs, and decoded object
+key uniqueness. Duplicate keys, including `"x"` and `"\u0078"`, report
+`duplicate_member`, even in parts that are never accessed. Deferred validation
+uses temporary per-object key sets; these are discarded before lookup.
+Numbers retain their source spelling without conversion to a C++ numeric type.
+
+```cpp
+#include "hosq/hosq.hh"
+#include "hosq/json/dom.hh"
+
+hosq::json::GenericDom<> dom; // DeferredDom<> has the same access API.
+auto error = dom.assign(R"({"plugin":{"count":7,"text":"a\nb"}})");
+if (error) { /* handle invalid document */ }
+
+using Count = hosq::Elem<
+    hosq::scan::scalar | hosq::decode::integer<int> | hosq::store::assign,
+    hosq::encode::value>;
+Count count;
+error = dom["/plugin/count"].decode_into(count);
+if (!error) { assert(count.value() == 7); }
+```
+
+Selection performs no type inference, numeric conversion, or string unescape.
+The supplied `Elem` or schema determines the pipeline, including custom steps
+and validation. The same selection can be decoded with different pipelines.
+For example, `decode::string_view` borrows the escaped body, whereas the ordinary
+`types::value::String` pipeline produces an owned, unescaped UTF-8 string.
+
+Paths use the [RFC 6901 JSON Pointer string form](https://www.rfc-editor.org/rfc/rfc6901.html):
+`""` selects the root, `/` an empty object key, `~0` escapes `~`, and `~1` escapes
+`/`. Arrays use zero-based indices without leading zeros. A numeric object key
+remains an object key. URI fragments (`#/...`) are not accepted.
+`selection.exists()` distinguishes missing values from present `null`.
+Decoding a missing selection reports `missing_required`; malformed pointer
+syntax reports `invalid_token`. Neither invokes the supplied pipeline.
+
+`assign` owns its input and requires one whole document; an error leaves the
+previous DOM unchanged. Copies and selections share immutable ownership. A
+selection remains valid after the DOM is destroyed or reassigned. `source()`
+returns the selected wire value, including quotes or container delimiters and
+excluding surrounding whitespace. Its `string_view`, and borrowed pipeline
+results, require at least one owning DOM or selection to remain alive.
+Extraction errors use offsets and paths within the owned DOM input; pass
+`DecodeOptions{.error_path = false}` to skip error-path reconstruction.
+
+To capture an arbitrary subtree inside a typed field, array, or mapping, compose
+the capture and storage steps:
+
+```cpp
+using Payload = hosq::Elem<
+    hosq::decode::json_dom<> | hosq::store::assign,
+    hosq::encode::json_dom>;
+// Substitute decode::json_deferred<> for deferred lookup.
+struct Document {
+  hosq::Entry<hosq::Key<"properties">, Payload> properties;
+};
+```
+
+Capture validates the entire selected subtree and owns its bytes; the outer
+`decode_document_into` checks the complete document. As with other pipelines,
+failed decoding may update element storage, so check the returned error.
+`encode::json_dom` replays JSON values through the Writer, preserving object
+order, scalar spellings, and value kinds. Writer formatting controls whitespace;
+the subtree is not encoded as a quoted string. This API supports JSON Readers
+and Writers only; other formats report `unsupported_type` rather than coercing
+JSON numbers or inventing representations for format-specific values.
+
+The default maximum container depth is 128, matching `json::FastReader<>`.
+Specify `GenericDom<N>`, `DeferredDom<N>`, or the capture step's `<N>` to change
+it; an enclosing Reader may impose a stricter depth limit. Validation and lookup
+use iterative traversal, with temporary memory proportional to nesting,
+the keys in open objects, and the largest decoded string. The indexed form
+additionally stores one path and range per value. Input and index sizes are limited by available memory; there
+is no additional fixed numeric magnitude limit until a pipeline converts it.
+
 ## Error locations
 
 `Error::path` is an owning `ErrorPath` (`std::vector<PathSegment>`), ordered
