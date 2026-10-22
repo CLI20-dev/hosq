@@ -13,6 +13,9 @@ struct Entry;
 
 /// A key–value pair where both Key and Value are Elem types.
 ///
+/// `*entry` and `entry->` reach the value's storage directly, so
+/// `entry.value().value()` can be written as `*entry`.
+///
 /// `*_decoder_const_invokable` / `*_encoder_const_invokable` mirror the
 /// underlying Elem's flags and gate the const/mutable overloads of decode_key /
 /// decode_value / encode_key / encode_value at compile time.
@@ -101,11 +104,11 @@ struct Entry<std::integral_constant<decltype(Key), Key>, Value> {
   [[nodiscard]] auto value() -> value_type& { return value_; }
 
   [[nodiscard]] auto operator*() -> typename value_type::storage_type& {
-    return value_;
+    return *value_;
   }
   [[nodiscard]] auto operator*() const -> const
       typename value_type::storage_type& {
-    return value_;
+    return *value_;
   }
 
   [[nodiscard]] auto operator->() -> typename value_type::storage_type* {

@@ -97,6 +97,17 @@ struct Elem<Decoder, Encoder> {
     return value_;
   }
 
+  [[nodiscard]] auto operator->() -> storage_type* {
+    static_assert(!std::same_as<storage_type, detail::NoStorage>,
+                  "Elem without storage cannot be dereferenced");
+    return &value_;
+  }
+  [[nodiscard]] auto operator->() const -> const storage_type* {
+    static_assert(!std::same_as<storage_type, detail::NoStorage>,
+                  "Elem without storage cannot be dereferenced");
+    return &value_;
+  }
+
   // Internal storage access used by Decoder to build a context even for
   // no-storage elements such as object keys.
   [[nodiscard]] auto storage() noexcept -> storage_type& { return value_; }
