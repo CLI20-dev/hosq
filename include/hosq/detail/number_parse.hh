@@ -10,6 +10,28 @@
 #endif
 
 namespace hosq::detail {
+#if HOSQ_USE_FAST_FLOAT
+// Floating-point std::from_chars is only available from macOS/iOS 26 in
+// libc++, and the deployment target decides at compile time. When it is
+// unavailable the cold fallback returns the fast_float result as is.
+template <class T>
+inline auto standard_float_from_chars(const char* first, const char* last,
+                                      T& value,
+                                      std::from_chars_result unavailable)
+    -> std::from_chars_result {
+#if defined(_LIBCPP_AVAILABILITY_HAS_FROM_CHARS_FLOATING_POINT) && \
+    !_LIBCPP_AVAILABILITY_HAS_FROM_CHARS_FLOATING_POINT
+  (void)first;
+  (void)last;
+  (void)value;
+  return unavailable;
+#else
+  (void)unavailable;
+  return std::from_chars(first, last, value);
+#endif
+}
+#endif
+
 // Select the backend at compile time. Keep the platform's existing error
 // behavior (including output writes) through the cold standard fallback.
 // Json selects the floating-point grammar for a JSON reader's prefix parse.
@@ -25,7 +47,8 @@ inline auto number_from_chars(const char* first, const char* last, T& value)
                                Json ? fast_float::chars_format::json
                                     : fast_float::chars_format::general);
     if (result.ec != std::errc{}) [[unlikely]]
-      return std::from_chars(first, last, value);
+      return standard_float_from_chars(first, last, value,
+                                       {result.ptr, result.ec});
     value = parsed;
     return {result.ptr, result.ec};
   } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool> &&
