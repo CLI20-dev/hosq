@@ -109,4 +109,33 @@ TEST(Ergonomics, DynamicKeyIsReadableAndWritable) {
   EXPECT_EQ(centry.key(), "k");
   EXPECT_EQ(*centry, 3);
 }
+
+struct Mixed {
+  t::Try<t::Uint64<"id">> id;
+  t::Optional<"nickname", v::String> nickname;
+  t::String<"name"> name;
+};
+
+TEST(Ergonomics, FieldLookupFindsTryAndOptionalEntries) {
+  Mixed value;
+  *hosq::field<"id">(value) = 5;
+  *hosq::field<"nickname">(value) = "g";
+  *hosq::field<"name">(value) = "Ada";
+  EXPECT_EQ(*value.id, 5U);
+  ASSERT_TRUE(hosq::field<"nickname">(value)->has_value());
+  EXPECT_EQ(**hosq::field<"nickname">(value), "g");
+  EXPECT_EQ(hosq::field<"name">(value).key(), "name");
+  static_assert(std::same_as<decltype(hosq::field<"id">(value)),
+                             t::Try<t::Uint64<"id">>&>);
+}
+
+TEST(Ergonomics, FieldLookupOnEntryAndTuple) {
+  ObjectValue<Address> address;
+  *address->city = "Kyoto";
+  EXPECT_EQ(*hosq::field<"city">(address), "Kyoto");
+
+  const std::tuple<t::Int32<"a">, t::String<"b">> tup{};
+  static_assert(
+      std::is_const_v<std::remove_reference_t<decltype(hosq::field<"b">(tup))>>);
+}
 }  // namespace
