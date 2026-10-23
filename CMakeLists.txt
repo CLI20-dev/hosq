@@ -65,6 +65,11 @@ install(
 )
 
 install(
+  FILES ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/${PROJECT_NAME}
+)
+
+install(
   FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/include/hosq/third_party/fast_float/LICENSE-APACHE
     ${CMAKE_CURRENT_SOURCE_DIR}/include/hosq/third_party/fast_float/LICENSE-BOOST
