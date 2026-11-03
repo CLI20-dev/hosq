@@ -1,0 +1,149 @@
+{
+  "base_commit": "38c3c8e21f570a9698006c361fc58bf0365896e0",
+  "head": "working tree; see header hashes",
+  "head_header_sha256": {
+    "decoder.hh": "0778e3f964c7fda43ced0f9c0c73b5579552b606ce16e74c00d6c7558eae36a4",
+    "meta_match.hh": "a8380879278e57459b0faddab1c4813ede6b0f800a1111a7fd382de361370de3"
+  },
+  "protocol": "ABBA per workload, 5 repetitions per process, 0.15 seconds minimum, no warmup, median CPU/wall",
+  "cases": [
+    {
+      "name": "id_only",
+      "base": {
+        "cpu_ns": 443120.65217391343,
+        "wall_ns": 444107.2639922949,
+        "cv_percent": 0.3951990358906157,
+        "samples": 10,
+        "processes": 2
+      },
+      "head": {
+        "cpu_ns": 441316.32053291536,
+        "wall_ns": 442055.06256571657,
+        "cv_percent": 0.4416294237850555,
+        "samples": 10,
+        "processes": 2
+      }
+    },
+    {
+      "name": "partial_fields",
+      "base": {
+        "cpu_ns": 537271.7883639204,
+        "wall_ns": 539515.6902170248,
+        "cv_percent": 0.9345394303274182,
+        "samples": 10,
+        "processes": 2
+      },
+      "head": {
+        "cpu_ns": 535475.8269720096,
+        "wall_ns": 538013.8028098946,
+        "cv_percent": 0.7443541885334931,
+        "samples": 10,
+        "processes": 2
+      }
+    },
+    {
+      "name": "all_fields",
+      "base": {
+        "cpu_ns": 525681.5920398006,
+        "wall_ns": 526884.7022218131,
+        "cv_percent": 0.5044458117447497,
+        "samples": 10,
+        "processes": 2
+      },
+      "head": {
+        "cpu_ns": 527524.5556639694,
+        "wall_ns": 529017.2126475837,
+        "cv_percent": 0.6873616254603571,
+        "samples": 10,
+        "processes": 2
+      }
+    },
+    {
+      "name": "all_fields_randomize",
+      "base": {
+        "cpu_ns": 597226.1427425824,
+        "wall_ns": 598227.0115013327,
+        "cv_percent": 2.3468635852380526,
+        "samples": 10,
+        "processes": 2
+      },
+      "head": {
+        "cpu_ns": 630642.4242424241,
+        "wall_ns": 634109.3424204949,
+        "cv_percent": 0.6205267529107563,
+        "samples": 10,
+        "processes": 2
+      }
+    },
+    {
+      "name": "id_only_pretty",
+      "base": {
+        "cpu_ns": 527471.1779448622,
+        "wall_ns": 528649.191410078,
+        "cv_percent": 0.3130739691164989,
+        "samples": 10,
+        "processes": 2
+      },
+      "head": {
+        "cpu_ns": 525530.9255281058,
+        "wall_ns": 527493.003763102,
+        "cv_percent": 0.706671483413804,
+        "samples": 10,
+        "processes": 2
+      }
+    },
+    {
+      "name": "partial_fields_pretty",
+      "base": {
+        "cpu_ns": 637684.6846846847,
+        "wall_ns": 640186.1861628528,
+        "cv_percent": 0.4204318814909489,
+        "samples": 10,
+        "processes": 2
+      },
+      "head": {
+        "cpu_ns": 655634.2592592593,
+        "wall_ns": 657078.3827308691,
+        "cv_percent": 2.173249714828292,
+        "samples": 10,
+        "processes": 2
+      }
+    },
+    {
+      "name": "all_fields_pretty",
+      "base": {
+        "cpu_ns": 625833.2403199659,
+        "wall_ns": 627316.9233000104,
+        "cv_percent": 0.5984454737806801,
+        "samples": 10,
+        "processes": 2
+      },
+      "head": {
+        "cpu_ns": 624416.3088443212,
+        "wall_ns": 625936.3336561746,
+        "cv_percent": 0.6690851348941197,
+        "samples": 10,
+        "processes": 2
+      }
+    },
+    {
+      "name": "all_fields_randomize_pretty",
+      "base": {
+        "cpu_ns": 745874.5583038875,
+        "wall_ns": 747427.9293297648,
+        "cv_percent": 0.5168848675053566,
+        "samples": 10,
+        "processes": 2
+      },
+      "head": {
+        "cpu_ns": 760360.5072463767,
+        "wall_ns": 761999.9999577345,
+        "cv_percent": 3.6708812236234403,
+        "samples": 10,
+        "processes": 2
+      }
+    }
+  ],
+  "compiler": "Clang 21.1.8 (hosq Nix performance shell)",
+  "workload_sha256": "7d7e4df439485244020d276e778b747cb5e3c2e2b084be8329d879711b8f45ff"
+}

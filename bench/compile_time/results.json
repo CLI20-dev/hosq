@@ -1,0 +1,47 @@
+{
+  "platform": "arm64 macOS",
+  "compiler": "GCC 16.2.0 (Nix wrapper)",
+  "standard": "c++20",
+  "baseline": "38c3c8e21f570a9698006c361fc58bf0365896e0",
+  "protocol": "one sequential compiler invocation per row, same frozen source and compiler flags except optimization/debug options; shared development host",
+  "source_sha256": {
+    "document.cc": "4f787233c287ef32db523c97506a4a98b23082d8f106286a57152f379072db8f",
+    "schema.hh": "0522c580e4a59171b5a0adf40e5a173cb3c5228038c80952f07579f64d369b41"
+  },
+  "head_header_sha256": {
+    "decoder.hh": "0778e3f964c7fda43ced0f9c0c73b5579552b606ce16e74c00d6c7558eae36a4",
+    "meta_match.hh": "a8380879278e57459b0faddab1c4813ede6b0f800a1111a7fd382de361370de3"
+  },
+  "measurements": [
+    {
+      "label": "base-O0-g",
+      "returncode": 0,
+      "elapsed_seconds": 118.653759458,
+      "object_bytes": 2051059576
+    },
+    {
+      "label": "head-O0-g",
+      "returncode": 0,
+      "elapsed_seconds": 37.06311183400001,
+      "object_bytes": 239109136
+    },
+    {
+      "label": "base-O3",
+      "returncode": 0,
+      "elapsed_seconds": 54.815118291999994,
+      "object_bytes": 1245800
+    },
+    {
+      "label": "head-O3",
+      "returncode": 0,
+      "elapsed_seconds": 52.499694333000036,
+      "object_bytes": 1241216
+    },
+    {
+      "label": "head-O3-g",
+      "returncode": 0,
+      "elapsed_seconds": 79.99226049999999,
+      "object_bytes": 233694784
+    }
+  ]
+}
