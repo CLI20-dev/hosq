@@ -475,25 +475,18 @@ class Decoder<R> {
     return std::pair{const_key_entries, entries};
   }
 
-  template <bool DeferredKey = false, std::size_t... I>
-  static auto match_try_constkey_entry_tuple(auto& tuple, reader_type& reader,
-                                             reader_state_type& reader_state,
-                                             std::index_sequence<I...>) -> bool {
-    const auto key_ctx =
-        DecodeContext<void, reader_type, TryPhase::first>{reader, reader_state};
-
-    auto scan_key = [&]() -> std::string_view {
-      return (::hosq::scan::scalar | ::hosq::decode::string_view)
-          .invoke(key_ctx);
-    };
-
-    bool decoded = false;
-    auto handlers = std::tuple{hosq::meta::make_handler<
-        detail::try_base_t<std::remove_cvref_t<decltype(std::get<I>(tuple))>>::
-            key_literal>([&]() HOSQ_ALWAYS_INLINE_ATTR -> void {
-      auto& entry = std::get<I>(tuple);
-
-      using try_entry_type = std::remove_cvref_t<decltype(entry)>;
+  // Keep each handler's type dependent only on its own entry. A lambda
+  // declared in match_try_constkey_entry_tuple embeds the entire schema tuple
+  // in every handler type, multiplying GCC's debug information for wide schemas.
+  template <class TryEntry>
+  static auto make_constkey_entry_handler(TryEntry& entry, reader_type& reader,
+                                          reader_state_type& reader_state,
+                                          bool& decoded) {
+    using Entry = detail::try_base_t<TryEntry>;
+    return hosq::meta::make_handler<
+        Entry::key_literal>([&entry, &reader, &reader_state,
+                             &decoded]() HOSQ_ALWAYS_INLINE_ATTR -> void {
+      using try_entry_type = TryEntry;
       using entry_type = detail::try_base_t<try_entry_type>;
       using value_type = typename entry_type::value_type;
       using value_storage_type = typename value_type::storage_type;
@@ -564,7 +557,24 @@ class Decoder<R> {
         decoded = true;
         return;
       }
-    })...};
+    });
+  }
+
+  template <bool DeferredKey = false, std::size_t... I>
+  static auto match_try_constkey_entry_tuple(auto& tuple, reader_type& reader,
+                                             reader_state_type& reader_state,
+                                             std::index_sequence<I...>) -> bool {
+    const auto key_ctx =
+        DecodeContext<void, reader_type, TryPhase::first>{reader, reader_state};
+
+    auto scan_key = [&]() -> std::string_view {
+      return (::hosq::scan::scalar | ::hosq::decode::string_view)
+          .invoke(key_ctx);
+    };
+
+    bool decoded = false;
+    auto handlers = std::tuple{make_constkey_entry_handler(
+        std::get<I>(tuple), reader, reader_state, decoded)...};
 
     bool matched;
     if constexpr (requires {

@@ -66,4 +66,38 @@ TEST(TypedDocument, DecodeNestedLeavesFollowingArrayElementAvailable) {
   ASSERT_TRUE(reader.next_token(state));
   EXPECT_EQ(reader.current_token(state).type, TokenType::ArrayEnd);
 }
+// These schemas share the exact same field type at different tuple positions.
+// Its handler specialization must still bind the current field and decode state.
+template <class Reader>
+auto CheckSharedFieldHandlers() -> void {
+  using Field = types::Optional<"value", types::value::Int64>;
+  struct First {
+    Field value;
+    types::Optional<"label", types::value::String> label;
+  } first;
+  struct Second {
+    types::Optional<"enabled", types::value::Bool> enabled;
+    Field value;
+  } second;
+  ASSERT_TRUE(
+      decode_document_into<Reader>(first, R"({"label":"first","value":11})")
+          .is_ok());
+  ASSERT_TRUE(
+      decode_document_into<Reader>(second, R"({"value":22,"enabled":true})")
+          .is_ok());
+  EXPECT_EQ(first.value->value(), 11);
+  EXPECT_EQ(second.value->value(), 22);
+  EXPECT_EQ(decode_document_into<Reader>(second, R"({"value":"bad"})").code,
+            ErrorCode::type_mismatch);
+  // A failed decode of another schema must not retain its field or state.
+  ASSERT_TRUE(decode_document_into<Reader>(first, R"({"value":33})").is_ok());
+  EXPECT_EQ(first.value->value(), 33);
+  EXPECT_EQ(decode_document_into<Reader>(first, R"({"unknown":0})").code,
+            ErrorCode::unknown_member);
+}
+
+TEST(TypedDocument, SharedFieldHandlersBindEachSchemaIndependently) {
+  CheckSharedFieldHandlers<json::SimpleReader>();
+  CheckSharedFieldHandlers<json::FastReader<>>();
+}
 }  // namespace
