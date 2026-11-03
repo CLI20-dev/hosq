@@ -90,8 +90,7 @@ only a small change (54.82 to 52.50 seconds), which should not be overinterprete
 The existing `bench/performance` workloads were verified to produce identical
 checksums, then measured with Clang 21.1.8 and `-O3` in the project's Nix
 performance shell. Each of eight workloads used separate ABBA processes, five
-repetitions per process, a 0.15-second minimum and no warmup. The medians and
-variation are retained in [runtime-results.json](runtime-results.json).
+repetitions per process, a 0.15-second minimum and no warmup.
 
 This is a compile-cost improvement, not a universal runtime speedup. Most cases
 were within 0.5%, but the randomized compact-object case was **5.60% slower**;
