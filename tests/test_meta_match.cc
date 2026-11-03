@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <array>
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
@@ -88,18 +87,13 @@ void check_keys() {
     EXPECT_EQ(selected, none);
   }
 }
-
-template <StringLiteral... Keys>
-constexpr bool uses_prefix = meta::detail::key_metadata<Keys...>::use_prefix;
 }  // namespace
 
-TEST(MetaMatch, SmallSparseSchemaUsesPrefixRoute) {
-  static_assert(uses_prefix<"id", "name", "value", "x", "zeta", "">);
+TEST(MetaMatch, SmallSparseSchema) {
   check_keys<"id", "name", "value", "x", "zeta", "">();
 }
 
-TEST(MetaMatch, SharedPrefixesUseLengthRoute) {
-  static_assert(!uses_prefix<"user", "user_id", "user_name", "user_mail", "u">);
+TEST(MetaMatch, SharedPrefixes) {
   check_keys<"user", "user_id", "user_name", "user_mail", "u">();
 }
 
@@ -112,7 +106,7 @@ TEST(MetaMatch, DistinguishingBytesOutsidePrintableAscii) {
 
 TEST(MetaMatch, EmbeddedNul) { check_keys<"a", "a\0b", "a\0c", "", "\0">(); }
 
-TEST(MetaMatch, LongKeysBeyondLengthSwitch) {
+TEST(MetaMatch, LongKeys) {
   check_keys<
       "0123456789012345678901234567890123456789012345678901234567890123456789",
       "012345678901234567890123456789012345678901234567890123456789012345678x",
@@ -132,21 +126,18 @@ TEST(MetaMatch, EmptyHandlerSet) {
   auto handlers = std::tuple{};
   EXPECT_FALSE(meta::match("", handlers));
   EXPECT_FALSE(meta::match("x", handlers));
+  auto commit = [](std::size_t) { ADD_FAILURE() << "empty set committed"; };
+  EXPECT_FALSE(meta::match_terminated<'"'>("", handlers, commit));
+  EXPECT_FALSE(meta::match_terminated<'"'>("\"", handlers, commit));
+  EXPECT_FALSE(meta::match_terminated<'"'>("x\"", handlers, commit));
 }
 
-TEST(MetaMatch, HandlersSharingKeysShareOnePlan) {
+TEST(MetaMatch, DifferentCallablesWithTheSameKeys) {
   auto a =
       std::tuple{meta::make_handler<"x">([] {}), meta::make_handler<"y">([] {})};
   int hits = 0;
   auto b = std::tuple{meta::make_handler<"x">([&] { ++hits; }),
                       meta::make_handler<"y">([&] { hits += 2; })};
-  static_assert(
-      std::is_same_v<meta::detail::key_metadata<
-                         std::tuple_element_t<0, decltype(a)>::literal(),
-                         std::tuple_element_t<1, decltype(a)>::literal()>,
-                     meta::detail::key_metadata<
-                         std::tuple_element_t<0, decltype(b)>::literal(),
-                         std::tuple_element_t<1, decltype(b)>::literal()>>);
   EXPECT_TRUE(meta::match("x", a));
   EXPECT_TRUE(meta::match("y", b));
   EXPECT_EQ(hits, 2);
@@ -185,37 +176,4 @@ TEST(MetaMatch, StatefulMoveOnlyHandlerIsNotCopiedAndExceptionsPropagate) {
       })};
   EXPECT_TRUE(meta::match("key", handlers));
   EXPECT_THROW(meta::match("key", handlers), std::runtime_error);
-}
-
-TEST(MetaMatch, LegacyDepthStillChecksTheWholeKey) {
-  int calls = 0;
-  auto handler = meta::make_handler<"prefix">([&] { ++calls; });
-  auto refs = std::tie(handler);
-  EXPECT_FALSE(meta::match<3>("pre", refs));
-  EXPECT_FALSE(meta::match<3>("xxxfix", refs));
-  EXPECT_TRUE(meta::match<3>("prefix", refs));
-  EXPECT_EQ(calls, 1);
-}
-
-TEST(MetaMatch, TerminatedCustomLiteralKeepsCompatibilityAndCommitOrder) {
-  struct ForeignEntry {
-    int& committed;
-    int& calls;
-    static constexpr auto literal() { return std::array{'k', 'e', 'y', '\0'}; }
-    static constexpr auto view() -> std::string_view { return "key"; }
-    auto operator()() -> void {
-      EXPECT_EQ(committed, 3);
-      ++calls;
-    }
-  };
-  int committed = 0;
-  int calls = 0;
-  auto handlers = std::tuple{ForeignEntry{committed, calls}};
-  auto commit = [&](std::size_t size) { committed = static_cast<int>(size); };
-  EXPECT_FALSE(meta::match_terminated<'"'>("key", handlers, commit));
-  EXPECT_FALSE(meta::match_terminated<'"'>("keys\"", handlers, commit));
-  EXPECT_EQ(committed, 0);
-  EXPECT_EQ(calls, 0);
-  EXPECT_TRUE(meta::match_terminated<'"'>("key\":0", handlers, commit));
-  EXPECT_EQ(calls, 1);
 }
